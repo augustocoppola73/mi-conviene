@@ -63,14 +63,14 @@ async def test_optimize_with_location(client, fake_osm):
     r = (await client.post("/api/optimize", json=body)).json()
     assert {x["store_id"] for x in r["ranked"]} == {"esselunga", "conad", "carrefour"}
     assert r["location"]["mode"] == "reale"
-    assert set(r["location"]["missing_chains"]) == {"Coop", "Lidl"}
+    assert set(r["location"]["missing_chains"]) == {"Coop", "Lidl", "PAM", "Eurospin"}
     assert r["location"]["habitual_missing"] == "Lidl"
     assert all(x["branch"]["name"] for x in r["ranked"])
 
 
 async def test_optimize_without_location_uses_examples(client):
     r = (await client.post("/api/optimize", json={"user_id": "u", "items": [{"product_id": "pasta", "quantity": 1}]})).json()
-    assert r["location"]["mode"] == "esempio" and len(r["ranked"]) == 5
+    assert r["location"]["mode"] == "esempio" and len(r["ranked"]) == 7
 
 
 async def test_optimize_osm_down_falls_back(client, monkeypatch):
@@ -86,3 +86,23 @@ async def test_stores_nearby(client, fake_osm):
     r = (await client.get("/api/stores/nearby", params={"lat": MILANO[0], "lon": MILANO[1]})).json()
     ds = [s["distance_km"] for s in r["stores"]]
     assert ds == sorted(ds) and len(ds) == 3
+
+
+async def test_flyers_without_location(client):
+    f = (await client.get("/api/flyers")).json()
+    assert len(f) == 7 and all(x["url"].startswith("https://") and not x["store_page"] for x in f)
+
+
+async def test_flyers_near_me_use_store_pages(client, fake_osm):
+    f = (await client.get("/api/flyers", params={"lat": MILANO[0], "lon": MILANO[1]})).json()
+    assert {x["store_id"] for x in f} == {"esselunga", "conad", "carrefour"}
+    ds = [x["distance_km"] for x in f]
+    assert ds == sorted(ds)
+    for x in f:
+        assert any(d in x["url"] for d in server.OFFICIAL_DOMAINS[x["store_id"]])
+
+
+def test_flyer_url_rejects_foreign_domains():
+    assert server.flyer_url("lidl", "https://example.com/lidl")[1] is False
+    assert server.flyer_url("conad", "https://www.conad.it/ricerca-negozi/x")[1] is True
+    assert server.flyer_url("pam", "http://www.e-pam.it/punti-vendita/x")[1] is True

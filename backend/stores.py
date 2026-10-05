@@ -24,7 +24,7 @@ USER_AGENT = "MiConviene/0.1 (https://github.com/augustocoppola73/mi-conviene)"
 ROAD_FACTOR = 1.3  # strada reale ≈ 1,3 volte la linea d'aria in città
 CACHE_TTL_S = 7 * 24 * 3600
 CACHE_FILE = Path(os.environ.get("STORES_CACHE", Path(__file__).resolve().parent / "data" / "stores_cache.json"))
-BRANDS = "Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour"
+BRANDS = "Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin"
 
 
 def overpass_query(lat: float, lon: float, radius_m: int, include_convenience: bool = False) -> str:
@@ -50,6 +50,7 @@ def parse_elements(elements: list[dict]) -> list[dict]:
             "lat": float(lat), "lon": float(lon),
             "osm_id": f"{e.get('type')}/{e.get('id')}",
             "opening_hours": tags.get("opening_hours"),
+            "website": tags.get("website") or tags.get("contact:website"),
         })
     return out
 
@@ -79,7 +80,11 @@ class StoreLocator:
     async def stores_around(self, lat: float, lon: float) -> list[dict]:
         key = self._key(lat, lon)
         hit = self.cache.get(key)
-        if hit and time.time() - hit["at"] < CACHE_TTL_S:
+        fresh = hit and time.time() - hit["at"] < CACHE_TTL_S
+        # cache di una versione precedente (senza il campo "website"): si rifà la ricerca
+        if fresh and hit["stores"] and "website" not in hit["stores"][0]:
+            fresh = False
+        if fresh:
             return hit["stores"]
         async with httpx.AsyncClient(timeout=40, headers={"User-Agent": USER_AGENT}) as c:
             r = await c.post(OVERPASS_URL, data={"data": overpass_query(lat, lon, self.radius_m)})

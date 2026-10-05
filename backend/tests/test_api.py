@@ -19,7 +19,7 @@ LIST = [{"product_id": "pasta", "quantity": 2}, {"product_id": "olio_evo", "quan
 async def test_health_and_bootstrap(client):
     assert (await client.get("/api/")).json()["status"] == "ok"
     b = (await client.get("/api/bootstrap")).json()
-    assert len(b["categories"]) == 10 and len(b["products"]) == 48 and len(b["stores"]) == 5
+    assert len(b["categories"]) == 10 and len(b["products"]) == 48 and len(b["stores"]) == len(server.STORES) == 7
 
 
 def test_catalog_consistency():
@@ -34,7 +34,7 @@ def test_catalog_consistency():
 async def test_optimize_ranking(client):
     r = (await client.post("/api/optimize", json={"user_id": "u", "items": LIST, "transport": "car"})).json()
     scores = [s["score"] for s in r["ranked"]]
-    assert scores == sorted(scores) and len(scores) == 5
+    assert scores == sorted(scores) and len(scores) == len(server.STORES)
     assert r["recommended"]["store_id"] == r["ranked"][0]["store_id"]
     assert r["reasoning"]
 
@@ -153,7 +153,8 @@ def test_savings_vs_median_without_habitual():
     r = server.optimize_list(_req())
     costs = sorted(x["total_cost"] for x in r["ranked"])
     assert r["savings"]["reference"]["type"] == "median"
-    assert r["savings"]["amount"] == round(max(0, costs[2] - r["recommended"]["total_cost"]), 2)
+    import statistics
+    assert r["savings"]["amount"] == round(max(0, statistics.median(costs) - r["recommended"]["total_cost"]), 2)
     assert r["savings"]["price_basis"] == "stima"
 
 

@@ -155,6 +155,8 @@ STORES = [
     {"id": "coop", "name": "Coop", "lat": 45.4699, "lng": 9.2170, "distance_km": 1.4, "price_level": 1.03},
     {"id": "lidl", "name": "Lidl", "lat": 45.4950, "lng": 9.2350, "distance_km": 3.6, "price_level": 0.88},
     {"id": "carrefour", "name": "Carrefour", "lat": 45.4640, "lng": 9.1900, "distance_km": 1.1, "price_level": 1.07},
+    {"id": "pam", "name": "PAM", "lat": 45.4760, "lng": 9.2100, "distance_km": 1.0, "price_level": 1.04},
+    {"id": "eurospin", "name": "Eurospin", "lat": 45.5050, "lng": 9.2150, "distance_km": 4.2, "price_level": 0.86},
 ]
 STORE_INDEX = {s["id"]: s for s in STORES}
 
@@ -619,6 +621,51 @@ def maybe_recenter_prices(lat: float, lon: float) -> None:
         _recenter_task = asyncio.get_running_loop().create_task(run())
     except RuntimeError:
         pass
+
+
+# Volantini ufficiali delle catene (pagine pubbliche dei siti). Se il punto vendita
+# vicino ha una sua pagina su OpenStreetMap, si apre quella (volantino del negozio).
+CHAIN_FLYERS = {
+    "esselunga": "https://www.esselunga.it/it-it/promozioni/volantini.html",
+    "conad": "https://www.conad.it/ricerca-negozi",
+    "coop": "https://www.coop.it/le-nostre-promozioni",
+    "lidl": "https://www.lidl.it/c/volantino-lidl/s10018048",
+    "carrefour": "https://www.carrefour.it/volantino",
+    "pam": "https://www.pampanorama.it/volantini",
+    "eurospin": "https://www.eurospin.it/volantino/",
+}
+OFFICIAL_DOMAINS = {"esselunga": ("esselunga.it",), "conad": ("conad.it",), "coop": ("coop",), "lidl": ("lidl.it",),
+                    "carrefour": ("carrefour.it",), "pam": ("pampanorama.it", "e-pam.it"),
+                    "eurospin": ("eurospin.it",)}
+
+
+def flyer_url(chain: str, website: Optional[str]) -> tuple[str, bool]:
+    """(url, è la pagina del negozio). Si usa il sito OSM solo se è del dominio ufficiale."""
+    if website and website.startswith("http") and any(d in website.split("/")[2] for d in OFFICIAL_DOMAINS[chain]):
+        return website, True
+    return CHAIN_FLYERS[chain], False
+
+
+@api.get("/flyers")
+async def flyers(lat: Optional[float] = None, lon: Optional[float] = None):
+    """Volantini delle catene da confrontare: vicino a te se c'è la posizione."""
+    near: dict = {}
+    if lat is not None and lon is not None:
+        try:
+            near = await locator.nearest(lat, lon)
+        except Exception:
+            near = {}
+    out = []
+    for s in STORES:
+        b = near.get(s["id"])
+        if near and not b:
+            continue  # catena senza negozi vicini
+        url, store_page = flyer_url(s["id"], (b or {}).get("website"))
+        out.append({"store_id": s["id"], "store_name": s["name"], "url": url, "store_page": store_page,
+                    "branch_name": (b or {}).get("name"), "address": (b or {}).get("address"),
+                    "distance_km": (b or {}).get("distance_km")})
+    out.sort(key=lambda f: (f["distance_km"] is None, f["distance_km"] or 0))
+    return out
 
 
 @api.get("/stores/nearby")

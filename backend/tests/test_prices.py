@@ -51,6 +51,8 @@ def test_chain_recognition():
     assert chains.chain_of({"osm_brand": "Carrefour Market"}) == "carrefour"
     assert chains.chain_of({"osm_brand": None, "osm_name": "Conad City Via Roma"}) == "conad"
     assert chains.chain_of({"osm_brand": "Iperal"}) is None
+    assert chains.chain_of({"osm_brand": "EuroSpin"}) == "eurospin"
+    assert chains.chain_of({"osm_brand": "Pam Local"}) == "pam"
 
 
 # ---------- Open Prices su dati reali (Milano) ----------

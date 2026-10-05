@@ -11,10 +11,11 @@ import {
   Text,
   TextInput,
   View,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { api, BudgetSuggestion, Category, Offer } from '@/api';
+import { api, BudgetSuggestion, Category, Flyer, Offer } from '@/api';
 import { HScroll } from '@/components/HScroll';
 import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
@@ -45,6 +46,12 @@ export default function ListaScreen() {
   useEffect(() => {
     api.offers().then(setOffers).catch(() => setOffers([]));
   }, [catalog]);
+
+  // volantini ufficiali delle catene vicine (link al sito della catena o del negozio)
+  const [flyers, setFlyers] = useState<Flyer[]>([]);
+  useEffect(() => {
+    api.flyers(prefs.location?.lat, prefs.location?.lon).then(setFlyers).catch(() => setFlyers([]));
+  }, [prefs.location]);
 
   useEffect(() => {
     setBudgetText(prefs.budget != null ? String(prefs.budget) : '');
@@ -179,6 +186,35 @@ export default function ListaScreen() {
                 </View>
               ))}
             </HScroll>
+          </>
+        )}
+
+        {flyers.length > 0 && (
+          <>
+            <SectionTitle>📰 Volantini di oggi</SectionTitle>
+            <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
+              {flyers.map((f) => (
+                <Pressable
+                  key={f.store_id}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Apri il volantino ${f.store_name}`}
+                  onPress={() => Linking.openURL(f.url)}
+                  style={({ pressed }) => [s.flyerCard, pressed && { opacity: 0.7 }]}>
+                  <View style={s.storeRow}>
+                    <StoreDot storeId={f.store_id} size={14} />
+                    <Text style={s.offerName} numberOfLines={1}>{f.store_name}</Text>
+                  </View>
+                  <Text style={s.muted} numberOfLines={2}>
+                    {f.branch_name ? `${f.branch_name}${f.distance_km != null ? ` · ${f.distance_km.toLocaleString('it-IT')} km` : ''}` : 'Volantino nazionale'}
+                  </Text>
+                  <View style={s.flyerLink}>
+                    <Text style={s.flyerLinkText}>{f.store_page ? 'Volantino del negozio' : 'Apri volantino'}</Text>
+                    <Icon name="open-outline" size={14} color={colors.primary} />
+                  </View>
+                </Pressable>
+              ))}
+            </HScroll>
+            <Text style={s.flyerNote}>Si apre il sito ufficiale della catena. Le offerte dei volantini non sono ancora nei calcoli.</Text>
           </>
         )}
 
@@ -368,6 +404,13 @@ const useStyles = makeStyles((c) => ({
   price: { color: c.primary, fontWeight: '800', fontSize: 16 },
   strike: { color: c.textSecondary, fontWeight: '400', fontSize: 12, textDecorationLine: 'line-through' },
   loyalty: { color: c.warning, fontSize: 11, marginTop: 2 },
+  flyerCard: {
+    width: 170, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: c.border,
+    backgroundColor: c.surface, gap: 6, justifyContent: 'space-between',
+  },
+  flyerLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  flyerLinkText: { color: c.primary, fontWeight: '700', fontSize: 13 },
+  flyerNote: { color: c.textSecondary, fontSize: 11, marginTop: spacing.sm },
   tagEstimate: { color: c.textSecondary, fontSize: 10, marginTop: 2, fontStyle: 'italic' },
   tagReal: { color: c.success, fontSize: 10, marginTop: 2, fontWeight: '600' },
   addBtn: {

@@ -10,6 +10,8 @@ CHAIN_PATTERNS: dict[str, re.Pattern] = {
     "coop": re.compile(r"\b(coop|ipercoop|incoop|novacoop)\b", re.I),
     "lidl": re.compile(r"\blidl\b", re.I),
     "carrefour": re.compile(r"\bcarrefour\b", re.I),
+    "pam": re.compile(r"\b(pam|pam local|pam panorama|panorama)\b", re.I),
+    "eurospin": re.compile(r"\beuro\s?spin\b", re.I),
 }
 
 

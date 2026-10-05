@@ -53,6 +53,8 @@ export const storeColors: Record<string, string> = {
   coop: '#1E6FD9',
   lidl: '#F5C400',
   carrefour: '#F28C1A',
+  pam: '#9C1C3B',
+  eurospin: '#1B2F7E',
 };
 
 export function useTheme() {
