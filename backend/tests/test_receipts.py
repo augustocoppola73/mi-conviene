@@ -122,3 +122,26 @@ async def test_photos_are_never_stored(client, tmp_path, monkeypatch):
     text = json.dumps(dump, default=str)
     assert b64[:200] not in text and "base64" not in text and len(text) < 20_000
     assert list(tmp_path.iterdir()) == []      # nessun file scritto
+
+
+async def test_manual_real_prices_next_to_virtual_receipt(client):
+    """Prezzi veri scritti a mano accanto allo scontrino calcolato, senza foto."""
+    items = [{"product_id": "banane", "quantity": 1.5}, {"product_id": "latte", "quantity": 2},
+             {"product_id": "spaghetti", "quantity": 2}]
+    rec = (await client.post("/api/optimize", json={"user_id": "m", "items": items})).json()["recommended"]
+    e = (await client.post("/api/savings", json={"user_id": "m", "store_id": rec["store_id"], "amount": 1,
+                                                 "estimated_spend": rec["receipt"]["total"], "snapshot": rec})).json()
+    lines = [{"product_id": "banane", "text": "Banane", "net_price": 2.85, "quantity": 1, "weight_kg": 1.5},
+             {"product_id": "latte", "text": "Latte intero 1L", "net_price": 2.58, "quantity": 2},
+             {"product_id": "spaghetti", "text": "Spaghetti 500g", "net_price": 1.78, "quantity": 2}]
+    out = (await client.post("/api/receipts/apply", json={"saving_id": e["id"], "user_id": "m", "store_id": rec["store_id"],
+                                                          "lines": lines})).json()
+    assert out["prices_saved"] == 3 and "verified" not in out           # senza totale: solo prezzi
+    cat = server.CATALOG[rec["store_id"]]
+    assert cat["banane"]["normal_price"] == 1.9 and cat["latte"]["normal_price"] == 1.29 and cat["spaghetti"]["normal_price"] == 0.89
+    s = (await client.get("/api/savings/m")).json()
+    entry = next(x for x in s["entries"] if x["id"] == e["id"])
+    assert entry["real_receipt"]["total"] is None and len(entry["real_receipt"]["lines"]) == 3 and not entry["verified"]
+    out = (await client.post("/api/receipts/apply", json={"saving_id": e["id"], "user_id": "m", "store_id": rec["store_id"],
+                                                          "total": 7.21, "lines": lines})).json()
+    assert out["verified"]["paid"] == 7.21

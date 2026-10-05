@@ -1103,12 +1103,15 @@ async def apply_receipt(body: ApplyReceiptIn):
         saved += 1
     rebuild_catalog()
     out = {"prices_saved": saved}
-    if entry and body.total:
+    if entry:
+        # i prezzi veri restano accanto allo scontrino calcolato (anche senza totale);
+        # con il totale pagato la spesa risulta verificata
         update = {"real_receipt": {"store_id": body.store_id, "date": date, "total": body.total,
                                    "lines": [l.model_dump() for l in body.lines]}}
         await db.savings.update_one({"id": entry["id"]}, {"$set": update})
-        out["verified"] = await verify_saving(entry["id"], VerifyIn(paid=body.total, refueled=body.refueled,
-                                                                     fuel_price=body.fuel_price))
+        if body.total:
+            out["verified"] = await verify_saving(entry["id"], VerifyIn(paid=body.total, refueled=body.refueled,
+                                                                         fuel_price=body.fuel_price))
     return out
 
 

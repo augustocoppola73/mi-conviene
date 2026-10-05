@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, SavingEntry, SavingsSummary } from '@/api';
 import { PaperReceipt } from '@/components/PaperReceipt';
+import { ManualPrices } from '@/components/ManualPrices';
 import { ReceiptScanner } from '@/components/ReceiptScanner';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate } from '@/format';
@@ -36,6 +37,7 @@ export default function SalvadanaioScreen() {
   const { colors } = useTheme();
   const { userId, productById } = useStore();
   const [scanning, setScanning] = useState<SavingEntry | null>(null);
+  const [manual, setManual] = useState<SavingEntry | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [data, setData] = useState<SavingsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -207,6 +209,12 @@ export default function SalvadanaioScreen() {
                       </Pressable>
                     )}
                     {e.snapshot && openReceipt === e.id && (
+                      <Pressable onPress={() => setManual(e)} style={s.manualBtn} accessibilityLabel="Scrivi i prezzi veri a mano">
+                        <Icon name="create-outline" size={15} color={colors.primary} />
+                        <Text style={s.receiptLink}>{e.real_receipt ? 'Correggi i prezzi veri' : 'Scrivi i prezzi veri accanto (senza foto)'}</Text>
+                      </Pressable>
+                    )}
+                    {e.snapshot && openReceipt === e.id && (
                       <PaperReceipt
                         store={e.snapshot}
                         when={new Date(e.created_at)}
@@ -303,6 +311,14 @@ export default function SalvadanaioScreen() {
           </Card>
         </View>
       </Modal>
+      {manual && userId && (
+        <ManualPrices
+          entry={manual}
+          userId={userId}
+          onClose={() => setManual(null)}
+          onDone={(msg) => { setManual(null); setNotice(msg); load(); }}
+        />
+      )}
       {scanning && userId && (
         <ReceiptScanner
           entry={scanning}
@@ -350,6 +366,7 @@ const useStyles = makeStyles((c) => ({
     paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill,
   },
   scanBtn: { backgroundColor: c.primarySoft },
+  manualBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm, alignSelf: 'flex-start' },
   notice: { color: c.success, fontSize: 13, marginTop: spacing.sm },
   verifyText: { color: c.primaryText, fontWeight: '700', fontSize: 13 },
   modalBg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'center', padding: spacing.xl },
