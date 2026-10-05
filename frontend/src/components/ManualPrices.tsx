@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { api, SavingEntry } from '../api';
+import { api, PriceKind, SavingEntry } from '../api';
 import { euro, formatQty } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { KIND_HELP, PriceKindPicker } from './PriceKindPicker';
 import { Card, PrimaryButton } from './ui';
 
 const toNum = (t: string) => {
@@ -32,6 +33,7 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
     entry.paid != null ? String(entry.paid).replace('.', ',') : entry.real_receipt?.total ? String(entry.real_receipt.total).replace('.', ',') : '',
   );
   const [totalTouched, setTotalTouched] = useState(false);
+  const [kinds, setKinds] = useState<Record<string, PriceKind>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +55,7 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
           product_id: l.product_id, text: l.name, net_price: toNum(prices[l.product_id])!,
           // a peso: la quantità è il peso comprato; a pezzi/confezioni: il numero di pezzi
           quantity: l.unit === 'kg' ? 1 : l.quantity, weight_kg: l.unit === 'kg' ? l.quantity : null,
+          kind: kinds[l.product_id] ?? 'normale',
         })),
       });
       onDone(`Salvati ${r.prices_saved} prezzi veri di ${entry.store_name}${r.verified ? ' e spesa verificata' : ''}.`);
@@ -82,7 +85,8 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
               const v = toNum(prices[l.product_id] ?? '');
               const diff = v != null ? v - l.line_price : null;
               return (
-                <View key={l.product_id} style={s.row}>
+                <View key={l.product_id} style={{ gap: 4 }}>
+                <View style={s.row}>
                   <View style={{ flex: 1 }}>
                     <Text style={s.name} numberOfLines={2}>{l.name}</Text>
                     <Text style={s.meta}>
@@ -102,6 +106,13 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
                       style={s.input} accessibilityLabel={`Prezzo vero di ${l.name}`}
                     />
                   </View>
+                </View>
+                {v != null && (
+                  <View style={{ gap: 2, paddingBottom: 4 }}>
+                    <PriceKindPicker compact value={kinds[l.product_id] ?? 'normale'} onChange={(k) => setKinds((x) => ({ ...x, [l.product_id]: k }))} />
+                    {(kinds[l.product_id] ?? 'normale') !== 'normale' && <Text style={s.meta}>{KIND_HELP[kinds[l.product_id]!]}</Text>}
+                  </View>
+                )}
                 </View>
               );
             })}

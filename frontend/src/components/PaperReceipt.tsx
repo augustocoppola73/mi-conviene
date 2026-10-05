@@ -61,7 +61,7 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
               <Text style={st.t}>{cols(l.name.toUpperCase(), `${num(l.in_promo ? l.normal_price : l.line_price)} ${code}`)}</Text>
               <Text style={[st.t, st.faded]}>{'  '}{qty}{l.loyalty_required ? ' · CARTA FEDELTA' : ''}</Text>
               {l.in_promo && (
-                <Text style={st.t}>{cols('  SCONTO PROMO', `-${num(l.normal_price - l.line_price)}  `)}</Text>
+                <Text style={st.t}>{cols(`  SCONTO PROMO${l.promo_until ? ` FINO AL ${l.promo_until.slice(8, 10)}/${l.promo_until.slice(5, 7)}` : ''}`, `-${num(l.normal_price - l.line_price)}  `)}</Text>
               )}
               {actual && actual[l.product_id] != null && (
                 <Text style={[st.t, { color: actual[l.product_id] <= l.line_price ? '#1E7A3C' : '#B3261E' }]}>

@@ -47,10 +47,12 @@ def test_ocr_on_photo():
 @pytest.fixture
 async def client(monkeypatch):
     monkeypatch.setattr(server, "db", AsyncMongoMockClient()["test"])
-    server.RECEIPT_PRICES.clear()
+    for d in (server.RECEIPT_PRICES, server.RECEIPT_PROMOS, server.RECEIPT_VARIANTS):
+        d.clear()
     async with AsyncClient(transport=ASGITransport(app=server.app), base_url="http://t") as c:
         yield c
-    server.RECEIPT_PRICES.clear()
+    for d in (server.RECEIPT_PRICES, server.RECEIPT_PROMOS, server.RECEIPT_VARIANTS):
+        d.clear()
     server.rebuild_catalog()
 
 
@@ -145,3 +147,29 @@ async def test_manual_real_prices_next_to_virtual_receipt(client):
     out = (await client.post("/api/receipts/apply", json={"saving_id": e["id"], "user_id": "m", "store_id": rec["store_id"],
                                                           "total": 7.21, "lines": lines})).json()
     assert out["verified"]["paid"] == 7.21
+
+
+async def test_promo_and_variant_do_not_change_normal_price(client):
+    sid = "lidl"
+    normal_before = server.CATALOG[sid]["latte"]["normal_price"]
+    # offerta vista in negozio con il prezzo pieno (dallo scontrino: riga + SCONTO)
+    lines = [{"product_id": "latte", "text": "LATTE INTERO 1L", "net_price": 0.99, "quantity": 1,
+              "kind": "offerta", "gross_price": 1.39},
+             {"product_id": "spaghetti", "text": "Spaghetti marca Lidl", "net_price": 0.49, "quantity": 1,
+              "kind": "variante", "note": "marca del negozio"}]
+    out = (await client.post("/api/receipts/apply", json={"user_id": "o", "store_id": sid, "lines": lines})).json()
+    assert out["prices_saved"] == 2
+    latte = server.CATALOG[sid]["latte"]
+    assert latte["normal_price"] == 1.39 and latte["promo_price"] == 0.99 and latte["final_price"] == 0.99
+    assert latte["promo_until"] > "2000"
+    spa = server.CATALOG[sid]["spaghetti"]
+    assert spa["final_price"] != 0.49 and server.RECEIPT_VARIANTS[(sid, "spaghetti")]["price"] == 0.49
+    # l'offerta scade: torna il prezzo normale
+    server.RECEIPT_PROMOS[(sid, "latte")]["until"] = "2000-01-01"
+    server.rebuild_catalog()
+    assert server.CATALOG[sid]["latte"]["final_price"] == 1.39
+    # nel conto della spesa la variante è un suggerimento, non il prezzo
+    r = (await client.post("/api/optimize", json={"user_id": "o", "items": [{"product_id": "spaghetti", "quantity": 1}]})).json()
+    line = next(x for x in r["ranked"] if x["store_id"] == sid)["receipt"]["lines"][0]
+    assert line["variant"]["price"] == 0.49
+    assert normal_before is not None

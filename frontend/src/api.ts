@@ -37,6 +37,8 @@ export interface ClassifyResult {
   similar: { product_id: string; name: string; category_id: string; score: number }[];
   exact: { product_id: string; name: string; category_id: string; score: number } | null;
 }
+export type PriceKind = 'normale' | 'offerta' | 'variante';
+export interface VariantHint { price: number; ref_price: number; text: string | null; observed_at: string; note?: string | null }
 export interface ScannedLine {
   text: string; price: number; discount: number; net_price: number; quantity: number; weight_kg: number | null;
   product_id: string | null; product_name: string | null; match_score: number; expected: boolean;
@@ -55,6 +57,7 @@ export interface ReceiptLine {
   in_promo: boolean; loyalty_required: boolean; confidence: Confidence;
   source: PriceSource; observed_at: string | null; location_name: string | null;
   sample_product: string | null; proof_url: string | null;
+  promo_until?: string | null; variant?: VariantHint | null;
 }
 export interface Receipt {
   lines: ReceiptLine[]; unknown_products: string[]; real_lines: number; custom_items: CustomLine[];
@@ -179,6 +182,7 @@ export interface ProposedRecipe extends RecipeSummary { portion: number; cost: n
 export interface ShopItem {
   key: string; product_id: string; name: string; quantity: number; unit: string; category_id: string;
   price: number | null; checked: boolean; checked_by: string | null; checked_by_id?: string | null; checked_at: string | null; added_in_store: boolean;
+  in_promo?: boolean; promo_until?: string | null; variant?: VariantHint | null; seen?: { price: number; kind: PriceKind; note?: string | null } | null;
 }
 export interface Shop {
   id: string; user_id: string; display_name?: string | null; store_id: string; store_name: string; branch?: string | null;
@@ -231,7 +235,8 @@ export const api = {
   scanReceipt: (images: string[], saving_id?: string) => post<ScanResult>('/receipts/scan', { images, saving_id }),
   applyReceipt: (body: {
     saving_id?: string; user_id: string; store_id: string; date?: string | null; total?: number | null;
-    lines: { product_id: string | null; text: string; net_price: number; quantity: number; weight_kg: number | null }[];
+    lines: { product_id: string | null; text: string; net_price: number; quantity: number; weight_kg: number | null;
+      kind?: PriceKind; gross_price?: number | null; promo_until?: string | null; note?: string | null }[];
     refueled?: boolean; fuel_price?: number;
   }) => post<{ prices_saved: number; verified?: SavingEntry }>('/receipts/apply', body),
   verifySaving: (id: string, paid: number, refueled?: boolean, fuel_price?: number) =>
@@ -267,6 +272,8 @@ export const api = {
   shopCheck: (id: string, user_id: string, key: string, checked: boolean, display_name?: string | null) =>
     post<Shop>(`/shops/${id}/check`, { user_id, key, checked, display_name }),
   shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
+  shopPrice: (id: string, body: { user_id: string; key: string; price: number; kind: PriceKind; note?: string | null; display_name?: string | null }) =>
+    post<Shop>(`/shops/${id}/price`, body),
   shopFinish: (id: string, user_id: string) =>
     post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number }>(`/shops/${id}/finish`, { user_id }),
   shopCancel: (id: string, user_id: string) => post<{ items: ShopItem[] }>(`/shops/${id}/cancel`, { user_id }),

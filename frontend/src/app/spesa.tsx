@@ -2,10 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, Shop, ShopItem } from '@/api';
+import { api, PriceKind, Shop, ShopItem } from '@/api';
+import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
 import { ProductSearch } from '@/components/ProductSearch';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty } from '@/format';
@@ -38,6 +39,10 @@ export default function SpesaScreen() {
   const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number } | null>(null);
   const [putBack, setPutBack] = useState<Set<string>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [pricing, setPricing] = useState<ShopItem | null>(null);
+  const [priceText, setPriceText] = useState('');
+  const [priceKind, setPriceKind] = useState<PriceKind>('normale');
+  const [priceNote, setPriceNote] = useState('');
   const pending = useRef<Pending[]>([]);
   const name = prefs.displayName || null;
 
@@ -132,6 +137,27 @@ export default function SpesaScreen() {
       setShop(applyPending(r));
       save(r);
       setAdding(false);
+    } catch {
+      setOffline(true);
+    }
+  };
+
+  const openPrice = (it: ShopItem) => {
+    setPricing(it);
+    setPriceText(it.seen ? String(it.seen.price).replace('.', ',') : '');
+    setPriceKind(it.seen?.kind ?? 'normale');
+    setPriceNote(it.seen?.note ?? '');
+  };
+  const savePrice = async () => {
+    if (!shop || !userId || !pricing) return;
+    const v = parseFloat(priceText.replace(',', '.'));
+    if (!Number.isFinite(v) || v <= 0) return;
+    try {
+      const r = await api.shopPrice(shop.id, { user_id: userId, key: pricing.key, price: Math.round(v * 100) / 100, kind: priceKind,
+        note: priceKind === 'variante' ? priceNote.trim() || null : null, display_name: name });
+      setShop(applyPending(r));
+      save(r);
+      setPricing(null);
     } catch {
       setOffline(true);
     }
@@ -267,8 +293,21 @@ export default function SpesaScreen() {
                 <Icon name="ellipse-outline" size={26} color={colors.primary} />
                 <View style={{ flex: 1 }}>
                   <Text style={s.name}>{i.name}</Text>
-                  <Text style={s.muted}>{formatQty(i.quantity, i.unit)}{i.price != null ? ` · ~${euro(i.price)}` : ''}</Text>
+                  <Text style={s.muted}>
+                    {formatQty(i.quantity, i.unit)}{i.price != null ? ` · ~${euro(i.price)}` : ''}
+                    {i.in_promo ? ` · in offerta${i.promo_until ? ` fino al ${i.promo_until.slice(8, 10)}/${i.promo_until.slice(5, 7)}` : ''}` : ''}
+                  </Text>
+                  {i.variant && (
+                    <Text style={[s.muted, { color: colors.primary }]}>
+                      💡 l'ultima volta qui: {i.variant.note || 'altra marca'} a {euro(i.variant.price)}
+                    </Text>
+                  )}
                 </View>
+                {!i.product_id.startsWith('custom:') && (
+                  <Pressable onPress={() => openPrice(i)} hitSlop={8} style={s.priceBtn} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
+                    <Text style={s.priceBtnText}>€</Text>
+                  </Pressable>
+                )}
               </Pressable>
             ))}
           </View>
@@ -304,6 +343,7 @@ export default function SpesaScreen() {
                     {formatQty(i.quantity, i.unit)}
                     {i.checked_by_id && i.checked_by_id !== userId ? ` · preso da ${i.checked_by ?? 'un familiare'}` : ''}
                     {i.added_in_store ? ' · aggiunto in negozio' : ''}
+                    {i.seen ? ` · ${euro(i.seen.price)}${i.seen.kind === 'offerta' ? ' in offerta' : i.seen.kind === 'variante' ? ` (${i.seen.note || 'altra marca'})` : ''}` : ''}
                   </Text>
                 </View>
               </Pressable>
@@ -316,6 +356,28 @@ export default function SpesaScreen() {
           <Text style={[s.muted, { color: colors.danger }]}>Annulla la spesa (la lista torna com'era)</Text>
         </Pressable>
       </ScrollView>
+
+      <Modal visible={!!pricing} transparent animationType="fade" onRequestClose={() => setPricing(null)}>
+        <View style={s.bg}>
+          <Card style={s.card}>
+            <Text style={s.title}>€ {pricing?.name}</Text>
+            <Text style={s.muted}>Quanto costa {pricing ? formatQty(pricing.quantity, pricing.unit) : ''}? Lo metto anche nel carrello.</Text>
+            <View style={s.priceBox}>
+              <Text style={s.title}>€</Text>
+              <TextInput value={priceText} onChangeText={(t) => setPriceText(t.replace(/[^0-9.,]/g, ''))} keyboardType="decimal-pad"
+                autoFocus placeholder="0,00" placeholderTextColor={colors.textSecondary} style={s.priceInput} onSubmitEditing={savePrice} />
+            </View>
+            <PriceKindPicker value={priceKind} onChange={setPriceKind} />
+            <Text style={s.muted}>{KIND_HELP[priceKind]}</Text>
+            {priceKind === 'variante' && (
+              <TextInput value={priceNote} onChangeText={setPriceNote} placeholder="Quale? es. marca Lidl, formato 1 kg"
+                placeholderTextColor={colors.textSecondary} style={s.noteInput} maxLength={80} />
+            )}
+            <PrimaryButton label="Salva e metti nel carrello" icon="checkmark" onPress={savePrice} style={{ marginTop: spacing.sm }} />
+            <PrimaryButton label="Annulla" variant="secondary" onPress={() => setPricing(null)} />
+          </Card>
+        </View>
+      </Modal>
 
       <Modal visible={confirmCancel} transparent animationType="fade" onRequestClose={() => setConfirmCancel(false)}>
         <View style={s.bg}>
@@ -353,6 +415,11 @@ const useStyles = makeStyles((c) => ({
   nameDone: { color: c.textSecondary, textDecorationLine: 'line-through', fontWeight: '400' },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: spacing.sm, paddingVertical: spacing.sm },
   addText: { color: c.primary, fontSize: 14, fontWeight: '700' },
+  priceBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surfaceMuted },
+  priceBtnText: { color: c.primary, fontSize: 18, fontWeight: '800' },
+  priceBox: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  priceInput: { flex: 1, minWidth: 0, color: c.text, fontSize: 24, paddingVertical: 10 },
+  noteInput: { color: c.text, fontSize: 15, paddingVertical: 8, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   bg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'center', padding: spacing.md },
   card: { width: '100%', maxWidth: 480, alignSelf: 'center', gap: spacing.sm },
 }));

@@ -2,9 +2,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { api, Product, SavingEntry, ScanResult } from '../api';
+import { api, PriceKind, Product, SavingEntry, ScanResult } from '../api';
 import { euro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { PriceKindPicker } from './PriceKindPicker';
 import { Card, Icon, PrimaryButton, StoreDot } from './ui';
 
 const CHAINS = ['esselunga', 'conad', 'coop', 'lidl', 'carrefour', 'pam', 'eurospin'];
@@ -30,7 +31,8 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
   const [choosing, setChoosing] = useState<number | null>(null);
   const [refueled, setRefueled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
-  const [photos, setPhotos] = useState<string[]>([]); // pezzi dello scontrino, dall'alto in basso
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [kinds, setKinds] = useState<Record<number, PriceKind>>({}); // tipo di prezzo per riga // pezzi dello scontrino, dall'alto in basso
 
   const expected = (entry.snapshot?.receipt.lines ?? []).map((l) => l.product_id);
 
@@ -64,6 +66,8 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
     try {
       const r = await api.scanReceipt(photos, entry.id);
       setScan(r);
+      // riga con SCONTO sotto: è un'offerta (il prezzo pieno resta il prezzo normale)
+      setKinds(Object.fromEntries(r.lines.map((l, i) => [i, l.discount > 0 ? 'offerta' : 'normale'])));
       if (r.store_id) setStore(r.store_id);
       setTotalText(r.total != null ? String(r.total).replace('.', ',') : r.lines_sum ? String(r.lines_sum).replace('.', ',') : '');
       setStep('review');
@@ -89,7 +93,10 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
     try {
       const r = await api.applyReceipt({
         saving_id: entry.id, user_id: userId, store_id: store, date: scan.date, total: totalOk ? total : null,
-        lines: scan.lines.map((l) => ({ product_id: l.product_id, text: l.text, net_price: l.net_price, quantity: l.quantity, weight_kg: l.weight_kg })),
+        lines: scan.lines.map((l, i) => ({
+          product_id: l.product_id, text: l.text, net_price: l.net_price, quantity: l.quantity, weight_kg: l.weight_kg,
+          kind: kinds[i] ?? 'normale', gross_price: l.discount > 0 ? l.price : null,
+        })),
         ...((entry.fuel_saving ?? 0) > 0 && refueled !== null ? { refueled } : {}),
       });
       onDone(`Salvati ${r.prices_saved} prezzi veri di ${CHAIN_NAME[store] ?? store}${r.verified ? ' e spesa verificata' : ''}.`);
@@ -206,6 +213,9 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
                           </Text>
                         )}
                       </Pressable>
+                      {l.product_id && (
+                        <PriceKindPicker compact value={kinds[i] ?? 'normale'} onChange={(k) => setKinds((x) => ({ ...x, [i]: k }))} />
+                      )}
                       {choosing === i && (
                         <View style={s.chips}>
                           {expected.map((pid) => (

@@ -10,6 +10,9 @@ async def client(monkeypatch):
     monkeypatch.setattr(server, "db", AsyncMongoMockClient()["test"])
     async with AsyncClient(transport=ASGITransport(app=server.app), base_url="http://t") as c:
         yield c
+    for d in (server.RECEIPT_PRICES, server.RECEIPT_PROMOS, server.RECEIPT_VARIANTS):
+        d.clear()
+    server.rebuild_catalog()
 
 
 ITEMS = [{"product_id": "mele", "quantity": 1}, {"product_id": "latte", "quantity": 2},
@@ -58,3 +61,13 @@ async def test_shop_shared_with_family_and_cancel(client):
     c = (await client.post(f"/api/shops/{s['id']}/cancel", json={"user_id": "a"})).json()
     assert len(c["items"]) == 4
     assert (await client.get("/api/shops/active", params={"user_id": "b"})).json()["shop"] is None
+
+
+async def test_price_seen_in_store(client):
+    s = (await client.post("/api/shops", json={"user_id": "a", "store_id": "lidl", "items": ITEMS})).json()
+    s = (await client.post(f"/api/shops/{s['id']}/price", json={"user_id": "a", "key": "latte", "price": 1.58,
+                                                                 "kind": "offerta"})).json()
+    it = next(i for i in s["items"] if i["key"] == "latte")
+    assert it["checked"] and it["seen"]["kind"] == "offerta" and it["price"] == 1.58
+    assert server.CATALOG["lidl"]["latte"]["promo_price"] == 0.79     # 2 litri a 1,58 = 0,79 al litro
+    server.RECEIPT_PROMOS.clear(); server.rebuild_catalog()

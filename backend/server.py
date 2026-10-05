@@ -18,7 +18,7 @@ import string
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
@@ -238,8 +238,13 @@ def build_catalog(real: Optional[dict] = None) -> dict:
     return catalog
 
 
-# Prezzi veri letti dagli scontrini degli utenti: (negozio, prodotto) -> ultimo prezzo
+# Prezzi veri letti dagli scontrini degli utenti: (negozio, prodotto) -> ultimo prezzo NORMALE
 RECEIPT_PRICES: dict[tuple[str, str], dict] = {}
+# Offerte viste dagli utenti: valgono solo fino a una data e non toccano il prezzo normale
+RECEIPT_PROMOS: dict[tuple[str, str], dict] = {}
+# "Altra marca / formato": non è il prezzo del prodotto di riferimento, è un'informazione utile
+RECEIPT_VARIANTS: dict[tuple[str, str], dict] = {}
+PROMO_DEFAULT_DAYS = 7
 
 
 def receipt_entry(doc: dict) -> dict:
@@ -251,17 +256,44 @@ def receipt_entry(doc: dict) -> dict:
             "sample_product": doc.get("receipt_text"), "proof_url": None}
 
 
+def remember_price(doc: dict) -> None:
+    """Mette un prezzo osservato nel posto giusto secondo il tipo (normale / offerta / altra marca)."""
+    key = (doc["store_id"], doc["product_id"])
+    kind = doc.get("kind") or "normale"
+    if kind == "offerta":
+        RECEIPT_PROMOS[key] = {"promo_price": doc["ref_price"], "until": doc.get("promo_until"),
+                               "observed_at": doc["date"], "text": doc.get("receipt_text")}
+    elif kind == "variante":
+        RECEIPT_VARIANTS[key] = {"price": doc["paid"], "ref_price": doc["ref_price"], "text": doc.get("receipt_text"),
+                                 "observed_at": doc["date"], "note": doc.get("note")}
+    else:
+        RECEIPT_PRICES[key] = receipt_entry(doc)
+
+
 async def load_receipt_prices() -> None:
     RECEIPT_PRICES.clear()
+    RECEIPT_PROMOS.clear()
+    RECEIPT_VARIANTS.clear()
     async for doc in db.user_prices.find({}, NO_ID).sort("date", 1):
         if doc.get("store_id") in STORE_INDEX and doc.get("product_id") in PRODUCT_INDEX:
-            RECEIPT_PRICES[(doc["store_id"], doc["product_id"])] = receipt_entry(doc)
+            remember_price(doc)
+
+
+def active_promos() -> dict[tuple[str, str], dict]:
+    today = datetime.now(timezone.utc).date().isoformat()
+    return {k: v for k, v in RECEIPT_PROMOS.items() if (v.get("until") or "") >= today}
 
 
 def rebuild_catalog() -> None:
     global CATALOG
     # priorità: scontrini degli utenti (il prezzo vero del negozio) > Open Prices > stime
     CATALOG = build_catalog({**prices.real, **RECEIPT_PRICES})
+    # offerte viste in negozio, finché valgono: abbassano il prezzo finale, non quello normale
+    for (sid, pid), promo in active_promos().items():
+        e = CATALOG.get(sid, {}).get(pid)
+        if e and promo["promo_price"] < e["normal_price"]:
+            e.update(promo_price=promo["promo_price"], final_price=promo["promo_price"], promo_until=promo["until"],
+                     promo_source="scontrino")
 
 
 CATALOG = build_catalog()
@@ -332,6 +364,8 @@ def compute_virtual_receipt(store_id: str, items: list[ListItem]) -> dict:
             "normal_price": line_normal,
             "line_price": line_price,
             "in_promo": price_info["promo_price"] is not None,
+            "promo_until": price_info.get("promo_until"),
+            "variant": RECEIPT_VARIANTS.get((store_id, it.product_id)),
             "loyalty_required": price_info["loyalty_required"],
             "confidence": price_info["confidence"],
             "source": price_info["source"],
@@ -1060,6 +1094,49 @@ class ReceiptLineIn(BaseModel):
     net_price: float = Field(ge=0, lt=1000)
     quantity: float = Field(default=1, gt=0, le=999)
     weight_kg: Optional[float] = Field(default=None, gt=0, le=100)
+    # normale = prezzo di sempre; offerta = vale fino a promo_until; variante = altra marca/formato
+    kind: Literal["normale", "offerta", "variante"] = "normale"
+    gross_price: Optional[float] = Field(default=None, gt=0, lt=1000)  # prezzo pieno prima dello sconto
+    promo_until: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=80)          # es. "marca Lidl", "formato 1 kg"
+
+
+async def save_observed_prices(user_id: str, store_id: str, lines: list[ReceiptLineIn], date: str,
+                               location_name: Optional[str], saving_id: Optional[str] = None) -> int:
+    """Salva i prezzi visti (scontrino, a mano, in negozio) secondo il tipo. Restituisce quanti."""
+    saved = 0
+    for l in lines:
+        p = PRODUCT_INDEX.get(l.product_id or "")
+        if not p:
+            continue
+        line = l.model_dump()
+        ref = receipts.reference_price(line, p)
+        if not ref or ref <= 0:
+            continue
+        base = {"user_id": user_id, "store_id": store_id, "product_id": p["id"], "quantity": l.quantity,
+                "weight_kg": l.weight_kg, "receipt_text": l.text, "date": date, "location_name": location_name,
+                "saving_id": saving_id, "created_at": now_iso(), "note": l.note}
+        docs = []
+        if l.kind == "offerta":
+            until = l.promo_until
+            try:
+                datetime.fromisoformat(until or "")
+            except ValueError:
+                until = (datetime.fromisoformat(date) + timedelta(days=PROMO_DEFAULT_DAYS)).date().isoformat()
+            docs.append({**base, "kind": "offerta", "ref_price": ref, "paid": l.net_price, "promo_until": until})
+            if l.gross_price and l.gross_price > l.net_price:   # il prezzo pieno è il prezzo normale
+                gross_ref = receipts.reference_price({**line, "net_price": l.gross_price}, p)
+                if gross_ref:
+                    docs.append({**base, "kind": "normale", "ref_price": gross_ref, "paid": l.gross_price})
+        else:
+            docs.append({**base, "kind": l.kind, "ref_price": ref, "paid": l.net_price})
+        for d in docs:
+            d["id"] = str(uuid.uuid4())
+            await db.user_prices.insert_one(dict(d))
+            remember_price(d)
+        saved += 1
+    rebuild_catalog()
+    return saved
 
 
 class ApplyReceiptIn(BaseModel):
@@ -1084,24 +1161,9 @@ async def apply_receipt(body: ApplyReceiptIn):
         datetime.fromisoformat(date)
     except ValueError:
         date = datetime.now(timezone.utc).date().isoformat()
-    saved = 0
     entry = await db.savings.find_one({"id": body.saving_id}, NO_ID) if body.saving_id else None
     branch = (((entry or {}).get("snapshot") or {}).get("branch") or {}).get("name")
-    for l in body.lines:
-        p = PRODUCT_INDEX.get(l.product_id or "")
-        if not p:
-            continue
-        ref = receipts.reference_price(l.model_dump(), p)
-        if not ref or ref <= 0:
-            continue
-        doc = {"id": str(uuid.uuid4()), "user_id": body.user_id, "store_id": body.store_id, "product_id": p["id"],
-               "ref_price": ref, "paid": l.net_price, "quantity": l.quantity, "weight_kg": l.weight_kg,
-               "receipt_text": l.text, "date": date, "location_name": branch, "saving_id": body.saving_id,
-               "created_at": now_iso()}
-        await db.user_prices.insert_one(dict(doc))
-        RECEIPT_PRICES[(body.store_id, p["id"])] = receipt_entry(doc)
-        saved += 1
-    rebuild_catalog()
+    saved = await save_observed_prices(body.user_id, body.store_id, body.lines, date, branch, body.saving_id)
     out = {"prices_saved": saved}
     if entry:
         # i prezzi veri restano accanto allo scontrino calcolato (anche senza totale);
@@ -1729,10 +1791,13 @@ def _shop_item(it: ShopItemIn, store_id: str, in_store: bool = False) -> dict:
         info = CATALOG.get(store_id, {}).get(it.product_id)
         if info:
             price = round(info["final_price"] * it.quantity / p["default_qty"], 2)
+    info = CATALOG.get(store_id, {}).get(it.product_id) or {}
     return {"key": it.product_id, "product_id": it.product_id, "name": p["name"] if p else (it.name or it.product_id[7:]),
             "quantity": it.quantity, "unit": p["unit"] if p else (it.unit or "pz"),
             "category_id": p["category_id"] if p else (it.category_id or "altro"),
-            "price": price, "checked": False, "checked_by": None, "checked_at": None, "added_in_store": in_store}
+            "price": price, "checked": False, "checked_by": None, "checked_at": None, "added_in_store": in_store,
+            "in_promo": info.get("promo_price") is not None, "promo_until": info.get("promo_until"),
+            "variant": RECEIPT_VARIANTS.get((store_id, it.product_id)), "seen": None}
 
 
 async def aisle_key(user_id: str, store_id: str) -> str:
@@ -1853,6 +1918,38 @@ async def add_to_shop(shop_id: str, body: ShopAdd):
         it = _shop_item(body.item, shop["store_id"], in_store=True)
         it.update(checked=True, checked_at=now_iso(), checked_by=None, checked_by_id=body.user_id)
         shop["items"].append(it)
+    await db.shops.update_one({"id": shop_id}, {"$set": {"items": shop["items"], "updated_at": now_iso()}})
+    return await shop_out(shop, body.user_id)
+
+
+class ShopPrice(BaseModel):
+    user_id: str
+    key: str
+    price: float = Field(gt=0, lt=1000)          # quanto costa la riga (quella quantità)
+    kind: Literal["normale", "offerta", "variante"] = "normale"
+    promo_until: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=80)
+    display_name: Optional[str] = Field(default=None, max_length=40)
+
+
+@api.post("/shops/{shop_id}/price")
+async def shop_price(shop_id: str, body: ShopPrice):
+    """In negozio: segni il prezzo che vedi (normale, in offerta o di un'altra marca) e il prodotto va nel carrello."""
+    shop = await get_shop_for(shop_id, body.user_id)
+    item = next((i for i in shop["items"] if i["key"] == body.key), None)
+    if not item:
+        raise HTTPException(404, "Prodotto non trovato")
+    if not item["product_id"].startswith("custom:"):
+        line = ReceiptLineIn(product_id=item["product_id"], text=item["name"], net_price=body.price,
+                             quantity=1 if item["unit"] == "kg" else item["quantity"],
+                             weight_kg=item["quantity"] if item["unit"] == "kg" else None,
+                             kind=body.kind, promo_until=body.promo_until, note=body.note)
+        await save_observed_prices(body.user_id, shop["store_id"], [line], datetime.now(timezone.utc).date().isoformat(),
+                                   shop.get("branch"), shop.get("saving_id"))
+    item.update(seen={"price": body.price, "kind": body.kind, "note": body.note}, checked=True,
+                checked_at=item.get("checked_at") or now_iso(), checked_by=body.display_name, checked_by_id=body.user_id)
+    if body.kind != "variante":
+        item["price"] = body.price
     await db.shops.update_one({"id": shop_id}, {"$set": {"items": shop["items"], "updated_at": now_iso()}})
     return await shop_out(shop, body.user_id)
 
