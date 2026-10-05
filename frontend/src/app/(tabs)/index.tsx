@@ -15,8 +15,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { api, BudgetSuggestion, Category, Flyer, Offer } from '@/api';
+import { api, BudgetSuggestion, Category, Flyer, HabitualItem, Offer } from '@/api';
 import { FuelCard } from '@/components/FuelCard';
+import { HabitualPicker } from '@/components/HabitualPicker';
 import { HScroll } from '@/components/HScroll';
 import { ProductSearch } from '@/components/ProductSearch';
 import { ShoppingList } from '@/components/ShoppingList';
@@ -44,6 +45,7 @@ export default function ListaScreen() {
   const [openCategory, setOpenCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingHabitual, setLoadingHabitual] = useState(false);
+  const [habitualProposal, setHabitualProposal] = useState<{ items: HabitualItem[]; occasions: number } | null>(null);
   const [budgetText, setBudgetText] = useState(prefs.budget != null ? String(prefs.budget) : '');
 
   useEffect(() => {
@@ -92,14 +94,13 @@ export default function ListaScreen() {
         notify('Spesa abituale', `Su ${h.occasions} spese non c'è ancora niente che compri spesso: lo imparo con le prossime.`);
         return;
       }
-      h.items.forEach((i) => addItem(i.product_id, i.quantity));
-      notify('Spesa abituale', `Aggiunti ${h.items.length} prodotti che compri spesso (da ${h.occasions} spese): ${h.items.slice(0, 6).map((i) => i.name).join(', ')}${h.items.length > 6 ? '…' : ''}.`);
+      setHabitualProposal({ items: h.items, occasions: h.occasions });
     } catch (e) {
       notify('Errore', (e as Error).message);
     } finally {
       setLoadingHabitual(false);
     }
-  }, [userId, addItem]);
+  }, [userId]);
 
   const [locating, setLocating] = useState(false);
   const useMyLocation = async () => {
@@ -428,6 +429,22 @@ export default function ListaScreen() {
           <PrimaryButton label="Fatto" onPress={() => setOpenCategory(null)} style={{ marginTop: spacing.md }} />
         </View>
       </Modal>
+      {habitualProposal && catalog && (
+        <HabitualPicker
+          items={habitualProposal.items}
+          occasions={habitualProposal.occasions}
+          categories={catalog.categories}
+          productById={productById}
+          inList={(id) => items.some((it) => it.product_id === id)}
+          onClose={() => setHabitualProposal(null)}
+          onConfirm={(chosen) => {
+            chosen.forEach((i) => {
+              if (!items.some((it) => it.product_id === i.product_id)) addItem(i.product_id, i.quantity);
+            });
+            setHabitualProposal(null);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
