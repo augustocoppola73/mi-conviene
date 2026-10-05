@@ -104,12 +104,31 @@ export default function ListaScreen() {
   }, [userId]);
 
   const [locating, setLocating] = useState(false);
+  const [addr, setAddr] = useState('');
+  const [addrOpen, setAddrOpen] = useState(false);
+  const [addrResults, setAddrResults] = useState<{ lat: number; lon: number; label: string }[] | null>(null);
   const useMyLocation = async () => {
     setLocating(true);
     try {
       setPrefs({ location: await getCurrentPosition() });
+      setAddrOpen(false);
     } catch (e) {
-      notify('Posizione', (e as Error).message);
+      // dal browser del telefono senza https il GPS non è disponibile: si scrive l'indirizzo
+      setAddrOpen(true);
+      notify('Posizione', `${(e as Error).message}\nPuoi scrivere il tuo indirizzo o la città qui sotto.`);
+    } finally {
+      setLocating(false);
+    }
+  };
+  const searchAddr = async () => {
+    if (addr.trim().length < 3) return;
+    setLocating(true);
+    try {
+      const r = await api.geocode(addr.trim());
+      setAddrResults(r);
+      if (!r.length) notify('Indirizzo', 'Non trovo questo indirizzo: prova con via, numero e città.');
+    } catch (e) {
+      notify('Indirizzo', (e as Error).message);
     } finally {
       setLocating(false);
     }
@@ -383,6 +402,27 @@ export default function ListaScreen() {
               <Text style={s.muted}>Così confronto i supermercati veri vicino a te, con le distanze reali. Senza, uso distanze di esempio.</Text>
             </View>
           </Pressable>
+        )}
+        <Pressable onPress={() => setAddrOpen(!addrOpen)} hitSlop={6} style={{ marginTop: spacing.xs }}>
+          <Text style={s.suggestUse}>{addrOpen ? 'Chiudi' : 'Oppure scrivi indirizzo o città'}</Text>
+        </Pressable>
+        {addrOpen && (
+          <View style={{ gap: spacing.xs, marginTop: spacing.xs }}>
+            <View style={s.budgetBox}>
+              <TextInput
+                value={addr} onChangeText={setAddr} placeholder="Es. Via Roma 10, Livorno" placeholderTextColor={colors.textSecondary}
+                style={[s.budgetInput, { fontSize: 15 }]} onSubmitEditing={searchAddr} returnKeyType="search"
+              />
+              <Pressable onPress={searchAddr} hitSlop={6}><Icon name="search" size={20} color={colors.primary} /></Pressable>
+            </View>
+            {addrResults?.map((r) => (
+              <Pressable key={`${r.lat},${r.lon}`} style={s.locRow}
+                onPress={() => { setPrefs({ location: { lat: r.lat, lon: r.lon, updatedAt: new Date().toISOString() } }); setAddrOpen(false); setAddrResults(null); }}>
+                <Icon name="location-outline" size={16} color={colors.primary} />
+                <Text style={[s.muted, { flex: 1 }]} numberOfLines={2}>{r.label}</Text>
+              </Pressable>
+            ))}
+          </View>
         )}
 
         <SectionTitle>Dove vai di solito?</SectionTitle>

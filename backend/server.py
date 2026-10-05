@@ -878,6 +878,23 @@ async def fuel_nearby(fuel: Literal["benzina", "gasolio", "gpl", "metano"] = "be
             "best": cands[0], "stations": cands[:5]}
 
 
+@api.get("/geocode")
+async def geocode(q: str = Query(min_length=3, max_length=120)):
+    """Indirizzo o città -> coordinate (OpenStreetMap Nominatim). Serve quando il GPS non è disponibile,
+    per esempio aprendo l'app dal browser del telefono senza https."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15, headers={"User-Agent": "MiConviene/0.1 (app personale)"}) as c:
+            r = await c.get("https://nominatim.openstreetmap.org/search",
+                            params={"q": q, "format": "json", "limit": 5, "countrycodes": "it", "accept-language": "it"})
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        raise HTTPException(502, "Ricerca indirizzi non disponibile in questo momento")
+    return [{"lat": round(float(x["lat"]), 4), "lon": round(float(x["lon"]), 4), "label": x.get("display_name", "")}
+            for x in data]
+
+
 @api.get("/stores/nearby")
 async def stores_nearby(lat: float, lon: float):
     try:

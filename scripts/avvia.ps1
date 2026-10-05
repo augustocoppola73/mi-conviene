@@ -53,7 +53,11 @@ Start-Job -ArgumentList $url -ScriptBlock {
 
 Write-Host ''
 Write-Host "  Mi Conviene e' attivo su $url" -ForegroundColor Cyan
+# indirizzo per il telefono (stessa rete Wi-Fi)
+$wifi = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -match 'Wi-?Fi|WLAN' -and $_.IPAddress -notlike '169.*' } | Select-Object -First 1
+if ($wifi) { Write-Host "  Dal telefono (stesso Wi-Fi): http://$($wifi.IPAddress):8001" -ForegroundColor Yellow }
 Write-Host '  Per fermarlo chiudi questa finestra.' -ForegroundColor Cyan
 Write-Host ''
 Set-Location $backend
-& $py -m uvicorn server:app --host 127.0.0.1 --port 8001
+# 0.0.0.0: raggiungibile anche dal telefono sulla stessa rete (Windows chiede il permesso la prima volta)
+& $py -m uvicorn server:app --host 0.0.0.0 --port 8001

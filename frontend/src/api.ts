@@ -250,6 +250,7 @@ export const api = {
   recipeCreate: (body: RecipeIn) => post<Recipe>('/recipes', body),
   recipeUpdate: (id: string, body: RecipeIn) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   recipeDelete: (id: string, user_id: string) => request<{ ok: boolean }>(`/recipes/${encodeURIComponent(id)}?user_id=${user_id}`, { method: 'DELETE' }),
+  geocode: (q: string) => request<{ lat: number; lon: number; label: string }[]>(`/geocode?q=${encodeURIComponent(q)}`),
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>
     post<Family>('/family/join', { user_id, display_name, code }),
