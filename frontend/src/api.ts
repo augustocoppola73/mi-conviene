@@ -41,9 +41,18 @@ export interface Receipt {
   total: number; normal_total: number; savings_vs_normal: number;
 }
 export interface Travel { distance_km: number; time_min: number; fuel_cost: number; time_cost: number }
+export interface FuelStation {
+  id: string; brand: string; name: string; address: string; city: string; lat: number; lon: number;
+  price: number; price_servito: number | null; distance_km: number; updated: string | null;
+  trip_cost: number; fill_cost: number; effective_cost: number; saving_vs_median: number | null; maps_url: string;
+}
+export interface FuelNearby {
+  fuel: FuelType; median: number | null; liters: number; observed_at: string | null;
+  best: FuelStation | null; stations: FuelStation[];
+}
 export interface Flyer {
   store_id: string; store_name: string; url: string; store_page: boolean;
-  branch_name: string | null; address: string | null; distance_km: number | null;
+  branch_name: string | null; address: string | null; distance_km: number | null; nearest_km: number | null;
 }
 export interface Branch {
   name: string; address: string | null; lat: number; lon: number; osm_id: string; opening_hours: string | null;
@@ -128,6 +137,8 @@ export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
   optimize: (body: OptimizeRequest) => post<OptimizeResult>('/optimize', body),
   offers: () => request<Offer[]>('/offers'),
+  fuelNearby: (fuel: FuelType, lat?: number, lon?: number, liters = 40) =>
+    request<FuelNearby>(`/fuel/nearby?fuel=${fuel}&liters=${liters}` + (lat != null && lon != null ? `&lat=${lat}&lon=${lon}` : '')),
   flyers: (lat?: number, lon?: number) =>
     request<Flyer[]>(lat != null && lon != null ? `/flyers?lat=${lat}&lon=${lon}` : '/flyers'),
   storesNearby: (lat: number, lon: number) =>

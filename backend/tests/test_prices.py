@@ -142,3 +142,32 @@ def test_cache_roundtrip(tmp_path, with_real_prices):
     from prices.service import PriceService
     other = PriceService(0, 0)
     assert other.load_cache(f) and other.real == server.prices.real
+
+
+def test_stations_near_and_cheapest():
+    s, p = fuel_csvs()
+    st = fuel.stations_near(s, p, 45.4642, 9.19, 40)
+    assert st and all(x["prices"] for x in st)
+    best = fuel.cheapest(st, 45.4642, 9.19, "gasolio", radius_km=40)
+    prices_ = [b["price"] for b in best]
+    assert prices_ == sorted(prices_) and len(best) <= 5
+
+
+async def test_fuel_nearby_endpoint(client, with_real_prices):
+    server.prices.stations = fuel.stations_near(*fuel_csvs(), 45.4642, 9.19, 40)
+    r = (await client.get("/api/fuel/nearby", params={"fuel": "gasolio", "lat": 45.4642, "lon": 9.19,
+                                                     "radius_km": 15})).json()
+    assert r["best"] and r["stations"][0]["id"] == r["best"]["id"]
+    costs = [x["effective_cost"] for x in r["stations"]]
+    assert costs == sorted(costs)
+    b = r["best"]
+    assert b["effective_cost"] == round(b["price"] * 40 + b["trip_cost"], 2)
+    assert b["maps_url"].startswith("https://www.google.com/maps/")
+
+
+def test_placeholder_coordinates_are_excluded():
+    s, p = fuel_csvs()
+    st = fuel.stations_near(s, p, 45.4642, 9.19, 40)
+    ids = {x["id"] for x in st}
+    # due Q8 di Arluno e Busto Garolfo con le stesse coordinate (centro di Milano) nei dati MIMIT
+    assert "61148" not in ids and "61149" not in ids

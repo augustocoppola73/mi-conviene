@@ -62,6 +62,66 @@ def median_price(stations_csv: str, prices_csv: str, lat: float, lon: float,
     }
 
 
+def suspicious_coordinates(rows: list[list[str]]) -> set[tuple[str, str]]:
+    """Coordinate condivise da distributori di comuni DIVERSI: sono segnaposto sbagliati
+    (es. la sede della società) e porterebbero l'utente nel posto sbagliato."""
+    comuni: dict[tuple[str, str], set[str]] = {}
+    for r in rows:
+        if len(r) > 9:
+            comuni.setdefault((r[8], r[9]), set()).add(r[6].strip().upper())
+    return {k for k, v in comuni.items() if len(v) > 1 or k[0] in ("", "0", "0.0")}
+
+
+def stations_near(stations_csv: str, prices_csv: str, lat: float, lon: float, radius_km: float = 12) -> list[dict]:
+    """Distributori stradali entro il raggio con i prezzi di oggi (self e servito)."""
+    near: dict[str, dict] = {}
+    rows = _rows(stations_csv)
+    bad = suspicious_coordinates(rows)
+    for r in rows:
+        try:
+            if r[3].lower().startswith("autostrad") or (r[8], r[9]) in bad:
+                continue  # in autostrada costa di più e non ci si va apposta
+            la, lo = float(r[8]), float(r[9])
+        except (IndexError, ValueError):
+            continue
+        if haversine_km(lat, lon, la, lo) <= radius_km:
+            near[r[0]] = {"id": r[0], "brand": r[2].strip() or "Pompe bianche", "name": r[4].strip(),
+                          "address": r[5].strip(), "city": r[6].strip().title(), "lat": la, "lon": lo, "prices": {}}
+    labels = {v: k for k, v in FUELS.items()}
+    for r in _rows(prices_csv):
+        try:
+            st = near.get(r[0])
+            fuel = labels.get(r[1])
+            if not st or not fuel:
+                continue
+            p = float(r[2])
+            if not 0.5 < p < 4:
+                continue
+            mode = "self" if r[3] == "1" else "servito"
+            st["prices"].setdefault(fuel, {})[mode] = p
+            st["updated"] = r[4] if len(r) > 4 else None
+        except (IndexError, ValueError):
+            continue
+    return [s for s in near.values() if s["prices"]]
+
+
+def cheapest(stations: list[dict], lat: float, lon: float, fuel: str, radius_km: float = 5,
+             limit: int = 5, road_factor: float = 1.3) -> list[dict]:
+    """I distributori più economici (prezzo self) entro il raggio dall'utente."""
+    out = []
+    for s in stations:
+        p = (s["prices"].get(fuel) or {}).get("self")
+        if p is None:
+            continue
+        d = haversine_km(lat, lon, s["lat"], s["lon"]) * road_factor
+        if d <= radius_km:
+            out.append({**{k: s[k] for k in ("id", "brand", "name", "address", "city", "lat", "lon")},
+                        "price": p, "price_servito": (s["prices"].get(fuel) or {}).get("servito"),
+                        "distance_km": round(max(d, 0.1), 1), "updated": s.get("updated")})
+    out.sort(key=lambda x: (x["price"], x["distance_km"]))
+    return out[:limit]
+
+
 async def fetch_csvs(client: httpx.AsyncClient | None = None) -> tuple[str, str]:
     own = client is None
     client = client or httpx.AsyncClient(timeout=60)

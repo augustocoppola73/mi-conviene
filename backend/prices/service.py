@@ -24,6 +24,7 @@ class PriceService:
         self.radius_km, self.fuel_radius_km = radius_km, fuel_radius_km
         self.real: dict[tuple[str, str], dict] = {}
         self.fuel: dict[str, dict] = {}
+        self.stations: list[dict] = []
         self.status: dict = {"openprices": None, "mimit": None, "last_refresh": None, "errors": []}
 
     # ---------- cache ----------
@@ -34,12 +35,13 @@ class PriceService:
             return False
         self.real = {tuple(k.split("|")): v for k, v in data.get("real", {}).items()}
         self.fuel = data.get("fuel", {})
+        self.stations = data.get("stations", [])
         self.status = data.get("status", self.status)
         return True
 
     def save_cache(self, path: Path = CACHE_FILE) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"real": {"|".join(k): v for k, v in self.real.items()}, "fuel": self.fuel, "status": self.status}
+        data = {"real": {"|".join(k): v for k, v in self.real.items()}, "fuel": self.fuel, "stations": self.stations, "status": self.status}
         path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
     # ---------- aggiornamento ----------
@@ -58,7 +60,9 @@ class PriceService:
             if m:
                 out[f] = m
         self.fuel = out
-        self.status["mimit"] = {"fuels": list(out), "refreshed_at": _now()}
+        # distributori vicini con i prezzi di oggi, per proporre dove fare carburante
+        self.stations = fuel.stations_near(stations_csv, prices_csv, self.lat, self.lon, self.fuel_radius_km + 5)
+        self.status["mimit"] = {"fuels": list(out), "stations": len(self.stations), "refreshed_at": _now()}
 
     async def refresh(self) -> None:
         errors = []

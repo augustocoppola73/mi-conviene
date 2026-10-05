@@ -21,7 +21,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -29,7 +29,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
 import storage
+import stores as stores_mod
 from stores import StoreLocator
+from prices import fuel as fuel_mod
 from prices.geo import haversine_km
 from prices.service import PriceService
 
@@ -648,24 +650,61 @@ def flyer_url(chain: str, website: Optional[str]) -> tuple[str, bool]:
 
 @api.get("/flyers")
 async def flyers(lat: Optional[float] = None, lon: Optional[float] = None):
-    """Volantini delle catene da confrontare: vicino a te se c'è la posizione."""
-    near: dict = {}
+    """Volantini delle catene: per ognuna il punto vendita più vicino che ha una sua pagina
+    ufficiale (volantino di zona). Se nessun negozio vicino ce l'ha, il volantino nazionale."""
+    all_stores: list[dict] = []
     if lat is not None and lon is not None:
         try:
-            near = await locator.nearest(lat, lon)
+            all_stores = await locator.stores_around(lat, lon)
         except Exception:
-            near = {}
+            all_stores = []
     out = []
     for s in STORES:
-        b = near.get(s["id"])
-        if near and not b:
+        mine = [dict(x) for x in all_stores if x["chain"] == s["id"]]
+        if all_stores and not mine:
             continue  # catena senza negozi vicini
-        url, store_page = flyer_url(s["id"], (b or {}).get("website"))
+        for x in mine:
+            x["_d"] = round(max(haversine_km(lat, lon, x["lat"], x["lon"]) * stores_mod.ROAD_FACTOR, 0.1), 1)
+        mine.sort(key=lambda x: x["_d"])
+        with_page = [x for x in mine if flyer_url(s["id"], x.get("website"))[1]]
+        pick = with_page[0] if with_page else (mine[0] if mine else None)
+        url, store_page = flyer_url(s["id"], (pick or {}).get("website"))
         out.append({"store_id": s["id"], "store_name": s["name"], "url": url, "store_page": store_page,
-                    "branch_name": (b or {}).get("name"), "address": (b or {}).get("address"),
-                    "distance_km": (b or {}).get("distance_km")})
-    out.sort(key=lambda f: (f["distance_km"] is None, f["distance_km"] or 0))
+                    "branch_name": (pick or {}).get("name"), "address": (pick or {}).get("address"),
+                    "distance_km": (pick or {}).get("_d"),
+                    "nearest_km": mine[0]["_d"] if mine else None})
+    out.sort(key=lambda f: (f["distance_km"] is None, f["nearest_km"] or 0))
     return out
+
+
+@api.get("/fuel/nearby")
+async def fuel_nearby(fuel: Literal["benzina", "gasolio", "gpl", "metano"] = "benzina",
+                      lat: Optional[float] = None, lon: Optional[float] = None,
+                      liters: float = Query(40, gt=0, le=200), radius_km: float = Query(5, gt=0, le=15)):
+    """Dove fare carburante: i distributori più convenienti vicino a te (dati MIMIT di oggi).
+
+    Si ordina per costo EFFETTIVO del pieno: prezzo x litri + carburante per andarci e
+    tornare. Un distributore 2 cent più economico ma a 5 km non conviene."""
+    if lat is None or lon is None:
+        lat, lon = prices.lat, prices.lon
+    else:
+        maybe_recenter_prices(lat, lon)
+    median = (prices.fuel.get(fuel) or {}).get("price_per_liter")
+    cands = fuel_mod.cheapest(prices.stations, lat, lon, fuel, radius_km=radius_km, limit=50)
+    if not cands:
+        return {"fuel": fuel, "median": median, "stations": [], "best": None, "liters": liters,
+                "observed_at": (prices.fuel.get(fuel) or {}).get("observed_at")}
+    for c in cands:
+        trip = c["distance_km"] * 2 * FUEL_CONSUMPTION_L_100KM / 100 * c["price"]
+        c["trip_cost"] = round(trip, 2)
+        c["fill_cost"] = round(c["price"] * liters, 2)
+        c["effective_cost"] = round(c["fill_cost"] + trip, 2)
+        c["saving_vs_median"] = round((median - c["price"]) * liters - trip, 2) if median else None
+        c["maps_url"] = f"https://www.google.com/maps/search/?api=1&query={c['lat']},{c['lon']}"
+    cands.sort(key=lambda c: c["effective_cost"])
+    return {"fuel": fuel, "median": median, "liters": liters, "radius_km": radius_km,
+            "observed_at": (prices.fuel.get(fuel) or {}).get("observed_at"),
+            "best": cands[0], "stations": cands[:5]}
 
 
 @api.get("/stores/nearby")

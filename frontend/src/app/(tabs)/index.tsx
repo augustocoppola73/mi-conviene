@@ -16,6 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api, BudgetSuggestion, Category, Flyer, Offer } from '@/api';
+import { FuelCard } from '@/components/FuelCard';
 import { HScroll } from '@/components/HScroll';
 import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
@@ -205,10 +206,12 @@ export default function ListaScreen() {
                     <Text style={s.offerName} numberOfLines={1}>{f.store_name}</Text>
                   </View>
                   <Text style={s.muted} numberOfLines={2}>
-                    {f.branch_name ? `${f.branch_name}${f.distance_km != null ? ` · ${f.distance_km.toLocaleString('it-IT')} km` : ''}` : 'Volantino nazionale'}
+                    {f.branch_name
+                      ? `${f.branch_name}${f.address ? `, ${f.address}` : ''}${f.distance_km != null ? ` · ${f.distance_km.toLocaleString('it-IT')} km` : ''}`
+                      : 'Volantino nazionale'}
                   </Text>
                   <View style={s.flyerLink}>
-                    <Text style={s.flyerLinkText}>{f.store_page ? 'Volantino del negozio' : 'Apri volantino'}</Text>
+                    <Text style={s.flyerLinkText}>{f.store_page ? 'Volantino di zona' : 'Volantino nazionale'}</Text>
                     <Icon name="open-outline" size={14} color={colors.primary} />
                   </View>
                 </Pressable>
@@ -310,6 +313,17 @@ export default function ListaScreen() {
             <Chip key={t.id} label={t.label} icon={t.icon as never} selected={prefs.transport === t.id} onPress={() => setPrefs({ transport: t.id })} />
           ))}
         </View>
+
+        {prefs.transport === 'car' && (
+          <View style={{ marginTop: spacing.lg }}>
+            <FuelCard
+              fuel={prefs.fuelType}
+              onFuelChange={(f) => setPrefs({ fuelType: f })}
+              lat={prefs.location?.lat}
+              lon={prefs.location?.lon}
+            />
+          </View>
+        )}
 
         <SectionTitle>Dove sei?</SectionTitle>
         {prefs.location ? (
