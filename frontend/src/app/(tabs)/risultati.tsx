@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, RankedStore } from '@/api';
@@ -18,7 +18,11 @@ function shortDate(iso: string | null) {
 export default function RisultatiScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { lastResult, userId, items } = useStore();
+  const { lastResult, userId, items, prefs, setPrefs } = useStore();
+  const [askOpen, setAskOpen] = useState(false);
+  const [refStore, setRefStore] = useState<string | null>(null); // negozio di confronto scelto alla conferma
+  const [rememberHabitual, setRememberHabitual] = useState(false);
+  const [addedAmount, setAddedAmount] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -27,6 +31,8 @@ export default function RisultatiScreen() {
   useEffect(() => {
     setConfirmed(null);
     setExpanded(null);
+    setAddedAmount(null);
+    setAskOpen(false);
   }, [lastResult]);
 
   if (!lastResult) {
@@ -53,29 +59,48 @@ export default function RisultatiScreen() {
   const stop = recommended.fuel_stop;
   const fuelSaving = stop ? savings.fuel_saving : 0;
 
-  const confirm = async () => {
+  // Risparmio rispetto al negozio scelto alla conferma ("dove saresti andato di solito").
+  // null = spesa tipica in zona (mediana): è quello calcolato dal backend.
+  const refRow = refStore ? ranked.find((r) => r.store_id === refStore) : undefined;
+  const shopSaving = refRow
+    ? Math.max(0, Math.round((refRow.total_cost - recommended.total_cost) * 100) / 100)
+    : estimatedSaving;
+  const refLabel = refRow ? `rispetto a ${refRow.store_name}` : savings.reference.label;
+
+  const openConfirm = () => {
+    const habitualHere = ranked.some((r) => r.store_id === prefs.habitualStoreId) ? prefs.habitualStoreId : null;
+    setRefStore(habitualHere && habitualHere !== recommended.store_id ? habitualHere : habitualHere ? recommended.store_id : null);
+    setRememberHabitual(false);
+    setAskOpen(true);
+  };
+
+  const confirm = async (addToPiggyBank: boolean) => {
     if (!userId) return;
     setSaving(true);
     try {
+      if (rememberHabitual && refStore) setPrefs({ habitualStoreId: refStore });
       const h = await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: recommended.total_cost });
-      // la voce va nel Salvadanaio anche a risparmio zero: la potrai verificare con lo scontrino vero
+      const amount = addToPiggyBank ? Math.round((shopSaving + fuelSaving) * 100) / 100 : 0;
+      // la voce va comunque nel Salvadanaio (anche a zero) per poterla verificare con lo scontrino vero
       await api.addSaving({
         user_id: userId,
         store_id: recommended.store_id,
         // stima totale = spesa + pieno sulla strada (la parte pieno si azzera se alla verifica dici che non l'hai fatto)
-        amount: Math.round((estimatedSaving + fuelSaving) * 100) / 100,
-        note: savings.reference.label,
-        reference_type: savings.reference.type,
+        amount,
+        note: addToPiggyBank ? refLabel : 'spesa registrata senza risparmio',
+        reference_type: refRow ? 'habitual' : savings.reference.type,
         price_basis: savings.price_basis,
         history_id: h.id,
         estimated_spend: recommended.receipt.total,
         estimated_total: recommended.total_cost,
-        ...(stop ? {
+        ...(stop && addToPiggyBank ? {
           fuel_saving: fuelSaving, fuel_liters: stop.liters, fuel_median: stop.median,
           fuel_detour_cost: stop.detour_cost, fuel_station: `${stop.brand}, ${stop.address}`,
         } : {}),
       });
+      setAddedAmount(amount);
       setConfirmed(recommended.store_id);
+      setAskOpen(false);
     } finally {
       setSaving(false);
     }
@@ -207,14 +232,13 @@ export default function RisultatiScreen() {
         <PrimaryButton
           label={confirmed === recommended.store_id ? 'Spesa confermata' : 'Confermo questa spesa'}
           icon={confirmed === recommended.store_id ? 'checkmark-circle' : 'cart-outline'}
-          onPress={confirm}
-          loading={saving}
+          onPress={openConfirm}
           disabled={confirmed === recommended.store_id}
           style={{ marginTop: spacing.lg }}
         />
         {confirmed === recommended.store_id && (
           <Text style={s.confirmNote}>
-            {estimatedSaving + fuelSaving > 0 ? `Aggiunti ${euro(estimatedSaving + fuelSaving)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
+            {addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
             {'\n'}Dopo la spesa, verificala lì con il totale dello scontrino.
           </Text>
         )}
@@ -252,6 +276,67 @@ export default function RisultatiScreen() {
           <Text style={s.missing}>Punti vendita © OpenStreetMap. Distanze in linea d'aria × 1,3 (stima del percorso stradale).</Text>
         )}
       </ScrollView>
+
+      <Modal visible={askOpen} transparent animationType="fade" onRequestClose={() => setAskOpen(false)}>
+        <View style={s.modalBg}>
+          <Card style={s.modal}>
+            <Text style={s.modalTitle}>Confermi la spesa da {recommended.store_name}?</Text>
+            <Text style={s.modalText}>Rispetto a dove saresti andato di solito?</Text>
+            <View style={s.refWrap}>
+              {ranked.map((r) => (
+                <Pressable key={r.store_id} onPress={() => setRefStore(r.store_id)} style={[s.refChip, refStore === r.store_id && s.refChipOn]}>
+                  <StoreDot storeId={r.store_id} size={12} />
+                  <Text style={[s.refText, refStore === r.store_id && s.refTextOn]}>
+                    {r.store_name}{r.store_id === prefs.habitualStoreId ? ' (abituale)' : ''}
+                  </Text>
+                </Pressable>
+              ))}
+              <Pressable onPress={() => setRefStore(null)} style={[s.refChip, refStore === null && s.refChipOn]}>
+                <Text style={[s.refText, refStore === null && s.refTextOn]}>Non saprei (spesa tipica in zona)</Text>
+              </Pressable>
+            </View>
+
+            <View style={s.preview}>
+              {refRow && refRow.store_id !== recommended.store_id ? (
+                <Text style={s.modalText}>
+                  Da {refRow.store_name} avresti speso {euro(refRow.total_cost)}, qui {euro(recommended.total_cost)} (viaggio incluso).
+                </Text>
+              ) : refRow ? (
+                <Text style={s.modalText}>È proprio il negozio dove vai di solito: nessun risparmio da aggiungere.</Text>
+              ) : (
+                <Text style={s.modalText}>Confronto con la spesa tipica in zona (mediana delle catene).</Text>
+              )}
+              <Text style={s.previewValue}>
+                {shopSaving > 0 ? `Risparmi ${euro(shopSaving)}` : 'Nessun risparmio'}
+                {fuelSaving > 0 ? ` + ${euro(fuelSaving)} sul pieno (da verificare)` : ''}
+              </Text>
+              {refRow && refRow.total_cost < recommended.total_cost && (
+                <Text style={s.modalSmall}>{refRow.store_name} costerebbe meno in euro, ma tra strada e tempo non conviene.</Text>
+              )}
+            </View>
+
+            {refStore && refStore !== prefs.habitualStoreId && (
+              <Pressable onPress={() => setRememberHabitual(!rememberHabitual)} style={s.remember}>
+                <Icon name={rememberHabitual ? 'checkbox' : 'square-outline'} size={20} color={colors.primary} />
+                <Text style={s.modalText}>Ricorda come mio supermercato abituale</Text>
+              </Pressable>
+            )}
+
+            <PrimaryButton
+              label={shopSaving + fuelSaving > 0 ? `Conferma e aggiungi ${euro(shopSaving + fuelSaving)}` : 'Conferma la spesa'}
+              icon="wallet-outline"
+              loading={saving}
+              onPress={() => confirm(shopSaving + fuelSaving > 0)}
+            />
+            {shopSaving + fuelSaving > 0 && (
+              <PrimaryButton label="Conferma senza aggiungere al Salvadanaio" variant="secondary" onPress={() => confirm(false)} disabled={saving} />
+            )}
+            <Pressable onPress={() => setAskOpen(false)} style={{ alignSelf: 'center', padding: spacing.sm }}>
+              <Text style={s.modalSmall}>Annulla</Text>
+            </Pressable>
+          </Card>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -311,6 +396,19 @@ const useStyles = makeStyles((c) => ({
   lineStrike: { color: c.textSecondary, fontSize: 12, textDecorationLine: 'line-through' },
   linePrice: { color: c.text, fontSize: 14, fontWeight: '600', minWidth: 60, textAlign: 'right' },
   receiptTotal: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: c.border, paddingTop: spacing.sm },
+  modalBg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'center', padding: spacing.lg },
+  modal: { gap: spacing.md, width: '100%', maxWidth: 460, alignSelf: 'center' },
+  modalTitle: { color: c.text, fontSize: 19, fontWeight: '700' },
+  modalText: { color: c.text, fontSize: 14, lineHeight: 20, flexShrink: 1 },
+  modalSmall: { color: c.textSecondary, fontSize: 12 },
+  refWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  refChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
+  refChipOn: { backgroundColor: c.primary, borderColor: c.primary },
+  refText: { color: c.text, fontSize: 13 },
+  refTextOn: { color: c.primaryText },
+  preview: { backgroundColor: c.primarySoft, borderRadius: radius.md, padding: spacing.md, gap: 4 },
+  previewValue: { color: c.success, fontSize: 16, fontWeight: '700' },
+  remember: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   fuelStop: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: c.surface, gap: 2 },
   fuelStopTitle: { color: c.text, fontSize: 14, fontWeight: '700' },
   fuelStopText: { color: c.textSecondary, fontSize: 12, lineHeight: 17 },
