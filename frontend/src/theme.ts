@@ -1,4 +1,25 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSyncExternalStore } from 'react';
 import { StyleSheet, useColorScheme } from 'react-native';
+
+/** Tema scelto dall'utente: segue il telefono, oppure sempre chiaro / sempre scuro. */
+export type ThemeMode = 'auto' | 'light' | 'dark';
+const THEME_KEY = 'mc_theme';
+let mode: ThemeMode = 'auto';
+const listeners = new Set<() => void>();
+AsyncStorage.getItem(THEME_KEY)
+  .then((v) => { if (v === 'light' || v === 'dark' || v === 'auto') { mode = v; listeners.forEach((l) => l()); } })
+  .catch(() => {});
+
+export function setThemeMode(m: ThemeMode) {
+  mode = m;
+  AsyncStorage.setItem(THEME_KEY, m).catch(() => {});
+  listeners.forEach((l) => l());
+}
+const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+export function useThemeMode(): ThemeMode {
+  return useSyncExternalStore(subscribe, () => mode, () => mode);
+}
 
 // Palette "Moss Green". Regola: nessun colore hardcoded nei componenti.
 const light = {
@@ -59,7 +80,8 @@ export const storeColors: Record<string, string> = {
 
 export function useTheme() {
   const scheme = useColorScheme();
-  const isDark = scheme === 'dark';
+  const m = useThemeMode();
+  const isDark = m === 'auto' ? scheme === 'dark' : m === 'dark';
   return { colors: isDark ? dark : light, isDark };
 }
 

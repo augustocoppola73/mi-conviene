@@ -8,7 +8,7 @@ import { getCurrentPosition } from '@/location';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
 import { useStore } from '@/store';
-import { makeStyles, radius, spacing, useTheme } from '@/theme';
+import { makeStyles, radius, setThemeMode, spacing, ThemeMode, useTheme, useThemeMode } from '@/theme';
 
 function notify(message: string) {
   if (Platform.OS === 'web') globalThis.alert?.(message);
@@ -95,6 +95,9 @@ export default function ProfiloScreen() {
             style={[s.input, s.inputFlex]}
           />
         </View>
+
+        <SectionTitle>Aspetto</SectionTitle>
+        <ThemePicker />
 
         <SectionTitle>Mezzo di trasporto</SectionTitle>
         <View style={s.wrap}>
@@ -289,3 +292,20 @@ const useStyles = makeStyles((c) => ({
   modalTitle: { color: c.text, fontSize: 20, fontWeight: '700' },
   codeInput: { fontSize: 24, letterSpacing: 6, textAlign: 'center', fontWeight: '700' },
 }));
+
+
+function ThemePicker() {
+  const current = useThemeMode();
+  const opts: { id: ThemeMode; label: string; icon: 'phone-portrait-outline' | 'sunny-outline' | 'moon-outline' }[] = [
+    { id: 'auto', label: 'Come il telefono', icon: 'phone-portrait-outline' },
+    { id: 'light', label: 'Chiaro', icon: 'sunny-outline' },
+    { id: 'dark', label: 'Scuro', icon: 'moon-outline' },
+  ];
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      {opts.map((o) => (
+        <Chip key={o.id} label={o.label} icon={o.icon} selected={current === o.id} onPress={() => setThemeMode(o.id)} />
+      ))}
+    </View>
+  );
+}
