@@ -181,3 +181,13 @@ async def test_price_sort_menu_and_propose(client):
     assert m["costs"] and m["costs"][0]["total"] > 0
     tight = (await client.post("/api/recipes/propose", json={"user_id": "m", "count": 2, "servings": 2, "budget": 0.5})).json()
     assert tight["total"] <= 0.5
+
+
+async def test_suggest_with_hand_written_items_and_substitutes(client):
+    # scritti a mano e prodotti "equivalenti": penne al posto degli spaghetti, passata al posto dei pelati
+    items = [{"product_id": "penne", "quantity": 1}, {"product_id": "custom:passata di pomodoro", "quantity": 1,
+              "name": "passata di pomodoro"}]
+    s = (await client.post("/api/suggest", json={"items": items})).json()
+    a = next(x for x in s["almost"] if x["id"] == "wb:amatriciana")
+    assert set(a["uses"]) >= {"Spaghetti 500g", "Pomodori pelati 400g"}
+    assert [m["product_id"] for m in a["missing"]] == ["pecorino"] and a["missing_new"] == ["guanciale"]

@@ -1534,6 +1534,18 @@ async def suggest(body: SuggestIn):
     - se c'è un budget: cosa ci sta ancora dentro."""
     in_list = {i.product_id for i in body.items if not i.product_id.startswith("custom:")}
     custom_names = {normalize(i.name or i.product_id[7:]) for i in body.items if i.product_id.startswith("custom:")}
+    # i prodotti scritti a mano valgono anche come prodotti del catalogo quando li riconosco ("pomodori")
+    for i in body.items:
+        if i.product_id.startswith("custom:"):
+            pid, _ = recipes.match_product(i.name or i.product_id[7:], PRODUCT_INDEX)
+            if pid:
+                in_list.add(pid)
+    have_ids = set().union(*(recipes.substitutes(p) for p in in_list)) if in_list else set()
+
+    def custom_has(name: str) -> bool:
+        n = normalize(name)
+        return any(n == c or n in c or c in n for c in custom_names if len(c) >= 4)
+
     remaining = round(body.budget - body.spent, 2) if body.budget is not None and body.spent is not None else None
     ready, almost = [], []
     for r in await all_recipes_for(body.user_id):
@@ -1541,19 +1553,21 @@ async def suggest(body: SuggestIn):
         needs = core["needs"]
         if len(needs) + len(core["unknown"]) < 2:
             continue
-        have = [x for x in needs if x["product_id"] in in_list]
-        miss = [x for x in needs if x["product_id"] not in in_list]
-        unk_have = [n for n in core["unknown"] if normalize(n) in custom_names]
-        unk_miss = [n for n in core["unknown"] if normalize(n) not in custom_names]
+        have = [x for x in needs if x["product_id"] in have_ids]
+        miss = [x for x in needs if x["product_id"] not in have_ids]
+        unk_have = [n for n in core["unknown"] if custom_has(n)]
+        unk_miss = [n for n in core["unknown"] if not custom_has(n)]
         n_have = len(have) + len(unk_have)
-        total = len(needs) + len(core["unknown"])
-        if n_have < 2 or n_have / total < 0.5:
+        n_miss = len(miss) + len(unk_miss)
+        total = n_have + n_miss
+        # deve usare la lista più di quanto manca: 1 in lista e 1 da comprare, 2 e fino a 3...
+        if n_have == 0 or n_miss > 3 or n_have < max(1, n_miss - 1) or (n_miss == 0 and n_have < 2):
             continue
         info = {**recipe_summary(r), "uses": [x["product_name"] for x in have] + unk_have,
                 "coverage": round(n_have / total, 2)}
-        if not miss and not unk_miss:
+        if n_miss == 0:
             ready.append(info)
-        elif len(miss) + len(unk_miss) <= 2:
+        else:
             scale = body.servings / core["servings"]
             buy = []
             for x in miss:  # quanto comprare di quello che manca, per le persone indicate
@@ -1568,7 +1582,9 @@ async def suggest(body: SuggestIn):
                         fits_budget=remaining is not None and cost is not None and cost <= remaining and not unk_miss)
             almost.append(info)
     ready.sort(key=lambda x: (-len(x["uses"]), x["name"]))
-    almost.sort(key=lambda x: (len(x["missing"]) + len(x["missing_new"]), x["missing_cost"] if x["missing_cost"] is not None else 99, -x["coverage"]))
+    # prima quelle che usano più cose della lista, poi quelle a cui manca meno e costa meno completarle
+    almost.sort(key=lambda x: (-len(x["uses"]), len(x["missing"]) + len(x["missing_new"]),
+                               x["missing_cost"] if x["missing_cost"] is not None else 99, x["name"]))
 
     # cose che compri di solito e non sono in lista
     extras = []
@@ -1588,7 +1604,8 @@ async def suggest(body: SuggestIn):
             extras.append({"product_id": h["product_id"], "name": h["name"], "quantity": h["quantity"],
                            "unit": PRODUCT_INDEX[h["product_id"]]["unit"], "count": h["count"],
                            "occasions": hab["occasions"], "cost": cost, "fits_budget": fits})
-    return {"ready": ready[:6], "almost": almost[:6], "habitual_missing": extras[:8], "remaining": remaining}
+    return {"ready": ready[:6], "almost": almost[:6], "habitual_missing": extras[:8], "remaining": remaining,
+            "list_size": len(body.items)}
 
 
 class ProposeIn(BaseModel):

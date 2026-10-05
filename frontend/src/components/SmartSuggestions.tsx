@@ -25,7 +25,7 @@ export function SmartSuggestions({ items, storeId, budget, spent, onListChanged 
   const key = useMemo(() => items.map((i) => i.product_id).sort().join('|'), [items]);
 
   useEffect(() => {
-    if (items.length < 2) { setData(null); return; }
+    if (items.length < 1) { setData(null); return; }
     const t = setTimeout(() => {
       api.suggest({ user_id: userId, items, store_id: storeId, budget: budget ?? null, spent: spent ?? null, servings: 2 })
         .then(setData).catch(() => setData(null));
@@ -38,7 +38,17 @@ export function SmartSuggestions({ items, storeId, budget, spent, onListChanged 
   const remaining = data.remaining;
   const almost = data.almost.filter((r) => !added.has(r.id));
   const habitual = data.habitual_missing.filter((h) => !added.has(h.product_id));
-  if (!data.ready.length && !almost.length && !habitual.length) return null;
+  if (!data.ready.length && !almost.length && !habitual.length) {
+    return (
+      <Card style={s.card}>
+        <Text style={s.title}>💡 Con questa lista…</Text>
+        <Text style={s.meta}>Non trovo ricette che usano questi prodotti (o ne mancano troppi).</Text>
+        <Pressable onPress={() => router.push('/ricette')} hitSlop={6}>
+          <Text style={s.link}>Cerca tra le ricette ›</Text>
+        </Pressable>
+      </Card>
+    );
+  }
   const inBudget = remaining != null && remaining > 0;
   const habitualShown = inBudget ? habitual.filter((h) => h.fits_budget) : habitual.slice(0, 4);
   const almostShown = inBudget ? [...almost.filter((a) => a.fits_budget), ...almost.filter((a) => !a.fits_budget)].slice(0, 3) : almost.slice(0, 3);
@@ -129,5 +139,6 @@ const useStyles = makeStyles((c) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 },
   rowName: { color: c.text, fontSize: 14, fontWeight: '600' },
   meta: { color: c.textSecondary, fontSize: 12 },
+  link: { color: c.primary, fontSize: 13, fontWeight: '700' },
   addBtn: { width: 34, height: 34, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: c.primarySoft },
 }));

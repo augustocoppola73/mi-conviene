@@ -280,7 +280,7 @@ export default function ListaScreen() {
             removeItem={removeItem}
           />
         )}
-        {items.length >= 2 && <SmartSuggestions items={items} />}
+        {items.length >= 1 && <SmartSuggestions items={items} />}
 
         <SectionTitle>Budget</SectionTitle>
         <View style={s.budgetBox}>

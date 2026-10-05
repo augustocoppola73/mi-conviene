@@ -120,7 +120,7 @@ def _num(tok: str) -> float | None:
 
 NUMBER = r"(\d+(?:[.,]\d+)?(?:\s*/\s*\d+)?|[½¼¾⅓⅔]|un|uno|una|mezzo|mezza|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|dodici)"
 UNIT_RE = "|".join(sorted((re.escape(u) for u in UNITS), key=len, reverse=True))
-QTY_FIRST = re.compile(rf"^\s*{NUMBER}(?:\s*[-–]\s*\d+)?\s*(?:({UNIT_RE})\b\.?)?\s*(?:di\s+|d['’]\s*)?(.*)$", re.I)
+QTY_FIRST = re.compile(rf"^\s*{NUMBER}(?:\s*[-–]\s*\d+)?\s*(?:(?:di\s+)?({UNIT_RE})\b\.?)?\s*(?:di\s+|d['’]\s*)?(.*)$", re.I)
 QTY_LAST = re.compile(rf"^(.*?)[\s:,(]+{NUMBER}\s*(?:({UNIT_RE})\b\.?)?\s*\)?\s*$", re.I)
 
 
@@ -157,6 +157,7 @@ def parse_ingredient(line: str) -> dict:
     name = re.sub(r"\([^)]*\)", " ", name)
     name = re.split(r"\s+(?:o|oppure|per|tagliat\w*|a cubetti|a fette)\s+", name, maxsplit=1)[0]
     name = re.sub(r"\s+", " ", name).strip(" ,.:;-")
+    name = re.sub(r"^(?:rasi|raso|rasa|colmi|colmo|colma|scarso|scarsi|abbondanti?|generos[oi])\s+(?:di\s+|d['’]\s*)?", "", name, flags=re.I)
     return {"text": text, "name": name, "amount": amount, "kind": kind, "qb": qb, "measure": measure}
 
 
@@ -559,3 +560,29 @@ def merge_rows(groups: list[list[dict]], products: dict[str, dict]) -> list[dict
                 else:
                     m["quantity"] = max(m["quantity"], r["quantity"])
     return [out[k] for k in order]
+
+
+# Prodotti che in cucina si sostituiscono: se in lista c'è uno del gruppo, l'ingrediente "c'è"
+# (ho le penne -> la ricetta con gli spaghetti si può fare; ho i pelati -> va bene anche la passata).
+SUBSTITUTES = [
+    {"pasta", "spaghetti", "penne", "fusilli", "pasta_integrale"},
+    {"pomodori", "pelati", "passata", "polpa_pomodoro", "pomodorini"},
+    {"parmigiano", "grana_padano", "grana_grattugiato", "pecorino"},
+    {"riso", "riso_arborio", "riso_basmati"},
+    {"latte", "latte_scremato", "latte_lungaconservazione", "latte_senza_lattosio"},
+    {"mozzarella", "mozzarella_bufala", "fiordilatte"},
+    {"cipolle", "cipolle_rosse"},
+    {"tonno", "tonno_vetro"},
+    {"panna", "panna_montare"},
+    {"pancetta", "prosciutto_crudo"},
+    {"petto_pollo", "cosce_pollo", "pollo_intero", "ali_pollo"},
+    {"fagiolini", "fagiolini_surg"},
+    {"olio_evo", "olio_oliva"},
+]
+
+
+def substitutes(pid: str) -> set[str]:
+    for g in SUBSTITUTES:
+        if pid in g:
+            return g
+    return {pid}
