@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import fuel, openprices
 
-log = logging.getLogger("pago_meno.prices")
+log = logging.getLogger("mi_conviene.prices")
 
 CACHE_FILE = Path(os.environ.get("PRICES_CACHE", Path(__file__).resolve().parent.parent / "data" / "prices_cache.json"))
 

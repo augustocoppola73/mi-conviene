@@ -85,8 +85,13 @@ export interface Offer {
 export interface SavingEntry {
   id: string; user_id: string; store_id: string; store_name: string;
   amount: number; verified: boolean; note?: string | null; created_at: string;
+  verified_amount: number | null; paid: number | null;
+  estimated_spend: number | null; estimated_total: number | null; history_id: string | null;
+  price_basis?: PriceBasis | null; reference_type?: 'habitual' | 'median' | null;
 }
-export interface SavingsSummary { entries: SavingEntry[]; total_estimated: number; total_verified: number }
+export interface SavingsSummary {
+  entries: SavingEntry[]; total: number; total_estimated: number; total_verified: number; to_verify: number;
+}
 export interface LastSimilar {
   store_id: string; store_name: string; date: string; total_cost: number | null; similarity: number;
   same_as_recommended?: boolean;
@@ -123,14 +128,18 @@ export const api = {
     request<{ radius_km: number; stores: NearbyStore[]; missing_chains: string[] }>(`/stores/nearby?lat=${lat}&lon=${lon}`),
 
   addSaving: (body: {
-    user_id: string; store_id: string; amount: number; verified?: boolean; note?: string;
+    user_id: string; store_id: string; amount: number; note?: string;
     reference_type?: 'habitual' | 'median'; price_basis?: PriceBasis;
+    history_id?: string; estimated_spend?: number; estimated_total?: number;
   }) =>
     post<SavingEntry>('/savings', body),
   savings: (userId: string) => request<SavingsSummary>(`/savings/${userId}`),
   deleteSaving: (id: string) => request<{ deleted: number }>(`/savings/${id}`, { method: 'DELETE' }),
+  verifySaving: (id: string, paid: number) => post<SavingEntry>(`/savings/${id}/verify`, { paid }),
+  unverifySaving: (id: string) => post(`/savings/${id}/unverify`, {}),
 
-  addHistory: (body: { user_id: string; items: ListItem[]; store_id?: string; total_cost?: number }) => post('/history', body),
+  addHistory: (body: { user_id: string; items: ListItem[]; store_id?: string; total_cost?: number }) =>
+    post<{ id: string }>('/history', body),
   budgetSuggest: (user_id: string, items: ListItem[]) => post<BudgetSuggestion>('/budget/suggest', { user_id, items }),
   habitual: (userId: string) => request<{ items: HabitualItem[]; based_on: number }>(`/habitual/${userId}`),
 

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Pago Meno",
-    "slug": "pago-meno",
+    "name": "Mi Conviene",
+    "slug": "mi-conviene",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "pagomeno",
+    "scheme": "miconviene",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -37,7 +37,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Pago Meno usa la tua posizione per trovare i supermercati vicino a te e calcolare il costo del viaggio."
+          "locationWhenInUsePermission": "Mi Conviene usa la tua posizione per trovare i supermercati vicino a te e calcolare il costo del viaggio."
         }
       ]
     ],

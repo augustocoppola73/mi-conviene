@@ -15,7 +15,7 @@ from .chains import chain_of
 from .matching import RULES, is_special, match_product, reference_price
 
 API = "https://prices.openfoodfacts.org/api/v1/prices"
-USER_AGENT = "PagoMeno/0.1 (https://github.com/augustocoppola73/mi-conviene)"
+USER_AGENT = "MiConviene/0.1 (https://github.com/augustocoppola73/mi-conviene)"
 SOURCE = "openprices"
 
 

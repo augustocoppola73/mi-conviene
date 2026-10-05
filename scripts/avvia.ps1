@@ -1,4 +1,4 @@
-﻿# Avvia Pago Meno come web app sul PC: http://localhost:8001
+﻿# Avvia Mi Conviene come web app sul PC: http://localhost:8001
 # Prepara (solo la prima volta o quando serve) backend e build web, poi avvia il server.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -6,7 +6,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $backend = Join-Path $root 'backend'
 $frontend = Join-Path $root 'frontend'
 $url = 'http://localhost:8001'
-$Host.UI.RawUI.WindowTitle = 'Pago Meno'
+$Host.UI.RawUI.WindowTitle = 'Mi Conviene'
 
 function Step($msg) { Write-Host "-> $msg" -ForegroundColor Green }
 
@@ -52,7 +52,7 @@ Start-Job -ArgumentList $url -ScriptBlock {
 } | Out-Null
 
 Write-Host ''
-Write-Host "  Pago Meno e' attivo su $url" -ForegroundColor Cyan
+Write-Host "  Mi Conviene e' attivo su $url" -ForegroundColor Cyan
 Write-Host '  Per fermarlo chiudi questa finestra.' -ForegroundColor Cyan
 Write-Host ''
 Set-Location $backend

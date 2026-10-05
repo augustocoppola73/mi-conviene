@@ -15,7 +15,7 @@ from pathlib import Path
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
-log = logging.getLogger("pago_meno.storage")
+log = logging.getLogger("mi_conviene.storage")
 
 COLLECTIONS = ("savings", "lists", "history", "families", "family_lists")
 LOCAL_FILE = Path(os.environ.get("LOCAL_DB_FILE", Path(__file__).resolve().parent / "data" / "local_db.json"))

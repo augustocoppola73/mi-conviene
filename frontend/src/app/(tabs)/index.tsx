@@ -142,7 +142,7 @@ export default function ListaScreen() {
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Text style={s.kicker}>Pago Meno · Ciao 👋</Text>
+        <Text style={s.kicker}>Mi Conviene · Ciao 👋</Text>
         <Text style={s.title}>Cosa devi comprare?</Text>
 
         {offers.length > 0 && (

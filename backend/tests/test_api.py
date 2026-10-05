@@ -80,9 +80,9 @@ async def test_budget(client):
 
 async def test_savings_crud(client):
     e = (await client.post("/api/savings", json={"user_id": "u", "store_id": "lidl", "amount": 4.5})).json()
-    await client.post("/api/savings", json={"user_id": "u", "store_id": "coop", "amount": 2, "verified": True})
+    await client.post("/api/savings", json={"user_id": "u", "store_id": "coop", "amount": 2})
     s = (await client.get("/api/savings/u")).json()
-    assert s["total_estimated"] == 6.5 and s["total_verified"] == 2
+    assert s["total"] == 6.5 and s["total_estimated"] == 6.5 and s["total_verified"] == 0 and s["to_verify"] == 2
     assert (await client.delete(f"/api/savings/{e['id']}")).status_code == 200
     assert (await client.delete(f"/api/savings/{e['id']}")).status_code == 404
 
@@ -237,3 +237,25 @@ async def test_connect_falls_back_to_local(monkeypatch, tmp_path):
     monkeypatch.setattr(storage, "LOCAL_FILE", tmp_path / "x.json")
     db, mode = await storage.connect("mongodb://127.0.0.1:1", "t", timeout_ms=200)
     assert mode == "locale"
+
+
+async def test_verify_saving_with_real_receipt(client):
+    h = (await client.post("/api/history", json={"user_id": "v", "items": LIST, "store_id": "conad", "total_cost": 31})).json()
+    e = (await client.post("/api/savings", json={"user_id": "v", "store_id": "conad", "amount": 3, "history_id": h["id"],
+                                                 "estimated_spend": 30, "estimated_total": 31})).json()
+    assert e["verified"] is False
+    # pagato 28 invece di 30: il risparmio sale da 3 a 5
+    v = (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 28})).json()
+    assert v["verified"] and v["verified_amount"] == 5 and v["paid"] == 28
+    s = (await client.get("/api/savings/v")).json()
+    assert s["total"] == 5 and s["total_verified"] == 5 and s["total_estimated"] == 0 and s["to_verify"] == 0
+    # lo storico ora ha la spesa vera (+ 1 euro di viaggio)
+    hist = await server.db.history.find_one({"id": h["id"]}, {"_id": 0})
+    assert hist["total_cost"] == 29
+    # pagato molto di più: risparmio a zero, mai negativo
+    v = (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 50})).json()
+    assert v["verified_amount"] == 0
+    await client.post(f"/api/savings/{e['id']}/unverify")
+    assert (await client.get("/api/savings/v")).json()["total"] == 3
+    assert (await client.post("/api/savings/nope/verify", json={"paid": 1})).status_code == 404
+    assert (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 0})).status_code == 422

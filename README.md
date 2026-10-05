@@ -1,4 +1,4 @@
-# Mi Conviene · Pago Meno
+# Mi Conviene · Mi Conviene
 
 > "Non devi spendere meno a tutti i costi. Devi spendere meglio."
 
@@ -16,7 +16,7 @@ docs/       Documentazione di prodotto e tecnica
 
 ## Usarla dal PC (web app)
 
-Doppio clic su **`Avvia Pago Meno.cmd`**: la prima volta prepara tutto (qualche minuto), poi apre l'app nel browser su http://localhost:8001. Per fermarla basta chiudere la finestra nera.
+Doppio clic su **`Avvia Mi Conviene.cmd`**: la prima volta prepara tutto (qualche minuto), poi apre l'app nel browser su http://localhost:8001. Per fermarla basta chiudere la finestra nera.
 
 Non serve Docker: se MongoDB non è attivo i dati (salvadanaio, storico, famiglia) vengono salvati in `backend/data/local_db.json`.
 

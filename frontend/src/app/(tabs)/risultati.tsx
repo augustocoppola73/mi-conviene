@@ -55,18 +55,19 @@ export default function RisultatiScreen() {
     if (!userId) return;
     setSaving(true);
     try {
-      await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: recommended.total_cost });
-      if (estimatedSaving > 0) {
-        await api.addSaving({
-          user_id: userId,
-          store_id: recommended.store_id,
-          amount: Math.round(estimatedSaving * 100) / 100,
-          note: savings.reference.label,
-          reference_type: savings.reference.type,
-          price_basis: savings.price_basis,
-          verified: false,
-        });
-      }
+      const h = await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: recommended.total_cost });
+      // la voce va nel Salvadanaio anche a risparmio zero: la potrai verificare con lo scontrino vero
+      await api.addSaving({
+        user_id: userId,
+        store_id: recommended.store_id,
+        amount: Math.round(estimatedSaving * 100) / 100,
+        note: savings.reference.label,
+        reference_type: savings.reference.type,
+        price_basis: savings.price_basis,
+        history_id: h.id,
+        estimated_spend: recommended.receipt.total,
+        estimated_total: recommended.total_cost,
+      });
       setConfirmed(recommended.store_id);
     } finally {
       setSaving(false);
@@ -186,8 +187,11 @@ export default function RisultatiScreen() {
           disabled={confirmed === recommended.store_id}
           style={{ marginTop: spacing.lg }}
         />
-        {confirmed === recommended.store_id && estimatedSaving > 0 && (
-          <Text style={s.confirmNote}>Aggiunti {euro(estimatedSaving)} al Salvadanaio 🐷</Text>
+        {confirmed === recommended.store_id && (
+          <Text style={s.confirmNote}>
+            {estimatedSaving > 0 ? `Aggiunti ${euro(estimatedSaving)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
+            {'\n'}Dopo la spesa, verificala lì con il totale dello scontrino.
+          </Text>
         )}
 
         <SectionTitle>Le alternative</SectionTitle>

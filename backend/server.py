@@ -1,5 +1,5 @@
 """
-Pago Meno - backend FastAPI.
+Mi Conviene - backend FastAPI.
 
 Contiene: dati seed (catalogo simulato), motore di ottimizzazione deterministico
 e tutte le API (prefisso /api). Nessuna AI: solo regole e formule spiegabili.
@@ -69,7 +69,7 @@ prices = PriceService(PRICE_LAT, PRICE_LON, PRICE_RADIUS_KM)
 locator = StoreLocator(int(float(os.environ.get("STORES_RADIUS_KM", "6")) * 1000))
 PRICE_RECENTER_KM = 15  # oltre questa distanza dalla zona prezzi, la si sposta sull'utente
 _recenter_task: Optional[asyncio.Task] = None
-log = logging.getLogger("pago_meno")
+log = logging.getLogger("mi_conviene")
 
 
 def now_iso() -> str:
@@ -572,7 +572,7 @@ async def lifespan(_app: FastAPI):
         await storage.save(db)
 
 
-app = FastAPI(title="Pago Meno API", lifespan=lifespan)
+app = FastAPI(title="Mi Conviene API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 api = APIRouter(prefix="/api")
 
@@ -581,7 +581,7 @@ NO_ID = {"_id": 0}
 
 @api.get("/")
 async def health():
-    return {"status": "ok", "app": "Pago Meno", "storage": STORAGE_MODE}
+    return {"status": "ok", "app": "Mi Conviene", "storage": STORAGE_MODE}
 
 
 @api.get("/bootstrap")
@@ -667,20 +667,63 @@ async def optimize(req: OptimizeRequest):
 class SavingIn(BaseModel):
     user_id: str
     store_id: str
-    amount: float = Field(ge=0)
-    verified: bool = False
+    amount: float = Field(ge=0)  # risparmio STIMATO al momento della conferma
     note: Optional[str] = None
     reference_type: Optional[Literal["habitual", "median"]] = None
     price_basis: Optional[Literal["reale", "misto", "stima"]] = None
+    history_id: Optional[str] = None  # la spesa confermata a cui si riferisce
+    estimated_spend: Optional[float] = Field(default=None, ge=0)  # totale scontrino previsto (senza viaggio)
+    estimated_total: Optional[float] = Field(default=None, ge=0)  # previsto + carburante
+
+
+class VerifyIn(BaseModel):
+    paid: float = Field(gt=0, description="totale pagato alla cassa, dallo scontrino vero")
+
+
+def verified_saving(entry: dict, paid: float) -> float:
+    """Risparmio verificato = stimato + (spesa prevista - pagato davvero), mai sotto zero.
+    Il riferimento (abituale o mediana) resta quello calcolato alla conferma."""
+    expected = entry.get("estimated_spend")
+    if expected is None:  # voci vecchie senza spesa prevista: si conferma lo stimato
+        return round(entry["amount"], 2)
+    return round(max(0.0, entry["amount"] + expected - paid), 2)
+
+
+def saving_value(e: dict) -> float:
+    return e["verified_amount"] if e.get("verified") else e["amount"]
 
 
 @api.post("/savings")
 async def add_saving(s: SavingIn):
-    doc = {"id": str(uuid.uuid4()), **s.model_dump(),
+    doc = {"id": str(uuid.uuid4()), **s.model_dump(), "verified": False, "verified_amount": None, "paid": None,
            "store_name": STORE_INDEX.get(s.store_id, {}).get("name", s.store_id),
            "created_at": now_iso()}
     await db.savings.insert_one(dict(doc))
     return doc
+
+
+@api.post("/savings/{entry_id}/verify")
+async def verify_saving(entry_id: str, body: VerifyIn):
+    entry = await db.savings.find_one({"id": entry_id}, NO_ID)
+    if not entry:
+        raise HTTPException(404, "Voce non trovata")
+    amount = verified_saving(entry, body.paid)
+    update = {"verified": True, "verified_amount": amount, "paid": round(body.paid, 2), "verified_at": now_iso()}
+    await db.savings.update_one({"id": entry_id}, {"$set": update})
+    # lo storico usa la spesa vera (viaggio incluso): i budget suggeriti diventano più precisi
+    if entry.get("history_id"):
+        travel = (entry.get("estimated_total") or 0) - (entry.get("estimated_spend") or 0)
+        await db.history.update_one({"id": entry["history_id"]},
+                                    {"$set": {"total_cost": round(body.paid + max(travel, 0), 2), "paid": body.paid}})
+    return {**entry, **update}
+
+
+@api.post("/savings/{entry_id}/unverify")
+async def unverify_saving(entry_id: str):
+    res = await db.savings.update_one({"id": entry_id}, {"$set": {"verified": False, "verified_amount": None, "paid": None}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Voce non trovata")
+    return {"ok": True}
 
 
 @api.get("/savings/{user_id}")
@@ -688,8 +731,10 @@ async def get_savings(user_id: str):
     entries = await db.savings.find({"user_id": user_id}, NO_ID).sort("created_at", -1).to_list(500)
     return {
         "entries": entries,
-        "total_estimated": round(sum(e["amount"] for e in entries), 2),
-        "total_verified": round(sum(e["amount"] for e in entries if e.get("verified")), 2),
+        "total": round(sum(saving_value(e) for e in entries), 2),
+        "total_verified": round(sum(e["verified_amount"] for e in entries if e.get("verified")), 2),
+        "total_estimated": round(sum(e["amount"] for e in entries if not e.get("verified")), 2),
+        "to_verify": sum(1 for e in entries if not e.get("verified")),
     }
 
 

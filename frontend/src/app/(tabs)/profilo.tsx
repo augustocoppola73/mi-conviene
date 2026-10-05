@@ -221,7 +221,7 @@ export default function ProfiloScreen() {
           </Card>
         )}
 
-        <Text style={s.footer}>Pago Meno · i prezzi sono stime, controlla sempre in negozio.</Text>
+        <Text style={s.footer}>Mi Conviene · i prezzi sono stime, controlla sempre in negozio.</Text>
       </ScrollView>
 
       <Modal visible={joinOpen} transparent animationType="fade" onRequestClose={() => setJoinOpen(false)}>

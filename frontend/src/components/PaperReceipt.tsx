@@ -90,7 +90,7 @@ export function PaperReceipt({ store, when = new Date() }: { store: RankedStore;
         <Text style={st.t}>{dash}</Text>
         <Text style={[st.t, st.center]}>{date}  {time}</Text>
         <Text style={[st.t, st.center, st.big]}>GRAZIE E ARRIVEDERCI</Text>
-        <Text style={[st.t, st.center, st.faded]}>PAGO MENO · SPENDI MEGLIO</Text>
+        <Text style={[st.t, st.center, st.faded]}>MI CONVIENE · SPENDI MEGLIO</Text>
         </View>
       </View>
       <Teeth />

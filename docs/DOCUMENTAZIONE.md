@@ -1,4 +1,4 @@
-# Pago Meno — Documentazione tecnica completa
+# Mi Conviene — Documentazione tecnica completa
 
 > "Non devi spendere meno a tutti i costi. Devi spendere meglio."
 > App mobile che ottimizza la spesa familiare: l'utente scrive la lista, l'app dice **dove conviene andare** bilanciando prezzo + viaggio + carburante + tempo.

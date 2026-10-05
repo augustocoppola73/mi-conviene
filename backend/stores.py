@@ -17,10 +17,10 @@ import httpx
 from prices.chains import chain_of
 from prices.geo import haversine_km
 
-log = logging.getLogger("pago_meno.stores")
+log = logging.getLogger("mi_conviene.stores")
 
 OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
-USER_AGENT = "PagoMeno/0.1 (https://github.com/augustocoppola73/mi-conviene)"
+USER_AGENT = "MiConviene/0.1 (https://github.com/augustocoppola73/mi-conviene)"
 ROAD_FACTOR = 1.3  # strada reale ≈ 1,3 volte la linea d'aria in città
 CACHE_TTL_S = 7 * 24 * 3600
 CACHE_FILE = Path(os.environ.get("STORES_CACHE", Path(__file__).resolve().parent / "data" / "stores_cache.json"))

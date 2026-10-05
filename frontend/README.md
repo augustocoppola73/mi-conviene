@@ -1,4 +1,4 @@
-# Pago Meno · app Expo
+# Mi Conviene · app Expo
 
 App React Native (Expo SDK 57, expo-router) con 4 tab: Lista, Risultati, Salvadanaio, Profilo.
 
