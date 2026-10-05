@@ -271,7 +271,7 @@ function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDele
             <View style={{ flex: 1 }}>
               <Text style={s.rowName}>{r.product_name ?? r.name}</Text>
               <Text style={s.muted} numberOfLines={2}>
-                ricetta: {amountText(r)} {r.name}
+                ricetta: {r.from ? `${r.from} → ${amountText(r)} ${r.name}` : `${amountText(r)} ${r.name}`}
                 {r.pantry ? ' · di solito in casa' : ''}
                 {!r.product_id ? ' · prodotto nuovo, senza prezzo' : ''}
               </Text>

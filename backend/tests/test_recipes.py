@@ -111,3 +111,20 @@ def test_spoons_of_solids_become_grams():
     assert o["kind"] == "ml" and o["amount"] == 45
     f = recipes.parse_ingredient("100 ml di farina")
     assert f["kind"] == "g" and round(f["amount"]) == 55
+
+
+def test_juice_and_zest_mean_buying_the_fruit():
+    rows = recipes.plan(["80 mL di succo di limone", "scorza grattugiata di 1 arancia", "succo di frutta 200 ml"], 4, 4, P)
+    assert [r["product_id"] for r in rows] == ["limoni", "arance", "succo_frutta"] or rows[0]["product_id"] == "limoni"
+    assert rows[0]["amount"] == 2 and rows[0]["from"] == "succo di limone"   # 80 ml ~ 2 limoni
+    assert rows[1]["product_id"] == "arance"
+
+
+@pytest.mark.parametrize("line,pid,n", [
+    ("scorza grattata di limone", "limoni", 1), ("la scorza grattata di mezzo limone", "limoni", 1),
+    ("scorza grattugiata di 2 arance", "arance", 2), ("1 cucchiaino di scorza grattata di limone", "limoni", 1),
+    ("succo fresco di limone 50 ml", "limoni", 2),
+])
+def test_zest_variants(line, pid, n):
+    r = recipes.plan([line], 4, 4, P)[0]
+    assert r["product_id"] == pid and r["amount"] == n

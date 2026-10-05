@@ -281,6 +281,39 @@ def is_pantry(name: str) -> bool:
     return any(re.search(r"\b" + p, n) for p in PANTRY)
 
 
+# "succo di limone" / "scorza d'arancia": si compra il frutto, non un succo in bottiglia
+FRUIT_JUICE_ML = {"limon": ("limoni", 40), "aranc": ("arance", 80), "lime": ("lime", 25), "pompelm": ("pompelmi", 150),
+                  "mandarin": ("mandarini", 30), "clementin": ("mandarini", 30)}
+FROM_FRUIT = re.compile(r"^(succo|spremuta|scorza|scorzetta|buccia|zest[a-z]*|la scorza|il succo)\s+"
+                        r"(?:(?:grattugiat\w*|grattuggiat\w*|grattat\w*|fresc\w*|spremut\w*|filtrat\w*|intera|sottile)\s+)*"
+                        r"(?:di|d['’]|del|della|dello)\s*(?:(\d+|un|uno|una|mezzo|mezza|due|tre|quattro)\s+)?(.+)$", re.I)
+
+
+def from_fruit(ing: dict) -> dict:
+    """Riporta succo/scorza al frutto da comprare: '80 ml di succo di limone' -> 2 limoni."""
+    m = FROM_FRUIT.match(ing["name"].strip())
+    if not m:
+        return ing
+    part, n_inline, fruit = m.group(1).lower(), m.group(2), m.group(3)
+    key = next((k for k in FRUIT_JUICE_ML if re.search(r"\b" + k, normalize(fruit))), None)
+    if not key:
+        return ing
+    label, ml_each = FRUIT_JUICE_ML[key]
+    pieces = None
+    if n_inline:                                     # "succo di 2 limoni"
+        pieces = _num(n_inline)
+    elif "succo" in part or "spremuta" in part:
+        if ing["kind"] == "ml" and ing["amount"]:
+            pieces = ing["amount"] / ml_each           # 80 ml -> 2 limoni
+        elif ing["kind"] in ("pz", None) and ing["amount"]:
+            pieces = ing["amount"]                     # "il succo di 1 limone" scritto al contrario
+    else:                                            # scorza: un frutto ogni scorza
+        pieces = ing["amount"] if ing["kind"] in ("pz", None) and ing["amount"] else None
+    pieces = max(1, math.ceil((pieces or 1) - 1e-9))
+    return {**ing, "name": label, "amount": float(pieces), "kind": "pz", "qb": False, "measure": None,
+            "from": re.sub(r"^(il|la) ", "", f"{part} di {fruit}".lower())}
+
+
 def plan(ingredients: list[str], recipe_servings: int | None, servings: int, products: dict[str, dict]) -> list[dict]:
     """Righe della ricetta -> proposta per la lista, scalata per le persone."""
     base = recipe_servings or 4
@@ -294,9 +327,11 @@ def plan(ingredients: list[str], recipe_servings: int | None, servings: int, pro
             ing["amount"] = ing["amount"] * factor
         if ing.get("measure") and ing["measure"]["count"] is not None:
             ing["measure"]["count"] = round(ing["measure"]["count"] * factor, 2)
+        ing = from_fruit(ing)
         pid, score = match_product(ing["name"], products)
         row = {"text": ing["text"], "name": ing["name"], "amount": round(ing["amount"], 1) if ing["amount"] else None,
-               "kind": ing["kind"], "measure": ing.get("measure"), "product_id": pid, "match_score": score,
+               "kind": ing["kind"], "measure": ing.get("measure"), "from": ing.get("from"),
+               "product_id": pid, "match_score": score,
                "pantry": is_pantry(ing["name"]) or ing["qb"]}
         if pid:
             p = products[pid]
