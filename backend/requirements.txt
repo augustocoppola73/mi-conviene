@@ -4,3 +4,4 @@ motor==3.6.0
 pydantic==2.10.4
 httpx==0.28.1
 mongomock-motor==0.0.35
+rapidocr_onnxruntime==1.2.3

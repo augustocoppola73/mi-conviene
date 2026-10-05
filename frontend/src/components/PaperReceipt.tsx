@@ -32,7 +32,11 @@ function Teeth({ flip }: { flip?: boolean }) {
   );
 }
 
-export function PaperReceipt({ store, when = new Date(), paid }: { store: RankedStore; when?: Date; paid?: number | null }) {
+export function PaperReceipt({ store, when = new Date(), paid, actual }: {
+  store: RankedStore; when?: Date; paid?: number | null;
+  /** prezzi veri dello scontrino, per prodotto: mostrati sotto ogni riga calcolata */
+  actual?: Record<string, number>;
+}) {
   const { receipt, travel } = store;
   const date = when.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const time = when.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -58,6 +62,11 @@ export function PaperReceipt({ store, when = new Date(), paid }: { store: Ranked
               <Text style={[st.t, st.faded]}>{'  '}{qty}{l.loyalty_required ? ' · CARTA FEDELTA' : ''}</Text>
               {l.in_promo && (
                 <Text style={st.t}>{cols('  SCONTO PROMO', `-${num(l.normal_price - l.line_price)}  `)}</Text>
+              )}
+              {actual && actual[l.product_id] != null && (
+                <Text style={[st.t, { color: actual[l.product_id] <= l.line_price ? '#1E7A3C' : '#B3261E' }]}>
+                  {cols('  SCONTRINO VERO', `${num(actual[l.product_id])}  `)}
+                </Text>
               )}
               {l.source !== 'stima' && (
                 <Text style={[st.t, st.faded]}>

@@ -37,6 +37,15 @@ export interface ClassifyResult {
   similar: { product_id: string; name: string; category_id: string; score: number }[];
   exact: { product_id: string; name: string; category_id: string; score: number } | null;
 }
+export interface ScannedLine {
+  text: string; price: number; discount: number; net_price: number; quantity: number; weight_kg: number | null;
+  product_id: string | null; product_name: string | null; match_score: number; expected: boolean;
+  calculated_price: number | null; ref_price: number | null;
+}
+export interface ScanResult {
+  store_id: string | null; date: string | null; total: number | null; lines: ScannedLine[]; lines_sum: number;
+  total_matches: boolean; missing_expected: string[]; rows: string[];
+}
 export interface CustomLine { product_id: string; name: string; quantity: number; unit: string; category_id: string | null }
 
 export interface ReceiptLine {
@@ -120,6 +129,7 @@ export interface SavingEntry {
   fuel_saving?: number; fuel_liters?: number | null; fuel_median?: number | null; fuel_detour_cost?: number | null;
   fuel_station?: string | null; verified_fuel?: number | null; refueled?: boolean | null; fuel_price_paid?: number | null;
   snapshot?: RankedStore | null;
+  real_receipt?: { store_id: string; date: string; total: number; lines: { product_id: string | null; text: string; net_price: number }[] } | null;
 }
 export interface SavingsSummary {
   entries: SavingEntry[]; total: number; total_estimated: number; total_verified: number; to_verify: number;
@@ -174,6 +184,12 @@ export const api = {
     post<SavingEntry>('/savings', body),
   savings: (userId: string) => request<SavingsSummary>(`/savings/${userId}`),
   deleteSaving: (id: string) => request<{ deleted: number }>(`/savings/${id}`, { method: 'DELETE' }),
+  scanReceipt: (image_base64: string, saving_id?: string) => post<ScanResult>('/receipts/scan', { image_base64, saving_id }),
+  applyReceipt: (body: {
+    saving_id?: string; user_id: string; store_id: string; date?: string | null; total?: number | null;
+    lines: { product_id: string | null; text: string; net_price: number; quantity: number; weight_kg: number | null }[];
+    refueled?: boolean; fuel_price?: number;
+  }) => post<{ prices_saved: number; verified?: SavingEntry }>('/receipts/apply', body),
   verifySaving: (id: string, paid: number, refueled?: boolean, fuel_price?: number) =>
     post<SavingEntry>(`/savings/${id}/verify`, { paid, refueled, fuel_price }),
   unverifySaving: (id: string) => post(`/savings/${id}/unverify`, {}),

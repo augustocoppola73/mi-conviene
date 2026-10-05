@@ -1,0 +1,78 @@
+import base64
+from pathlib import Path
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from mongomock_motor import AsyncMongoMockClient
+
+import receipts
+import server
+
+FIX = Path(__file__).parent / "fixtures"
+ROWS = ["CONAD CITY", "VIA ROMA 1", "DOCUMENTO COMMERCIALE", "DESCRIZIONE IVA PREZZO",
+        "SPAGHETTI N.5 500G 4% 0,89", "OLIO EXTRAV. ITALIANO 1L 4% 7,99", "PARMIGIANO REGG.300G 4% 5,49",
+        "SCONTO -0,50", "2 X 0,79", "PASSATA POMODORO 700G 4% 1,58", "BANANE KG 1,120 x 1,59", "BANANE 4% 1,78",
+        "TOTALE COMPLESSIVO 17,23", "DI CUI IVA 0,66", "PAGAMENTO ELETTRONICO 17,23", "05/10/26 18:02"]
+
+
+def test_parse_italian_receipt():
+    p = receipts.parse_rows(ROWS)
+    assert p["store_id"] == "conad" and p["date"] == "2026-10-05" and p["total"] == 17.23 and p["total_matches"]
+    by = {l["text"].split()[0]: l for l in p["lines"]}
+    assert by["PARMIGIANO"]["discount"] == 0.5 and by["PARMIGIANO"]["net_price"] == 4.99
+    assert by["PASSATA"]["quantity"] == 2          # "2 X 0,79" prima dell'articolo
+    assert by["BANANE"]["weight_kg"] == 1.12
+    assert len(p["lines"]) == 5                     # totale, iva, pagamento esclusi
+
+
+def test_match_and_reference_prices():
+    p = receipts.match_lines(receipts.parse_rows(ROWS), server.PRODUCT_INDEX, ["olio_evo", "parmigiano", "passata", "banane"])
+    m = {l["text"].split()[0]: l for l in p["lines"]}
+    assert m["OLIO"]["product_id"] == "olio_evo" and m["OLIO"]["expected"]
+    assert m["PARMIGIANO"]["product_id"] == "parmigiano"
+    assert m["BANANE"]["product_id"] == "banane"
+    P = server.PRODUCT_INDEX
+    assert receipts.reference_price(m["BANANE"], P["banane"]) == round(1.78 / 1.12, 2)    # al kg
+    assert receipts.reference_price(m["PARMIGIANO"], P["parmigiano"]) == 4.99           # 300 g = riferimento
+    assert receipts.reference_price(m["PASSATA"], P["passata"]) == 0.79                 # prezzo del pezzo
+
+
+def test_ocr_on_photo():
+    pytest.importorskip("rapidocr_onnxruntime")
+    rows = receipts.group_rows(receipts.ocr_image((FIX / "scontrino_prova.jpg").read_bytes()))
+    p = receipts.parse_rows(rows)
+    assert p["store_id"] == "lidl" and p["total"] == 18.52 and p["total_matches"]
+
+
+@pytest.fixture
+async def client(monkeypatch):
+    monkeypatch.setattr(server, "db", AsyncMongoMockClient()["test"])
+    server.RECEIPT_PRICES.clear()
+    async with AsyncClient(transport=ASGITransport(app=server.app), base_url="http://t") as c:
+        yield c
+    server.RECEIPT_PRICES.clear()
+    server.rebuild_catalog()
+
+
+async def test_apply_receipt_saves_real_prices_and_verifies(client):
+    items = [{"product_id": "olio_evo", "quantity": 1}, {"product_id": "banane", "quantity": 1}]
+    r = (await client.post("/api/optimize", json={"user_id": "r", "items": items})).json()
+    rec = r["recommended"]
+    e = (await client.post("/api/savings", json={"user_id": "r", "store_id": rec["store_id"], "amount": 1,
+                                                 "estimated_spend": rec["receipt"]["total"], "snapshot": rec})).json()
+    body = {"saving_id": e["id"], "user_id": "r", "store_id": rec["store_id"], "date": "2026-10-05", "total": 9.77,
+            "lines": [{"product_id": "olio_evo", "text": "OLIO EXTRAV. 1L", "net_price": 7.99},
+                      {"product_id": "banane", "text": "BANANE", "net_price": 1.78, "weight_kg": 1.12}]}
+    out = (await client.post("/api/receipts/apply", json=body)).json()
+    assert out["prices_saved"] == 2 and out["verified"]["paid"] == 9.77
+    info = server.CATALOG[rec["store_id"]]["olio_evo"]
+    assert info["source"] == "scontrino" and info["normal_price"] == 7.99
+    # la prossima ricerca usa il prezzo vero
+    r2 = (await client.post("/api/optimize", json={"user_id": "r", "items": items})).json()
+    st = next(x for x in r2["ranked"] if x["store_id"] == rec["store_id"])
+    assert next(l for l in st["receipt"]["lines"] if l["product_id"] == "olio_evo")["source"] == "scontrino"
+
+
+async def test_scan_endpoint_rejects_garbage(client):
+    r = await client.post("/api/receipts/scan", json={"image_base64": base64.b64encode(b"x" * 200).decode()})
+    assert r.status_code in (422, 503)

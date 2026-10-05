@@ -24,10 +24,12 @@ from typing import Literal, Optional
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
+import receipts
 import storage
 from catalog_extra import EXTRA_PRODUCTS, NEW_CATEGORIES
 from classify import Classifier
@@ -235,9 +237,30 @@ def build_catalog(real: Optional[dict] = None) -> dict:
     return catalog
 
 
+# Prezzi veri letti dagli scontrini degli utenti: (negozio, prodotto) -> ultimo prezzo
+RECEIPT_PRICES: dict[tuple[str, str], dict] = {}
+
+
+def receipt_entry(doc: dict) -> dict:
+    age = (datetime.now(timezone.utc).date() - datetime.fromisoformat(doc["date"]).date()).days
+    return {"normal_price": doc["ref_price"], "promo_price": None, "source": "scontrino",
+            "observations": 1, "observed_at": doc["date"], "age_days": age,
+            "confidence": "green" if age <= 60 else "yellow" if age <= 365 else "red",
+            "location_name": doc.get("location_name") or STORE_INDEX[doc["store_id"]]["name"],
+            "sample_product": doc.get("receipt_text"), "proof_url": None}
+
+
+async def load_receipt_prices() -> None:
+    RECEIPT_PRICES.clear()
+    async for doc in db.user_prices.find({}, NO_ID).sort("date", 1):
+        if doc.get("store_id") in STORE_INDEX and doc.get("product_id") in PRODUCT_INDEX:
+            RECEIPT_PRICES[(doc["store_id"], doc["product_id"])] = receipt_entry(doc)
+
+
 def rebuild_catalog() -> None:
     global CATALOG
-    CATALOG = build_catalog(prices.real)
+    # priorità: scontrini degli utenti (il prezzo vero del negozio) > Open Prices > stime
+    CATALOG = build_catalog({**prices.real, **RECEIPT_PRICES})
 
 
 CATALOG = build_catalog()
@@ -641,8 +664,12 @@ async def lifespan(_app: FastAPI):
     if STORAGE_MODE == "locale":
         tasks.append(asyncio.create_task(storage.autosave(db)))
     # prezzi: 1) riparte subito con gli ultimi reali salvati, 2) li aggiorna in background
-    if prices.load_cache():
-        rebuild_catalog()
+    try:
+        await load_receipt_prices()
+    except Exception as e:
+        log.warning("Prezzi da scontrino non caricati: %s", e)
+    prices.load_cache()
+    rebuild_catalog()
     if PRICES_AUTO_REFRESH:
         tasks.append(asyncio.create_task(prices.refresh_forever(PRICES_REFRESH_HOURS, rebuild_catalog)))
     yield
@@ -895,6 +922,106 @@ async def add_saving(s: SavingIn):
            "created_at": now_iso()}
     await db.savings.insert_one(dict(doc))
     return doc
+
+
+class ScanIn(BaseModel):
+    image_base64: str = Field(min_length=100)
+    saving_id: Optional[str] = None
+
+
+@api.post("/receipts/scan")
+async def scan_receipt(body: ScanIn):
+    """Legge la foto dello scontrino e la abbina alla spesa confermata (se indicata)."""
+    try:
+        data = receipts.decode_image(body.image_base64)
+    except Exception:
+        raise HTTPException(422, "Immagine non valida")
+    if len(data) > 15_000_000:
+        raise HTTPException(413, "Foto troppo grande")
+    try:
+        boxes = await run_in_threadpool(receipts.ocr_image, data)
+    except ImportError:
+        raise HTTPException(503, "Lettura scontrini non installata: riavvia l'app per installarla")
+    except Exception:
+        raise HTTPException(422, "Non riesco a leggere questa foto")
+    rows = receipts.group_rows(boxes)
+    parsed = receipts.parse_rows(rows)
+    expected, entry = [], None
+    if body.saving_id:
+        entry = await db.savings.find_one({"id": body.saving_id}, NO_ID)
+        snap = (entry or {}).get("snapshot") or {}
+        expected = [l["product_id"] for l in (snap.get("receipt") or {}).get("lines", [])]
+    parsed = receipts.match_lines(parsed, PRODUCT_INDEX, expected)
+    # confronto riga per riga con lo scontrino calcolato
+    calc = {l["product_id"]: l for l in (((entry or {}).get("snapshot") or {}).get("receipt") or {}).get("lines", [])}
+    for line in parsed["lines"]:
+        c = calc.get(line["product_id"])
+        line["calculated_price"] = c["line_price"] if c else None
+        p = PRODUCT_INDEX.get(line["product_id"]) if line["product_id"] else None
+        line["ref_price"] = receipts.reference_price(line, p) if p else None
+    if not parsed["store_id"] and entry:
+        parsed["store_id"] = entry.get("store_id")
+    parsed["rows"] = rows  # testo letto, per controllo
+    parsed["ocr_boxes"] = len(boxes)
+    return parsed
+
+
+class ReceiptLineIn(BaseModel):
+    product_id: Optional[str] = None
+    text: str = Field(max_length=120)
+    net_price: float = Field(ge=0, lt=1000)
+    quantity: float = Field(default=1, gt=0, le=999)
+    weight_kg: Optional[float] = Field(default=None, gt=0, le=100)
+
+
+class ApplyReceiptIn(BaseModel):
+    saving_id: Optional[str] = None
+    user_id: str
+    store_id: str
+    date: Optional[str] = None
+    total: Optional[float] = Field(default=None, gt=0, lt=5000)
+    lines: list[ReceiptLineIn] = Field(max_length=200)
+    refueled: Optional[bool] = None
+    fuel_price: Optional[float] = Field(default=None, gt=0, lt=5)
+
+
+@api.post("/receipts/apply")
+async def apply_receipt(body: ApplyReceiptIn):
+    """Salva i prezzi veri dello scontrino (diventano prezzi reali "R" per quel negozio)
+    e, se c'è la spesa, la verifica con il totale pagato."""
+    if body.store_id not in STORE_INDEX:
+        raise HTTPException(422, "Negozio sconosciuto")
+    date = body.date or datetime.now(timezone.utc).date().isoformat()
+    try:
+        datetime.fromisoformat(date)
+    except ValueError:
+        date = datetime.now(timezone.utc).date().isoformat()
+    saved = 0
+    entry = await db.savings.find_one({"id": body.saving_id}, NO_ID) if body.saving_id else None
+    branch = (((entry or {}).get("snapshot") or {}).get("branch") or {}).get("name")
+    for l in body.lines:
+        p = PRODUCT_INDEX.get(l.product_id or "")
+        if not p:
+            continue
+        ref = receipts.reference_price(l.model_dump(), p)
+        if not ref or ref <= 0:
+            continue
+        doc = {"id": str(uuid.uuid4()), "user_id": body.user_id, "store_id": body.store_id, "product_id": p["id"],
+               "ref_price": ref, "paid": l.net_price, "quantity": l.quantity, "weight_kg": l.weight_kg,
+               "receipt_text": l.text, "date": date, "location_name": branch, "saving_id": body.saving_id,
+               "created_at": now_iso()}
+        await db.user_prices.insert_one(dict(doc))
+        RECEIPT_PRICES[(body.store_id, p["id"])] = receipt_entry(doc)
+        saved += 1
+    rebuild_catalog()
+    out = {"prices_saved": saved}
+    if entry and body.total:
+        update = {"real_receipt": {"store_id": body.store_id, "date": date, "total": body.total,
+                                   "lines": [l.model_dump() for l in body.lines]}}
+        await db.savings.update_one({"id": entry["id"]}, {"$set": update})
+        out["verified"] = await verify_saving(entry["id"], VerifyIn(paid=body.total, refueled=body.refueled,
+                                                                     fuel_price=body.fuel_price))
+    return out
 
 
 @api.post("/savings/{entry_id}/verify")

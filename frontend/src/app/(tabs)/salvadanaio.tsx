@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, SavingEntry, SavingsSummary } from '@/api';
 import { PaperReceipt } from '@/components/PaperReceipt';
+import { ReceiptScanner } from '@/components/ReceiptScanner';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate } from '@/format';
 import { useStore } from '@/store';
@@ -33,7 +34,9 @@ function previewVerified(e: SavingEntry, paid: number, refueled: boolean | null 
 export default function SalvadanaioScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { userId } = useStore();
+  const { userId, productById } = useStore();
+  const [scanning, setScanning] = useState<SavingEntry | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [data, setData] = useState<SavingsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -105,6 +108,7 @@ export default function SalvadanaioScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
         <Text style={s.kicker}>Il tuo salvadanaio 🐷</Text>
         <Text style={s.title}>Quanto hai risparmiato</Text>
+        {notice && <Text style={s.notice}>✓ {notice}</Text>}
 
         {error && !data ? (
           <ErrorState message={error} onRetry={load} />
@@ -186,6 +190,10 @@ export default function SalvadanaioScreen() {
                         <Pressable onPress={() => remove(e.id)} hitSlop={6} accessibilityLabel="Elimina">
                           <Icon name="trash-outline" size={18} color={colors.danger} />
                         </Pressable>
+                        <Pressable onPress={() => setScanning(e)} style={[s.verifyBtn, s.scanBtn]} accessibilityLabel="Leggi lo scontrino dalla foto">
+                          <Icon name="camera-outline" size={16} color={colors.primary} />
+                          <Text style={[s.verifyText, { color: colors.primary }]}>Foto</Text>
+                        </Pressable>
                         <Pressable onPress={() => openVerify(e)} style={s.verifyBtn}>
                           <Icon name="receipt-outline" size={16} color={colors.primaryText} />
                           <Text style={s.verifyText}>Verifica</Text>
@@ -199,7 +207,12 @@ export default function SalvadanaioScreen() {
                       </Pressable>
                     )}
                     {e.snapshot && openReceipt === e.id && (
-                      <PaperReceipt store={e.snapshot} when={new Date(e.created_at)} paid={e.verified ? e.paid : null} />
+                      <PaperReceipt
+                        store={e.snapshot}
+                        when={new Date(e.created_at)}
+                        paid={e.verified ? e.paid : null}
+                        actual={e.real_receipt ? Object.fromEntries(e.real_receipt.lines.filter((l) => l.product_id).map((l) => [l.product_id!, l.net_price])) : undefined}
+                      />
                     )}
                   </Card>
                 ))}
@@ -290,6 +303,15 @@ export default function SalvadanaioScreen() {
           </Card>
         </View>
       </Modal>
+      {scanning && userId && (
+        <ReceiptScanner
+          entry={scanning}
+          userId={userId}
+          productById={productById}
+          onClose={() => setScanning(null)}
+          onDone={(msg) => { setScanning(null); setNotice(msg); load(); }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -327,6 +349,8 @@ const useStyles = makeStyles((c) => ({
     flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: c.primary,
     paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill,
   },
+  scanBtn: { backgroundColor: c.primarySoft },
+  notice: { color: c.success, fontSize: 13, marginTop: spacing.sm },
   verifyText: { color: c.primaryText, fontWeight: '700', fontSize: 13 },
   modalBg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'center', padding: spacing.xl },
   modal: { gap: spacing.md, width: '100%', maxWidth: 440, alignSelf: 'center' },

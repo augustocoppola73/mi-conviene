@@ -39,6 +39,13 @@
         {
           "locationWhenInUsePermission": "Mi Conviene usa la tua posizione per trovare i supermercati vicino a te e calcolare il costo del viaggio."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Mi Conviene usa la fotocamera per leggere lo scontrino e verificare la spesa.",
+          "photosPermission": "Mi Conviene apre la foto dello scontrino per verificare la spesa."
+        }
       ]
     ],
     "experiments": {
