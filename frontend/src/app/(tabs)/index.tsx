@@ -82,11 +82,18 @@ export default function ListaScreen() {
     setLoadingHabitual(true);
     try {
       const h = await api.habitual(userId);
+      if (h.occasions < h.needed) {
+        notify('Spesa abituale', h.occasions === 0
+          ? 'Conferma qualche spesa dai Risultati: imparo cosa compri di solito.'
+          : `Finora ho visto ${h.occasions} ${h.occasions === 1 ? 'spesa diversa' : 'spese diverse'}: me ne servono almeno ${h.needed} per capire cosa compri davvero di solito. (Se confermi più volte lo stesso carrello conta una volta sola.)`);
+        return;
+      }
       if (!h.items.length) {
-        notify('Spesa abituale', 'Conferma almeno un paio di spese dai Risultati: imparo cosa compri di solito.');
+        notify('Spesa abituale', `Su ${h.occasions} spese non c'è ancora niente che compri spesso: lo imparo con le prossime.`);
         return;
       }
       h.items.forEach((i) => addItem(i.product_id, i.quantity));
+      notify('Spesa abituale', `Aggiunti ${h.items.length} prodotti che compri spesso (da ${h.occasions} spese): ${h.items.slice(0, 6).map((i) => i.name).join(', ')}${h.items.length > 6 ? '…' : ''}.`);
     } catch (e) {
       notify('Errore', (e as Error).message);
     } finally {

@@ -577,28 +577,69 @@ def optimize_list(req: OptimizeRequest, stores: Optional[list[dict]] = None) -> 
 # ---------------------------------------------------------------------------
 # 3. Lista abituale appresa (conteggio frequenze, nessuna AI)
 # ---------------------------------------------------------------------------
-def habitual_from_history(shops: list[dict]) -> list[dict]:
-    if not shops:
-        return []
-    agg: dict[str, dict] = {}
+HABITUAL_MIN_OCCASIONS = 3   # sotto, non si può ancora parlare di abitudini
+HABITUAL_MIN_SHARE = 0.4     # il prodotto deve esserci in almeno il 40% delle spese (pesate per recenza)
+HABITUAL_RECENCY = 0.9       # ogni spesa più vecchia conta un po' meno
+DUPLICATE_DAYS = 3           # stesso carrello confermato di nuovo entro pochi giorni = stessa spesa
+
+
+def shopping_occasions(shops: list[dict]) -> list[dict]:
+    """Raggruppa lo storico in spese "vere": lo stesso carrello confermato più volte
+    (o quasi uguale, a pochi giorni di distanza) conta una volta sola.
+    shops: dal più recente al più vecchio. Ogni spesa: {date, items: {pid: qty}}."""
+    occ: list[dict] = []
     for shop in shops:
-        seen = set()
+        items: dict[str, float] = {}
         for it in shop.get("items", []):
             pid = it["product_id"]
-            if pid in seen or pid not in PRODUCT_INDEX:
-                continue
-            seen.add(pid)
-            a = agg.setdefault(pid, {"count": 0, "qty_sum": 0.0})
+            if pid in PRODUCT_INDEX:
+                items[pid] = max(items.get(pid, 0.0), float(it["quantity"]))
+        if not items:
+            continue
+        try:
+            when = datetime.fromisoformat(shop["created_at"])
+        except Exception:
+            when = None
+        dup = None
+        for o in occ[-3:]:
+            close = when is None or o["date"] is None or abs((o["date"] - when).days) <= DUPLICATE_DAYS
+            if close and jaccard(set(items), set(o["items"])) >= 0.7:
+                dup = o
+                break
+        if dup:
+            for pid, q in items.items():
+                dup["items"][pid] = max(dup["items"].get(pid, 0.0), q)
+        else:
+            occ.append({"date": when, "items": items})
+    return occ
+
+
+def habitual_from_history(shops: list[dict]) -> dict:
+    """Prodotti che compri davvero spesso (regole, nessuna AI):
+    - le conferme ripetute dello stesso carrello contano una spesa sola;
+    - servono almeno 3 spese diverse;
+    - il prodotto deve comparire in almeno 2 spese e nel 40% di quelle recenti (le recenti pesano di più);
+    - quantità: la mediana di quelle che metti di solito."""
+    occ = shopping_occasions(shops)
+    if len(occ) < HABITUAL_MIN_OCCASIONS:
+        return {"items": [], "occasions": len(occ), "needed": HABITUAL_MIN_OCCASIONS}
+    weights = [HABITUAL_RECENCY ** i for i in range(len(occ))]  # occ[0] è la più recente
+    total_w = sum(weights)
+    agg: dict[str, dict] = {}
+    for w, o in zip(weights, occ):
+        for pid, q in o["items"].items():
+            a = agg.setdefault(pid, {"count": 0, "w": 0.0, "qty": []})
             a["count"] += 1
-            a["qty_sum"] += float(it["quantity"])
-    threshold = max(2, int(len(shops) * 0.3))
-    result = [
-        {"product_id": pid, "name": PRODUCT_INDEX[pid]["name"], "count": a["count"],
-         "quantity": round(a["qty_sum"] / a["count"], 2)}
-        for pid, a in agg.items() if a["count"] >= threshold
-    ]
-    result.sort(key=lambda r: (-r["count"], r["name"]))
-    return result
+            a["w"] += w
+            a["qty"].append(q)
+    result = []
+    for pid, a in agg.items():
+        share = a["w"] / total_w
+        if a["count"] >= 2 and share >= HABITUAL_MIN_SHARE:
+            result.append({"product_id": pid, "name": PRODUCT_INDEX[pid]["name"], "count": a["count"],
+                           "share": round(share, 2), "quantity": round(statistics.median(a["qty"]), 3)})
+    result.sort(key=lambda r: (-r["share"], r["name"]))
+    return {"items": result, "occasions": len(occ), "needed": HABITUAL_MIN_OCCASIONS}
 
 
 # ---------------------------------------------------------------------------
@@ -1198,8 +1239,9 @@ async def budget_suggest(body: BudgetSuggestIn):
 
 @api.get("/habitual/{user_id}")
 async def habitual(user_id: str):
-    shops = await db.history.find({"user_id": user_id}, NO_ID).sort("created_at", -1).to_list(20)
-    return {"items": habitual_from_history(shops), "based_on": len(shops)}
+    shops = await db.history.find({"user_id": user_id}, NO_ID).sort("created_at", -1).to_list(40)
+    out = habitual_from_history(shops)
+    return {**out, "based_on": len(shops)}
 
 
 # --- Famiglia ---

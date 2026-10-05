@@ -108,12 +108,34 @@ async def test_offers_sorted(client):
 
 
 async def test_habitual(client):
-    for _ in range(3):
-        await client.post("/api/history", json={"user_id": "u", "items": [{"product_id": "pasta", "quantity": 2}]})
-    await client.post("/api/history", json={"user_id": "u", "items": [{"product_id": "vino", "quantity": 1}]})
+    async def shop(*pids, q=1):
+        await client.post("/api/history", json={"user_id": "u", "items": [{"product_id": p, "quantity": q} for p in pids]})
+    await shop("pasta", "latte", q=2)
     h = (await client.get("/api/habitual/u")).json()
-    assert [i["product_id"] for i in h["items"]] == ["pasta"]
-    assert h["items"][0]["quantity"] == 2
+    assert h["items"] == [] and h["occasions"] == 1 and h["needed"] == 3   # storico troppo corto
+    await shop("pasta", "banane", q=2)
+    await shop("pasta", "mele", q=2)
+    h = (await client.get("/api/habitual/u")).json()
+    assert [i["product_id"] for i in h["items"]] == ["pasta"] and h["items"][0]["quantity"] == 2
+
+
+def test_habitual_ignores_repeated_confirmations():
+    # caso reale: la spesa di pesce confermata due volte di fila non è un'abitudine
+    import server
+    hist = [
+        ["petto_pollo", "macinato", "salsiccia"], ["pasta", "pizza_surg"],
+        ["detersivo", "petto_pollo", "macinato", "salsiccia", "prosciutto", "tonno", "pane", "fette_biscottate"],
+        ["macinato", "petto_pollo", "salsiccia"],
+        ["vongole", "calamari", "parmigiano", "cola", "bresaola", "prosciutto"],
+        ["vongole", "calamari", "parmigiano", "cola", "bresaola", "prosciutto"],
+    ]
+    shops = [{"created_at": f"2026-10-05T0{i}:00:00+00:00", "items": [{"product_id": p, "quantity": 1} for p in items]}
+             for i, items in enumerate(hist)][::-1]  # dal più recente
+    out = server.habitual_from_history(shops)
+    ids = {i["product_id"] for i in out["items"]}
+    assert out["occasions"] == 4
+    assert "vongole" not in ids and "calamari" not in ids
+    assert {"petto_pollo", "macinato", "salsiccia"} <= ids
 
 
 async def test_family_flow(client):

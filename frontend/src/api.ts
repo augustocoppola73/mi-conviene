@@ -201,7 +201,8 @@ export const api = {
   addHistory: (body: { user_id: string; items: ListItem[]; store_id?: string; total_cost?: number }) =>
     post<{ id: string }>('/history', body),
   budgetSuggest: (user_id: string, items: ListItem[]) => post<BudgetSuggestion>('/budget/suggest', { user_id, items }),
-  habitual: (userId: string) => request<{ items: HabitualItem[]; based_on: number }>(`/habitual/${userId}`),
+  habitual: (userId: string) =>
+    request<{ items: HabitualItem[]; occasions: number; needed: number; based_on: number }>(`/habitual/${userId}`),
 
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>
