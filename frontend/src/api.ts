@@ -146,6 +146,20 @@ export interface BudgetSuggestion {
   suggested: number | null; typical?: number; margin_pct?: number; based_on?: number; basis?: string; reason: string;
 }
 export interface HabitualItem { product_id: string; name: string; count: number; quantity: number }
+export interface RecipeSummary {
+  id: string; name: string; servings: number | null; source: string; url: string | null; categories?: string[] | null;
+  user_id?: string; n_ingredients: number; mine: boolean;
+}
+export interface Recipe {
+  id?: string; user_id?: string; name: string; servings: number | null; ingredients: string[]; notes?: string | null;
+  url?: string | null; source?: string | null; categories?: string[]; image?: string | null;
+}
+export interface PlanRow {
+  text: string; name: string; amount: number | null; kind: string | null; product_id: string | null;
+  product_name: string | null; unit: string; quantity: number; approx: boolean; pantry: boolean; category_id?: string;
+}
+export interface RecipePlan { servings: number; recipe_servings: number; assumed_servings: boolean; items: PlanRow[] }
+export interface RecipeIn { user_id: string; name: string; servings: number | null; ingredients: string[]; notes?: string | null; url?: string | null; source?: string | null }
 export interface FamilyMember { user_id: string; display_name: string }
 export interface Family { code: string; created_at: string; members: FamilyMember[] }
 export interface FamilyList { code: string; items: ListItem[]; updated_by?: string; updated_at?: string }
@@ -204,6 +218,15 @@ export const api = {
   habitual: (userId: string) =>
     request<{ items: HabitualItem[]; occasions: number; needed: number; based_on: number }>(`/habitual/${userId}`),
 
+  recipes: (q: string, user_id?: string | null) =>
+    request<{ recipes: RecipeSummary[]; total_collection: number; license: string }>(`/recipes?q=${encodeURIComponent(q)}${user_id ? `&user_id=${user_id}` : ''}`),
+  recipe: (id: string, user_id?: string | null) => request<Recipe>(`/recipes/${encodeURIComponent(id)}${user_id ? `?user_id=${user_id}` : ''}`),
+  recipePlan: (body: { servings: number; recipe_id?: string; user_id?: string | null; ingredients?: string[]; recipe_servings?: number | null }) =>
+    post<RecipePlan>('/recipes/plan', body),
+  recipeImport: (url: string) => post<Recipe>('/recipes/import', { url }),
+  recipeCreate: (body: RecipeIn) => post<Recipe>('/recipes', body),
+  recipeUpdate: (id: string, body: RecipeIn) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  recipeDelete: (id: string, user_id: string) => request<{ ok: boolean }>(`/recipes/${encodeURIComponent(id)}?user_id=${user_id}`, { method: 'DELETE' }),
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>
     post<Family>('/family/join', { user_id, display_name, code }),

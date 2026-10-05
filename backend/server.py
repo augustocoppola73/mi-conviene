@@ -30,6 +30,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
 import receipts
+import recipes
 import storage
 from catalog_extra import EXTRA_PRODUCTS, NEW_CATEGORIES
 from classify import Classifier
@@ -1242,6 +1243,129 @@ async def habitual(user_id: str):
     shops = await db.history.find({"user_id": user_id}, NO_ID).sort("created_at", -1).to_list(40)
     out = habitual_from_history(shops)
     return {**out, "based_on": len(shops)}
+
+
+# --- Ricette ---
+class RecipeIn(BaseModel):
+    user_id: str
+    name: str = Field(min_length=1, max_length=120)
+    servings: Optional[int] = Field(default=4, ge=1, le=50)
+    ingredients: list[str] = Field(min_length=1, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=4000)
+    url: Optional[str] = Field(default=None, max_length=500)
+    source: Optional[str] = Field(default=None, max_length=80)
+
+
+class PlanIn(BaseModel):
+    servings: int = Field(ge=1, le=50)
+    recipe_id: Optional[str] = None
+    user_id: Optional[str] = None
+    # oppure la ricetta "al volo" (es. appena letta da un link, non ancora salvata)
+    ingredients: Optional[list[str]] = None
+    recipe_servings: Optional[int] = None
+
+
+class ImportIn(BaseModel):
+    url: str = Field(min_length=8, max_length=500)
+
+
+async def family_user_ids(user_id: Optional[str]) -> list[str]:
+    if not user_id:
+        return []
+    fam = await db.families.find_one({"members.user_id": user_id}, NO_ID)
+    return [m["user_id"] for m in (fam or {}).get("members", [])] or [user_id]
+
+
+def recipe_summary(r: dict) -> dict:
+    return {k: r.get(k) for k in ("id", "name", "servings", "source", "url", "categories", "user_id")} | \
+        {"n_ingredients": len(r.get("ingredients", [])), "mine": r.get("source") != "Wikibooks"}
+
+
+async def find_recipe(recipe_id: str, user_id: Optional[str]) -> Optional[dict]:
+    if recipe_id.startswith("wb:"):
+        return next((r for r in recipes.collection() if r["id"] == recipe_id), None)
+    r = await db.recipes.find_one({"id": recipe_id}, NO_ID)
+    if r and r["user_id"] not in await family_user_ids(user_id):
+        return None  # ricette personali: solo per te e la tua famiglia
+    return r
+
+
+@api.get("/recipes")
+async def list_recipes(q: str = "", user_id: Optional[str] = None, limit: int = Query(40, ge=1, le=100)):
+    """Le tue ricette (e della tua famiglia) prima, poi la raccolta libera di Wikibooks."""
+    ids = await family_user_ids(user_id)
+    mine = await db.recipes.find({"user_id": {"$in": ids}}, NO_ID).sort("updated_at", -1).to_list(500) if ids else []
+    found = recipes.search(mine, q, limit) + recipes.search(recipes.collection(), q, limit)
+    return {"recipes": [recipe_summary(r) for r in found[:limit]], "total_collection": len(recipes.collection()),
+            "license": recipes.LICENSE}
+
+
+@api.get("/recipes/{recipe_id}")
+async def get_recipe(recipe_id: str, user_id: Optional[str] = None):
+    r = await find_recipe(recipe_id, user_id)
+    if not r:
+        raise HTTPException(404, "Ricetta non trovata")
+    return r
+
+
+@api.post("/recipes/plan")
+async def plan_recipe(body: PlanIn):
+    """Ingredienti -> proposta per la lista della spesa, scalata per le persone."""
+    if body.recipe_id:
+        r = await find_recipe(body.recipe_id, body.user_id)
+        if not r:
+            raise HTTPException(404, "Ricetta non trovata")
+        lines, base = r["ingredients"], r.get("servings")
+    elif body.ingredients:
+        lines, base = body.ingredients, body.recipe_servings
+    else:
+        raise HTTPException(422, "Indica la ricetta")
+    rows = recipes.plan(lines, base, body.servings, PRODUCT_INDEX)
+    for row in rows:  # prodotti non in catalogo: categoria proposta per aggiungerli come nuovi
+        if not row["product_id"]:
+            row["category_id"] = classifier.classify(row["name"])["category_id"]
+    return {"servings": body.servings, "recipe_servings": base or 4, "assumed_servings": base is None, "items": rows}
+
+
+@api.post("/recipes/import")
+async def import_recipe(body: ImportIn):
+    """Legge una ricetta da un link (solo titolo, porzioni, ingredienti). Non la salva."""
+    try:
+        return await recipes.fetch_recipe(body.url)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except Exception:
+        raise HTTPException(502, "Non riesco ad aprire questa pagina")
+
+
+@api.post("/recipes")
+async def create_recipe(body: RecipeIn):
+    doc = {"id": str(uuid.uuid4()), **body.model_dump(), "source": body.source or "mia",
+           "created_at": now_iso(), "updated_at": now_iso()}
+    doc["ingredients"] = [l.strip() for l in doc["ingredients"] if l.strip()]
+    await db.recipes.insert_one(dict(doc))
+    return doc
+
+
+@api.put("/recipes/{recipe_id}")
+async def update_recipe(recipe_id: str, body: RecipeIn):
+    r = await db.recipes.find_one({"id": recipe_id}, NO_ID)
+    if not r or r["user_id"] not in await family_user_ids(body.user_id):
+        raise HTTPException(404, "Ricetta non trovata")
+    upd = {**body.model_dump(exclude={"user_id"}), "updated_at": now_iso()}
+    upd["ingredients"] = [l.strip() for l in upd["ingredients"] if l.strip()]
+    upd["source"] = body.source or r.get("source") or "mia"
+    await db.recipes.update_one({"id": recipe_id}, {"$set": upd})
+    return {**r, **upd}
+
+
+@api.delete("/recipes/{recipe_id}")
+async def delete_recipe(recipe_id: str, user_id: str):
+    r = await db.recipes.find_one({"id": recipe_id}, NO_ID)
+    if not r or r["user_id"] not in await family_user_ids(user_id):
+        raise HTTPException(404, "Ricetta non trovata")
+    await db.recipes.delete_one({"id": recipe_id})
+    return {"ok": True}
 
 
 # --- Famiglia ---

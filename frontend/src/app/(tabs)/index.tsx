@@ -256,6 +256,10 @@ export default function ListaScreen() {
           {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Icon name="repeat" size={18} color={colors.primary} />}
           <Text style={s.habitualText}>Carica la mia spesa abituale</Text>
         </Pressable>
+        <Pressable onPress={() => router.push('/ricette')} style={[s.habitualBtn, { marginTop: spacing.sm }]}>
+          <Icon name="book-outline" size={18} color={colors.primary} />
+          <Text style={s.habitualText}>Dalle ricette</Text>
+        </Pressable>
 
         <SectionTitle
           right={items.length > 0 && (
