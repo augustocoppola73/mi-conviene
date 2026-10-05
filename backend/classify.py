@@ -158,7 +158,8 @@ class Classifier:
     def classify(self, text: str) -> dict:
         cat, conf = self.category_of(text)
         similar = self.similar_products(text)
-        if not cat and similar:
+        # se assomiglia molto a un prodotto del catalogo, vale la categoria di quel prodotto
+        if similar and (not cat or similar[0]["score"] >= 0.85):
             cat = similar[0]["category_id"]
         cat = cat or "altro"
         c = self.categories.get(cat, {"id": "altro", "name": "Altro", "emoji": "🛒"})

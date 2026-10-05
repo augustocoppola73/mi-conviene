@@ -354,3 +354,13 @@ async def test_custom_items_in_list_not_priced(client):
     assert rec["custom_items"][0]["name"] == "Candele profumate"
     assert rec["total"] == base["recommended"]["receipt"]["total"]  # non cambia il confronto
     assert rec["unknown_products"] == []
+
+
+
+def test_categories_of_known_products():
+    cat = {pid: p["category_id"] for pid, p in server.PRODUCT_INDEX.items()}
+    assert cat["prosciutto"] == "salumi" and cat["parmigiano"] == "salumi"
+    assert cat["caffe"] == "colazione" and cat["olio_evo"] == "condimenti" and cat["shampoo"] == "persona"
+    assert cat["ricotta"] == "latticini" and cat["mozzarella"] == "latticini"
+    # scritto a mano ma uguale a un prodotto del catalogo: stessa categoria del catalogo
+    assert server.classifier.classify("prosciutto cotto")["category_id"] == "salumi"
