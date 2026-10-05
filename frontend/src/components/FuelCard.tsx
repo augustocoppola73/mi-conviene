@@ -31,6 +31,10 @@ export function FuelCard({ fuel, onFuelChange, lat, lon }: {
       <View style={s.head}>
         <Text style={s.title}>⛽ Dove fare {FUEL_LABEL[fuel].toLowerCase()}</Text>
       </View>
+      <Text style={s.muted}>
+        Il più conveniente vicino a casa, se ci vai apposta (andata e ritorno incluse). Se fai anche la spesa,
+        nei risultati ti propongo il distributore migliore sulla strada del supermercato: può essere un altro.
+      </Text>
       {(lat == null || lon == null) && (
         <Text style={s.muted}>Zona di esempio (Milano): attiva la posizione per i distributori vicino a te.</Text>
       )}

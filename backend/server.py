@@ -430,7 +430,7 @@ def best_fuel_stop(home: tuple[float, float], store_pt: tuple[float, float], sta
     if not median:
         return None
     direct = haversine_km(*home, *store_pt)
-    best = None
+    cands = []
     for st in stations:
         price = (st["prices"].get(fuel_type) or {}).get("self")
         if price is None:
@@ -444,16 +444,26 @@ def best_fuel_stop(home: tuple[float, float], store_pt: tuple[float, float], sta
         detour_min = detour / TRANSPORT_SPEED["car"] * 60
         cost = price * liters + detour_fuel
         rank = cost + TIME_WEIGHT * detour_min / 60 * TIME_VALUE
-        if best is None or rank < best["_rank"]:
-            best = {"_rank": rank, "station_id": st["id"], "brand": st["brand"], "address": st["address"],
-                    "city": st["city"], "lat": st["lat"], "lon": st["lon"], "price": price,
-                    "detour_km": round(detour, 1), "detour_min": round(detour_min), "detour_cost": round(detour_fuel, 2),
-                    "liters": liters, "median": median, "fill_cost": round(price * liters, 2),
-                    "saving": round(median * liters - cost, 2),
-                    "maps_url": f"https://www.google.com/maps/search/?api=1&query={st['lat']},{st['lon']}"}
-    if not best:
+        cands.append({"_rank": rank, "_cost": cost, "station_id": st["id"], "brand": st["brand"], "address": st["address"],
+                      "city": st["city"], "lat": st["lat"], "lon": st["lon"], "price": price,
+                      "detour_km": round(detour, 1), "detour_min": round(detour_min), "detour_cost": round(detour_fuel, 2),
+                      "liters": liters, "median": median, "fill_cost": round(price * liters, 2),
+                      "saving": round(median * liters - cost, 2), "updated": st.get("updated"),
+                      "maps_url": f"https://www.google.com/maps/search/?api=1&query={st['lat']},{st['lon']}"})
+    if not cands:
         return None
-    best.pop("_rank")
+    cands.sort(key=lambda c: c["_rank"])
+    best = cands[0]
+    # gli altri distributori sulla strada, con quanto costerebbero in più: così si vede perché
+    # è stato scelto proprio quello (spesso la differenza è di pochi centesimi)
+    best["alternatives"] = [
+        {k: c[k] for k in ("brand", "address", "city", "price", "detour_km", "maps_url", "updated")}
+        | {"extra_cost": round(c["_cost"] - best["_cost"], 2)}
+        for c in cands[1:4]
+    ]
+    for c in cands:
+        c.pop("_rank", None)
+        c.pop("_cost", None)
     return best
 
 

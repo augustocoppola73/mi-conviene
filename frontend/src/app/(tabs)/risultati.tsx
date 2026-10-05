@@ -183,6 +183,19 @@ export default function RisultatiScreen() {
                 ({stop.median.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l), deviazione inclusa
               </Text>
               <Text style={s.fuelStopLink}>Portami lì ↗</Text>
+              {!!stop.alternatives?.length && (
+                <View style={{ marginTop: 6, gap: 2 }}>
+                  <Text style={s.fuelStopText}>Altri sulla strada (prezzi self comunicati al Ministero):</Text>
+                  {stop.alternatives.map((a) => (
+                    <Pressable key={a.maps_url} onPress={() => Linking.openURL(a.maps_url)} hitSlop={4}>
+                      <Text style={s.fuelStopText}>
+                        · {a.brand}, {a.address} · {a.price.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l ·{' '}
+                        {a.extra_cost >= 0.01 ? `+${euro(a.extra_cost)} sul pieno` : 'stesso costo'}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </Pressable>
           )}
           <View style={s.savingBox}>

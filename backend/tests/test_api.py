@@ -374,3 +374,16 @@ async def test_saving_keeps_receipt_snapshot(client):
     e = (await client.get("/api/savings/s")).json()["entries"][0]
     assert e["snapshot"]["receipt"]["total"] == snap["receipt"]["total"]
     assert len(e["snapshot"]["receipt"]["lines"]) == len(LIST)
+
+
+def test_fuel_stop_lists_alternatives_on_the_way():
+    import server
+    home, store = (43.59, 10.35), (43.5556, 10.3285)
+    st = lambda i, b, lat, lon, p: {"id": i, "brand": b, "address": i, "city": "Livorno", "lat": lat, "lon": lon,
+                                     "prices": {"benzina": {"self": p}}, "updated": "04/10/2026"}
+    stations = [st("a", "Europam", 43.556, 10.329, 1.987), st("b", "Eni", 43.589, 10.349, 1.995),
+                st("c", "Lontano", 43.70, 10.50, 1.80)]  # troppo fuori strada
+    best = server.best_fuel_stop(home, store, stations, "benzina", 40, 1.999)
+    assert best["brand"] == "Europam"
+    alt = best["alternatives"]
+    assert [a["brand"] for a in alt] == ["Eni"] and alt[0]["extra_cost"] == 0.32

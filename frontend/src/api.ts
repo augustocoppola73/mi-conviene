@@ -84,7 +84,9 @@ export interface LocationInfo {
 export interface FuelStop {
   station_id: string; brand: string; address: string; city: string; lat: number; lon: number; price: number;
   detour_km: number; detour_min: number; detour_cost: number; liters: number; median: number;
-  fill_cost: number; saving: number; maps_url: string;
+  fill_cost: number; saving: number; maps_url: string; updated?: string | null;
+  /** altri distributori sulla strada, con quanto costerebbero in più */
+  alternatives?: { brand: string; address: string; city: string; price: number; detour_km: number; maps_url: string; updated?: string | null; extra_cost: number }[];
 }
 export interface RankedStore {
   store_id: string; store_name: string; confidence: Confidence; branch: Branch | null;
