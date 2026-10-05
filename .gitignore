@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+backend/.env
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+frontend/.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# cache prezzi reali scaricati
+backend/data/
