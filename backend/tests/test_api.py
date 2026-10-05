@@ -24,9 +24,11 @@ async def test_health_and_bootstrap(client):
 
 def test_catalog_consistency():
     assert set(server.BASE_PRICES) == set(server.PRODUCT_INDEX)
-    for (sid, pid) in server.PROMOTIONS:
-        info = server.CATALOG[sid][pid]
-        assert info["final_price"] < info["normal_price"]
+    # nessuna promozione inventata: le stime sono a prezzo pieno
+    for products in server.CATALOG.values():
+        for info in products.values():
+            if info["source"] == "stima":
+                assert info["promo_price"] is None and info["final_price"] == info["normal_price"]
 
 
 async def test_optimize_ranking(client):
@@ -96,7 +98,7 @@ async def test_lists_crud(client):
 
 async def test_offers_sorted(client):
     o = (await client.get("/api/offers")).json()
-    assert len(o) == len(server.PROMOTIONS)
+    assert all(x["source"] != "stima" for x in o)  # solo offerte vere
     assert [x["discount_pct"] for x in o] == sorted((x["discount_pct"] for x in o), reverse=True)
 
 

@@ -172,22 +172,10 @@ BASE_PRICES = {
     "detersivo": 6.99, "piatti": 1.89, "carta_igienica": 3.49, "shampoo": 2.99,
 }
 
-# (store, prodotto) -> fattore sconto (0.78 = -22%)
-PROMOTIONS = {
-    ("conad", "pasta"): 0.75, ("conad", "olio_evo"): 0.80, ("conad", "mozzarella"): 0.70,
-    ("conad", "detersivo"): 0.60,
-    ("esselunga", "petto_pollo"): 0.78, ("esselunga", "parmigiano"): 0.75,
-    ("esselunga", "caffe"): 0.70, ("esselunga", "acqua"): 0.85, ("esselunga", "salmone"): 0.80,
-    ("coop", "latte"): 0.80, ("coop", "yogurt"): 0.70, ("coop", "biscotti"): 0.65,
-    ("coop", "vino"): 0.75,
-    ("lidl", "banane"): 0.85, ("lidl", "pizza_surg"): 0.70, ("lidl", "birra"): 0.75,
-    ("carrefour", "olio_evo"): 0.65, ("carrefour", "carta_igienica"): 0.60,
-    ("carrefour", "bistecca"): 0.75, ("carrefour", "gelato"): 0.60,
-}
-LOYALTY_PROMOTIONS = {
-    ("esselunga", "parmigiano"), ("esselunga", "caffe"),
-    ("coop", "biscotti"), ("carrefour", "olio_evo"), ("carrefour", "carta_igienica"),
-}
+# Nessuna promozione inventata: le offerte arrivano solo da fonti reali
+# (Open Prices oggi, volantini in futuro). Le stime sono sempre a prezzo pieno.
+
+
 def build_catalog(real: Optional[dict] = None) -> dict:
     """CATALOG[store_id][product_id].
 
@@ -203,13 +191,11 @@ def build_catalog(real: Optional[dict] = None) -> dict:
         for pid, base_price in BASE_PRICES.items():
             jitter = 1 + rng.uniform(-0.04, 0.04)
             normal = round(base_price * store["price_level"] * jitter, 2)
-            factor = PROMOTIONS.get((sid, pid))
-            promo = round(normal * factor, 2) if factor else None
             entry = {
                 "normal_price": normal,
-                "promo_price": promo,
-                "final_price": promo if promo is not None else normal,
-                "loyalty_required": (sid, pid) in LOYALTY_PROMOTIONS,
+                "promo_price": None,
+                "final_price": normal,
+                "loyalty_required": False,
                 "confidence": "red",
                 "source": "stima",
                 "retrieved_at": retrieved_at,
