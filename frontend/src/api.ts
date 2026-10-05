@@ -156,6 +156,7 @@ export interface Recipe {
 }
 export interface PlanRow {
   text: string; name: string; amount: number | null; kind: string | null; product_id: string | null;
+  measure?: { count: number | null; one: string; many: string } | null;
   product_name: string | null; unit: string; quantity: number; approx: boolean; pantry: boolean; category_id?: string;
 }
 export interface RecipePlan { servings: number; recipe_servings: number; assumed_servings: boolean; items: PlanRow[] }

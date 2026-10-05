@@ -102,3 +102,12 @@ async def test_personal_recipes_and_plan(client):
                                                             "ingredients": ["spaghetti 200 g"]})).json()
     assert up["name"] == "Pasta nonna"
     assert (await client.delete(f"/api/recipes/{r['id']}", params={"user_id": "a"})).json()["ok"]
+
+
+def test_spoons_of_solids_become_grams():
+    z = recipes.parse_ingredient("2 cucchiai di zucchero")
+    assert z["kind"] == "g" and 20 < z["amount"] < 30 and z["measure"]["count"] == 2
+    o = recipes.parse_ingredient("3 cucchiai di olio extravergine")
+    assert o["kind"] == "ml" and o["amount"] == 45
+    f = recipes.parse_ingredient("100 ml di farina")
+    assert f["kind"] == "g" and round(f["amount"]) == 55

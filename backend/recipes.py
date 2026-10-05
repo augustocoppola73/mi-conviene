@@ -47,6 +47,30 @@ UNITS = {
     "barattolo": ("pz", 1), "lattina": ("pz", 1), "scatola": ("pz", 1), "bustina": ("pz", 1), "bustine": ("pz", 1),
     "vasetto": ("pz", 1), "vasetti": ("pz", 1), "panetto": ("pz", 1), "rotolo": ("pz", 1),
 }
+# misure "di casa": si mostrano così come sono scritte; per le cose solide si convertono in grammi
+HOUSEHOLD = {"cucchiai": ("cucchiaio", "cucchiai"), "cucchiaio": ("cucchiaio", "cucchiai"),
+             "cucchiaini": ("cucchiaino", "cucchiaini"), "cucchiaino": ("cucchiaino", "cucchiaini"),
+             "bicchiere": ("bicchiere", "bicchieri"), "bicchieri": ("bicchiere", "bicchieri"),
+             "tazza": ("tazza", "tazze"), "tazze": ("tazza", "tazze"), "tazzina": ("tazzina", "tazzine"),
+             "noce": ("noce", "noci"), "noci": ("noce", "noci"), "pizzico": ("pizzico", "pizzichi")}
+LIQUIDS = ("olio", "latte", "acqua", "vino", "aceto", "succo", "panna", "brodo", "liquore", "rum", "brandy",
+           "marsala", "grappa", "caffe", "birra", "sciroppo", "salsa di soia", "limoncello", "cognac", "spumante")
+# grammi per ml (polveri e granuli pesano meno dell'acqua)
+DENSITY = {"farin": 0.55, "fecol": 0.6, "amido": 0.6, "zuccher": 0.85, "sale": 1.2, "cacao": 0.45, "caff": 0.4,
+           "riso": 0.85, "pangratt": 0.45, "parmigian": 0.4, "grana": 0.4, "pecorin": 0.4, "burro": 0.95,
+           "miele": 1.4, "marmellat": 1.3, "lievit": 0.8, "semol": 0.65, "maizen": 0.6}
+
+
+def _is_liquid(name: str) -> bool:
+    n = normalize(name)
+    return any(re.search(r"\b" + re.escape(l), n) for l in LIQUIDS)
+
+
+def _density(name: str) -> float:
+    n = normalize(name)
+    return next((d for k, d in DENSITY.items() if re.search(r"\b" + k, n)), 0.7)
+
+
 QB = re.compile(r"\b(q\.?\s?b\.?|quanto basta|a piacere|qualche|un po'?|q\.?\s?s\.?)\b", re.I)
 DESCRIPTORS = {"fresco", "fresca", "freschi", "fresche", "grattugiato", "grattugiata", "tritato", "tritata", "tritati",
                "tagliato", "tagliata", "tagliati", "medio", "media", "medie", "medi", "grande", "grandi", "piccolo",
@@ -117,12 +141,20 @@ def parse_ingredient(line: str) -> dict:
             kind = UNITS[unit][0] if unit in UNITS else "pz"
             if unit in UNITS:
                 amount = (amount or 0) * UNITS[unit][1] if UNITS[unit][1] else None
+    measure = None
     if kind == "qb":
         amount, kind, qb = None, None, True
+    elif m and unit in HOUSEHOLD and amount is not None:
+        count = amount / UNITS[unit][1] if UNITS[unit][1] else None
+        measure = {"count": count, "one": HOUSEHOLD[unit][0], "many": HOUSEHOLD[unit][1]}
+        if kind == "ml" and not _is_liquid(name):   # 2 cucchiai di zucchero = grammi, non millilitri
+            amount, kind = amount * _density(name), "g"
+    elif kind == "ml" and amount is not None and re.search(r"\b(farin|zuccher|pangratt|cacao|semol|fecol|amido)", normalize(name)):
+        amount, kind = amount * _density(name), "g"  # polveri misurate a volume
     name = re.sub(r"\([^)]*\)", " ", name)
     name = re.split(r"\s+(?:o|oppure|per|tagliat\w*|a cubetti|a fette)\s+", name, maxsplit=1)[0]
     name = re.sub(r"\s+", " ", name).strip(" ,.:;-")
-    return {"text": text, "name": name, "amount": amount, "kind": kind, "qb": qb or amount is None}
+    return {"text": text, "name": name, "amount": amount, "kind": kind, "qb": qb or amount is None, "measure": measure}
 
 
 # ---------------------------------------------------------------- abbinamento al catalogo
@@ -260,9 +292,11 @@ def plan(ingredients: list[str], recipe_servings: int | None, servings: int, pro
             continue
         if ing["amount"] is not None:
             ing["amount"] = ing["amount"] * factor
+        if ing.get("measure") and ing["measure"]["count"] is not None:
+            ing["measure"]["count"] = round(ing["measure"]["count"] * factor, 2)
         pid, score = match_product(ing["name"], products)
         row = {"text": ing["text"], "name": ing["name"], "amount": round(ing["amount"], 1) if ing["amount"] else None,
-               "kind": ing["kind"], "product_id": pid, "match_score": score,
+               "kind": ing["kind"], "measure": ing.get("measure"), "product_id": pid, "match_score": score,
                "pantry": is_pantry(ing["name"]) or ing["qb"]}
         if pid:
             p = products[pid]

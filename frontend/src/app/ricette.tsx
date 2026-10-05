@@ -16,6 +16,12 @@ type View_ =
 
 const KIND_LABEL: Record<string, string> = { g: 'g', ml: 'ml', spicchio: 'spicchi', fetta: 'fette', foglia: 'foglie', pz: '' };
 const amountText = (r: PlanRow) => {
+  if (r.measure?.count != null) {  // "2 cucchiai", "1 bicchiere": come scritto nella ricetta
+    const c = r.measure.count;
+    const n = (Math.round(c * 4) / 4).toLocaleString('it-IT');
+    const g = r.kind === 'g' && r.amount ? ` (~${Math.round(r.amount)} g)` : '';
+    return `${n} ${c > 1 ? r.measure.many : r.measure.one}${g}`;
+  }
   if (r.amount == null) return 'q.b.';
   const n = r.amount >= 10 ? Math.round(r.amount) : Math.round(r.amount * 10) / 10;
   return `${n.toLocaleString('it-IT')}${r.kind && KIND_LABEL[r.kind] ? ' ' + KIND_LABEL[r.kind] : ''}`;
