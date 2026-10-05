@@ -1005,6 +1005,8 @@ class ScanIn(BaseModel):
 @api.post("/receipts/scan")
 async def scan_receipt(body: ScanIn):
     """Legge la foto dello scontrino e la abbina alla spesa confermata (se indicata)."""
+    # Le foto restano solo in memoria il tempo della lettura: non vengono salvate da nessuna parte
+    # (né archivio né disco né log). Si conservano solo le righe lette, se l'utente le conferma.
     images = ([body.image_base64] if body.image_base64 else []) + body.images
     if not images:
         raise HTTPException(422, "Nessuna foto")

@@ -106,3 +106,19 @@ async def test_scan_long_receipt_in_pieces(client):
     assert two["total"] == one["total"] == 18.52 and two["total_matches"]
     # stesse righe (il testo può differire di uno spazio tra due letture): stessi prezzi e prodotti
     assert [(l["net_price"], l["product_id"]) for l in two["lines"]] == [(l["net_price"], l["product_id"]) for l in one["lines"]]
+
+
+async def test_photos_are_never_stored(client, tmp_path, monkeypatch):
+    """Dopo la lettura e il salvataggio, nell'archivio non resta nessuna foto: solo righe e prezzi."""
+    pytest.importorskip("rapidocr_onnxruntime")
+    monkeypatch.chdir(tmp_path)
+    b64 = base64.b64encode((FIX / "scontrino_prova.jpg").read_bytes()).decode()
+    scan = (await client.post("/api/receipts/scan", json={"images": [b64]})).json()
+    await client.post("/api/receipts/apply", json={"user_id": "p", "store_id": "lidl", "total": scan["total"],
+                                                   "lines": [{k: l[k] for k in ("product_id", "text", "net_price", "quantity", "weight_kg")}
+                                                             for l in scan["lines"]]})
+    import json
+    dump = {name: await server.db[name].find({}, {"_id": 0}).to_list(None) for name in await server.db.list_collection_names()}
+    text = json.dumps(dump, default=str)
+    assert b64[:200] not in text and "base64" not in text and len(text) < 20_000
+    assert list(tmp_path.iterdir()) == []      # nessun file scritto
