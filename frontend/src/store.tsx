@@ -42,6 +42,7 @@ interface StoreValue {
   productById: (id: string) => Product | undefined;
   items: ListItem[];
   addItem: (productId: string, quantity?: number) => void;
+  addCustom: (name: string, categoryId: string, quantity?: number, unit?: string) => void;
   removeItem: (productId: string) => void;
   updateQty: (productId: string, quantity: number) => void;
   setItems: (items: ListItem[]) => void;
@@ -120,6 +121,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [productIndex],
   );
 
+  const addCustom = useCallback((name: string, categoryId: string, quantity = 1, unit = 'pz') => {
+    const clean = name.trim();
+    if (!clean) return;
+    const id = 'custom:' + clean.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    setItemsState((prev) =>
+      prev.some((i) => i.product_id === id)
+        ? prev.map((i) => (i.product_id === id ? { ...i, quantity: round(i.quantity + quantity) } : i))
+        : [...prev, { product_id: id, quantity, name: clean, category_id: categoryId, unit }],
+    );
+  }, []);
+
   const removeItem = useCallback((productId: string) => {
     setItemsState((prev) => prev.filter((i) => i.product_id !== productId));
   }, []);
@@ -143,6 +155,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     productById,
     items,
     addItem,
+    addCustom,
     removeItem,
     updateQty,
     setItems: setItemsState,

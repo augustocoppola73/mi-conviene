@@ -75,6 +75,15 @@ export function PaperReceipt({ store, when = new Date() }: { store: RankedStore;
           );
         })}
 
+        {receipt.custom_items?.length > 0 && (
+          <>
+            <Text style={st.t}>{dash}</Text>
+            <Text style={[st.t, st.faded]}>ALTRO DA COMPRARE (SENZA PREZZO)</Text>
+            {receipt.custom_items.map((c) => (
+              <Text key={c.product_id} style={st.t}>{cols(c.name.toUpperCase(), `${formatQty(c.quantity, c.unit)}  `)}</Text>
+            ))}
+          </>
+        )}
         <Text style={st.t}>{dash}</Text>
         <Text style={st.t}>{cols(`SUBTOTALE (${pieces} ART.)`, num(receipt.normal_total))}</Text>
         {receipt.savings_vs_normal > 0 && <Text style={st.t}>{cols('TOTALE SCONTI', `-${num(receipt.savings_vs_normal)}`)}</Text>}

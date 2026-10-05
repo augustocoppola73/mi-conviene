@@ -27,7 +27,17 @@ export interface Product { id: string; name: string; category_id: string; defaul
 export interface Store { id: string; name: string; lat: number; lng: number; distance_km: number }
 export interface Bootstrap { categories: Category[]; products: Product[]; stores: Store[] }
 
-export interface ListItem { product_id: string; quantity: number }
+export interface ListItem {
+  product_id: string; quantity: number;
+  /** solo per i prodotti scritti a mano (product_id "custom:...") */
+  name?: string; category_id?: string; unit?: string;
+}
+export interface ClassifyResult {
+  text: string; category_id: string; category_name: string; emoji: string; confidence: number;
+  similar: { product_id: string; name: string; category_id: string; score: number }[];
+  exact: { product_id: string; name: string; category_id: string; score: number } | null;
+}
+export interface CustomLine { product_id: string; name: string; quantity: number; unit: string; category_id: string | null }
 
 export interface ReceiptLine {
   product_id: string; name: string; quantity: number; unit: string;
@@ -37,7 +47,7 @@ export interface ReceiptLine {
   sample_product: string | null; proof_url: string | null;
 }
 export interface Receipt {
-  lines: ReceiptLine[]; unknown_products: string[]; real_lines: number;
+  lines: ReceiptLine[]; unknown_products: string[]; real_lines: number; custom_items: CustomLine[];
   total: number; normal_total: number; savings_vs_normal: number;
 }
 export interface Travel { distance_km: number; time_min: number; fuel_cost: number; time_cost: number }
@@ -145,6 +155,7 @@ export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
   optimize: (body: OptimizeRequest) => post<OptimizeResult>('/optimize', body),
   offers: () => request<Offer[]>('/offers'),
+  classify: (text: string) => post<ClassifyResult>('/products/classify', { text }),
   fuelNearby: (fuel: FuelType, lat?: number, lon?: number, liters = 40) =>
     request<FuelNearby>(`/fuel/nearby?fuel=${fuel}&liters=${liters}` + (lat != null && lon != null ? `&lat=${lat}&lon=${lon}` : '')),
   flyers: (lat?: number, lon?: number) =>

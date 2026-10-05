@@ -18,6 +18,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { api, BudgetSuggestion, Category, Flyer, Offer } from '@/api';
 import { FuelCard } from '@/components/FuelCard';
 import { HScroll } from '@/components/HScroll';
+import { ProductSearch } from '@/components/ProductSearch';
+import { ShoppingList } from '@/components/ShoppingList';
 import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
 import { getCurrentPosition } from '@/location';
@@ -34,7 +36,7 @@ export default function ListaScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const {
-    catalog, catalogError, reloadCatalog, productById, items, addItem, updateQty, removeItem, clearItems,
+    catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, clearItems,
     prefs, setPrefs, userId, setLastResult,
   } = useStore();
 
@@ -154,6 +156,15 @@ export default function ListaScreen() {
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.kicker}>Mi Conviene · Ciao 👋</Text>
         <Text style={s.title}>Cosa devi comprare?</Text>
+        <View style={{ marginTop: spacing.md }}>
+          <ProductSearch
+            products={catalog.products}
+            categories={catalog.categories}
+            onAddProduct={(id) => addItem(id)}
+            onAddCustom={(name, cat) => addCustom(name, cat)}
+            inList={(id) => items.some((i) => i.product_id === id)}
+          />
+        </View>
 
         {offers.length > 0 && (
           <>
@@ -246,32 +257,15 @@ export default function ListaScreen() {
         </SectionTitle>
 
         {items.length === 0 ? (
-          <EmptyState icon="basket-outline" text="Nessun prodotto. Tocca una categoria qui sopra per iniziare." />
+          <EmptyState icon="basket-outline" text="Nessun prodotto. Cerca o scrivi qui sopra, oppure tocca una categoria." />
         ) : (
-          <View style={{ gap: spacing.sm }}>
-            {items.map((it) => {
-              const p = productById(it.product_id);
-              if (!p) return null;
-              const step = qtyStep(p.default_qty, p.unit);
-              return (
-                <View key={it.product_id} style={s.itemRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.itemName}>{p.name}</Text>
-                    <Text style={s.muted}>{formatQty(it.quantity, p.unit)}</Text>
-                  </View>
-                  <Pressable accessibilityLabel="Diminuisci" style={s.stepBtn} onPress={() => updateQty(it.product_id, it.quantity - step)}>
-                    <Icon name="remove" />
-                  </Pressable>
-                  <Pressable accessibilityLabel="Aumenta" style={s.stepBtn} onPress={() => updateQty(it.product_id, it.quantity + step)}>
-                    <Icon name="add" />
-                  </Pressable>
-                  <Pressable accessibilityLabel="Rimuovi" hitSlop={8} onPress={() => removeItem(it.product_id)} style={{ paddingLeft: spacing.xs }}>
-                    <Icon name="trash-outline" color={colors.danger} />
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
+          <ShoppingList
+            items={items}
+            categories={catalog.categories}
+            productById={productById}
+            updateQty={updateQty}
+            removeItem={removeItem}
+          />
         )}
 
         <SectionTitle>Budget</SectionTitle>

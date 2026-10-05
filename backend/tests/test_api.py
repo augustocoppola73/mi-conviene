@@ -19,11 +19,16 @@ LIST = [{"product_id": "pasta", "quantity": 2}, {"product_id": "olio_evo", "quan
 async def test_health_and_bootstrap(client):
     assert (await client.get("/api/")).json()["status"] == "ok"
     b = (await client.get("/api/bootstrap")).json()
-    assert len(b["categories"]) == 10 and len(b["products"]) == 48 and len(b["stores"]) == len(server.STORES) == 7
+    assert len(b["categories"]) == len(server.CATEGORIES) >= 18 and len(b["products"]) == len(server.PRODUCTS) >= 250 and len(b["stores"]) == len(server.STORES) == 7
 
 
 def test_catalog_consistency():
     assert set(server.BASE_PRICES) == set(server.PRODUCT_INDEX)
+    ids = [p[0] for p in server.PRODUCTS]
+    assert len(ids) == len(set(ids)), "id prodotto duplicati"
+    cats = {c["id"] for c in server.CATEGORIES}
+    assert all(p[2] in cats for p in server.PRODUCTS)
+    assert all(0.1 < server.BASE_PRICES[i] < 30 for i in ids)
     # nessuna promozione inventata: le stime sono a prezzo pieno
     for products in server.CATALOG.values():
         for info in products.values():
@@ -319,3 +324,33 @@ async def test_verify_with_fuel(client):
     # pieno fatto senza indicare il prezzo: resta la stima (2)
     v = (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 30, "refueled": True})).json()
     assert v["verified_amount"] == 5
+
+
+
+async def test_classify_endpoint(client):
+    r = (await client.post("/api/products/classify", json={"text": "mozzarelline"})).json()
+    assert r["category_id"] == "latticini" and r["similar"][0]["product_id"] == "mozzarella"
+    r = (await client.post("/api/products/classify", json={"text": "crocchette gatto"})).json()
+    assert r["category_id"] == "animali" and r["exact"]["product_id"] == "crocchette_gatto"
+    r = (await client.post("/api/products/classify", json={"text": "zzzz xyz"})).json()
+    assert r["category_id"] == "altro" and r["similar"] == []
+
+
+@pytest.mark.parametrize("text,cat", [
+    ("philadelphia", "salumi"), ("pannolini pampers", "bambini"), ("ovetti kinder", "dolci"),
+    ("olio di girasole", "condimenti"), ("tagliatelle", "dispensa"), ("birra artigianale", "bevande"),
+    ("cozze surgelate", "surgelati"), ("sapone marsiglia", "persona"), ("lampadine", "casa"), ("petto di pollo", "carne"),
+])
+def test_classifier_categories(text, cat):
+    assert server.classifier.classify(text)["category_id"] == cat
+
+
+async def test_custom_items_in_list_not_priced(client):
+    items = LIST + [{"product_id": "custom:candele-profumate", "quantity": 2, "name": "Candele profumate",
+                     "category_id": "casa", "unit": "pz"}]
+    r = (await client.post("/api/optimize", json={"user_id": "u", "items": items})).json()
+    base = (await client.post("/api/optimize", json={"user_id": "u", "items": LIST})).json()
+    rec = r["recommended"]["receipt"]
+    assert rec["custom_items"][0]["name"] == "Candele profumate"
+    assert rec["total"] == base["recommended"]["receipt"]["total"]  # non cambia il confronto
+    assert rec["unknown_products"] == []

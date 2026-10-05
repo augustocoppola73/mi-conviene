@@ -29,6 +29,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
 import storage
+from catalog_extra import EXTRA_PRODUCTS, NEW_CATEGORIES
+from classify import Classifier
 import stores as stores_mod
 from stores import StoreLocator
 from prices import fuel as fuel_mod
@@ -145,10 +147,15 @@ PRODUCTS = [
     ("carta_igienica", "Carta igienica x8", "casa", 1, "conf"),
     ("shampoo", "Shampoo", "casa", 1, "pz"),
 ]
+# Catalogo esteso (altre categorie e prodotti): vedi catalog_extra.py
+CATEGORIES += NEW_CATEGORIES
+PRODUCTS += [p[:5] for p in EXTRA_PRODUCTS]
+
 PRODUCT_INDEX = {
     p[0]: {"id": p[0], "name": p[1], "category_id": p[2], "default_qty": p[3], "unit": p[4]}
     for p in PRODUCTS
 }
+classifier = Classifier(list(PRODUCT_INDEX.values()), CATEGORIES)
 
 # Zona Milano. distance_km è fisso finché non arriva la geolocalizzazione reale.
 STORES = [
@@ -175,6 +182,8 @@ BASE_PRICES = {
     "birra": 2.99, "vino": 4.99, "piselli": 2.49, "pizza_surg": 2.79, "gelato": 3.49,
     "detersivo": 6.99, "piatti": 1.89, "carta_igienica": 3.49, "shampoo": 2.99,
 }
+
+BASE_PRICES.update({p[0]: p[5] for p in EXTRA_PRODUCTS})
 
 # Nessuna promozione inventata: le offerte arrivano solo da fonti reali
 # (Open Prices oggi, volantini in futuro). Le stime sono sempre a prezzo pieno.
@@ -246,8 +255,12 @@ Transport = Literal["walk", "bike", "car", "transit"]
 
 
 class ListItem(BaseModel):
-    product_id: str
+    product_id: str  # id del catalogo, oppure "custom:..." per un prodotto scritto a mano
     quantity: float = Field(gt=0)
+    # solo per i prodotti scritti a mano (stile Bring)
+    name: Optional[str] = Field(default=None, max_length=80)
+    category_id: Optional[str] = None
+    unit: Optional[str] = Field(default=None, max_length=10)
 
 
 class OptimizeRequest(BaseModel):
@@ -269,7 +282,13 @@ class OptimizeRequest(BaseModel):
 def compute_virtual_receipt(store_id: str, items: list[ListItem]) -> dict:
     lines, unknown = [], []
     total = normal_total = 0.0
+    custom = []
     for it in items:
+        if it.product_id.startswith("custom:"):
+            # scritto a mano: senza prezzo, costa uguale ovunque -> fuori dal confronto
+            custom.append({"product_id": it.product_id, "name": it.name or it.product_id[7:],
+                           "quantity": it.quantity, "unit": it.unit or "pz", "category_id": it.category_id})
+            continue
         product = PRODUCT_INDEX.get(it.product_id)
         price_info = CATALOG[store_id].get(it.product_id)
         if not product or not price_info:
@@ -301,6 +320,7 @@ def compute_virtual_receipt(store_id: str, items: list[ListItem]) -> dict:
     return {
         "lines": lines,
         "unknown_products": unknown,
+        "custom_items": custom,  # prodotti scritti a mano: in lista, ma senza prezzo
         "real_lines": real_lines,
         "total": round(total, 2),
         "normal_total": round(normal_total, 2),
@@ -786,6 +806,16 @@ async def stores_nearby(lat: float, lon: float):
     return {"radius_km": locator.radius_m / 1000,
             "stores": sorted(near.values(), key=lambda s: s["distance_km"]),
             "missing_chains": [s["name"] for s in STORES if s["id"] not in near]}
+
+
+class ClassifyIn(BaseModel):
+    text: str = Field(min_length=1, max_length=80)
+
+
+@api.post("/products/classify")
+async def classify_product(body: ClassifyIn):
+    """Prodotto scritto a mano: categoria e prodotti simili del catalogo (regole, niente AI)."""
+    return classifier.classify(body.text)
 
 
 @api.post("/optimize")
