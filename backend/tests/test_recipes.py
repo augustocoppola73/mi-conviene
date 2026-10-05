@@ -128,3 +128,8 @@ def test_juice_and_zest_mean_buying_the_fruit():
 def test_zest_variants(line, pid, n):
     r = recipes.plan([line], 4, 4, P)[0]
     assert r["product_id"] == pid and r["amount"] == n
+
+
+def test_zest_and_juice_of_same_lemons_not_summed():
+    rows = recipes.plan(["scorza grattata di limone", "80 ml di succo di limone"], 4, 4, P)
+    assert len(rows) == 1 and rows[0]["amount"] == 2 and rows[0]["from"] == "scorza di limone e succo"

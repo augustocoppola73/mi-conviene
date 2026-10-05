@@ -347,7 +347,12 @@ def plan(ingredients: list[str], recipe_servings: int | None, servings: int, pro
         k = r["product_id"]
         if k and k in merged:
             m = merged[k]
-            if r["unit"] in ("kg", "L"):
+            if m.get("from") and r.get("from"):
+                # scorza e succo dello stesso agrume: si usano gli stessi frutti, non si sommano
+                m["quantity"] = max(m["quantity"], r["quantity"])
+                m["amount"] = max(m["amount"] or 0, r["amount"] or 0)
+                m["from"] = m["from"] + " e " + r["from"].split(" di ")[0]
+            elif r["unit"] in ("kg", "L"):
                 m["quantity"] = round(m["quantity"] + r["quantity"], 3)
             m["text"] += " + " + r["text"]
             m["pantry"] = m["pantry"] and r["pantry"]
