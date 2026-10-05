@@ -681,12 +681,13 @@ class VerifyIn(BaseModel):
 
 
 def verified_saving(entry: dict, paid: float) -> float:
-    """Risparmio verificato = stimato + (spesa prevista - pagato davvero), mai sotto zero.
-    Il riferimento (abituale o mediana) resta quello calcolato alla conferma."""
+    """Risparmio verificato = stimato + (spesa prevista - pagato davvero).
+    Può essere NEGATIVO: se alla cassa hai speso più del riferimento, la differenza
+    viene tolta dal Salvadanaio. Il riferimento resta quello calcolato alla conferma."""
     expected = entry.get("estimated_spend")
     if expected is None:  # voci vecchie senza spesa prevista: si conferma lo stimato
         return round(entry["amount"], 2)
-    return round(max(0.0, entry["amount"] + expected - paid), 2)
+    return round(entry["amount"] + expected - paid, 2)
 
 
 def saving_value(e: dict) -> float:

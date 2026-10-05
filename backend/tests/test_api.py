@@ -252,9 +252,11 @@ async def test_verify_saving_with_real_receipt(client):
     # lo storico ora ha la spesa vera (+ 1 euro di viaggio)
     hist = await server.db.history.find_one({"id": h["id"]}, {"_id": 0})
     assert hist["total_cost"] == 29
-    # pagato molto di più: risparmio a zero, mai negativo
+    # pagato molto di più: la differenza viene tolta dal salvadanaio (3 + 30 - 50 = -17)
     v = (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 50})).json()
-    assert v["verified_amount"] == 0
+    assert v["verified_amount"] == -17
+    s = (await client.get("/api/savings/v")).json()
+    assert s["total"] == -17 and s["total_verified"] == -17
     await client.post(f"/api/savings/{e['id']}/unverify")
     assert (await client.get("/api/savings/v")).json()["total"] == 3
     assert (await client.post("/api/savings/nope/verify", json={"paid": 1})).status_code == 404

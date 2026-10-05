@@ -10,11 +10,13 @@ import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 const value = (e: SavingEntry) => (e.verified ? e.verified_amount ?? 0 : e.amount);
+/** "+€1,20" oppure "−€5,34" */
+const signed = (n: number) => `${n < 0 ? '−' : '+'}${euro(Math.abs(n))}`;
 
 /** Stessa formula del backend, per l'anteprima mentre scrivi. */
 function previewVerified(e: SavingEntry, paid: number): number {
   if (e.estimated_spend == null) return e.amount;
-  return Math.max(0, Math.round((e.amount + e.estimated_spend - paid) * 100) / 100);
+  return Math.round((e.amount + e.estimated_spend - paid) * 100) / 100; // può essere negativo
 }
 
 export default function SalvadanaioScreen() {
@@ -92,18 +94,18 @@ export default function SalvadanaioScreen() {
           <>
             <Card style={s.hero}>
               <Text style={s.heroLabel}>Questo mese</Text>
-              <Text style={s.heroValue}>{euro(thisMonth)}</Text>
+              <Text style={s.heroValue}>{thisMonth < 0 ? '−' : ''}{euro(Math.abs(thisMonth))}</Text>
               <View style={s.totals}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.heroLabel}>✓ Verificato</Text>
-                  <Text style={s.totalValue}>{euro(data.total_verified)}</Text>
+                  <Text style={s.totalValue}>{data.total_verified < 0 ? '−' : ''}{euro(Math.abs(data.total_verified))}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.heroLabel}>Stimato, da verificare</Text>
                   <Text style={s.totalValue}>{euro(data.total_estimated)}</Text>
                 </View>
               </View>
-              <Text style={s.heroSmall}>Totale di sempre: {euro(data.total)}</Text>
+              <Text style={s.heroSmall}>Totale di sempre: {data.total < 0 ? '−' : ''}{euro(Math.abs(data.total))}</Text>
             </Card>
 
             <Pressable onPress={() => setShowHelp(!showHelp)} style={s.helpToggle}>
@@ -116,8 +118,8 @@ export default function SalvadanaioScreen() {
                   <Text style={s.bold}>Stimato</Text>: quando confermi una spesa, l'app calcola il risparmio con i prezzi che conosce
                   (in gran parte stime) rispetto al tuo supermercato abituale o alla spesa tipica in zona.{'\n\n'}
                   <Text style={s.bold}>Verificato</Text>: dopo aver fatto la spesa tocca “Verifica” e scrivi il totale dello scontrino.
-                  Il risparmio viene ricalcolato con quello che hai pagato davvero: se hai speso meno del previsto sale, se hai speso di più scende
-                  (mai sotto zero).{'\n\n'}
+                  Il risparmio viene ricalcolato con quello che hai pagato davvero: se hai speso meno del previsto sale, se hai speso di più scende.
+                  Se alla cassa hai speso più del riferimento, la differenza viene <Text style={s.bold}>tolta</Text> dal Salvadanaio.{'\n\n'}
                   Il totale vero aggiorna anche il tuo storico, così il budget suggerito diventa più preciso.
                 </Text>
               </Card>
@@ -139,7 +141,9 @@ export default function SalvadanaioScreen() {
                         <Text style={s.rowMeta}>{formatDate(e.created_at)}{e.note ? ` · ${e.note}` : ''}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={[s.amount, !e.verified && s.amountEstimated]}>+{euro(value(e))}</Text>
+                        <Text style={[s.amount, !e.verified && s.amountEstimated, value(e) < 0 && { color: colors.danger }]}>
+                          {signed(value(e))}
+                        </Text>
                         <Text style={[s.status, e.verified && { color: colors.success }]}>
                           {e.verified ? '✓ verificato' : 'stimato'}
                         </Text>
@@ -207,7 +211,13 @@ export default function SalvadanaioScreen() {
                       : `${euro(paid - verifying.estimated_spend)} in più`}
                   </Text>
                 )}
-                <Text style={s.previewValue}>Risparmio verificato: {euro(previewVerified(verifying, paid))}</Text>
+                {previewVerified(verifying, paid) >= 0 ? (
+                  <Text style={s.previewValue}>Risparmio verificato: {signed(previewVerified(verifying, paid))}</Text>
+                ) : (
+                  <Text style={[s.previewValue, { color: colors.danger }]}>
+                    Hai speso {euro(-previewVerified(verifying, paid))} più del riferimento: verranno tolti dal Salvadanaio
+                  </Text>
+                )}
                 <Text style={s.rowMeta}>(stima era {euro(verifying.amount)})</Text>
               </View>
             )}
