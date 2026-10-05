@@ -76,3 +76,33 @@ async def test_apply_receipt_saves_real_prices_and_verifies(client):
 async def test_scan_endpoint_rejects_garbage(client):
     r = await client.post("/api/receipts/scan", json={"image_base64": base64.b64encode(b"x" * 200).decode()})
     assert r.status_code in (422, 503)
+
+
+def test_merge_rows_removes_overlap():
+    a = ["LIDL", "SPAGHETTI 500G 0,89", "OLIO EXTRAV. 1L 7,99", "PARMIGIANO 4,99"]
+    b = ["OLIO EXTRAV 1L 7,99", "PARMIGIANO 4,99", "BANANE 1,78", "TOTALE 15,65"]  # OCR un po' diverso
+    rows, removed = receipts.merge_rows([a, b])
+    assert removed == [2] and rows == a + ["BANANE 1,78", "TOTALE 15,65"]
+    # stesso articolo comprato due volte di seguito ma a cavallo delle foto senza sovrapposizione: resta
+    rows, removed = receipts.merge_rows([["LIDL", "BANANE 1,78"], ["BANANE 1,95", "TOTALE 3,73"]])
+    assert removed == [0] and len(rows) == 4
+
+
+def _piece(img, top, bottom):
+    import io
+    buf = io.BytesIO()
+    img.crop((0, top, img.width, bottom)).save(buf, "JPEG", quality=92)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+async def test_scan_long_receipt_in_pieces(client):
+    pytest.importorskip("rapidocr_onnxruntime")
+    from PIL import Image
+    img = Image.open(FIX / "scontrino_prova.jpg")
+    one = (await client.post("/api/receipts/scan", json={"images": [_piece(img, 0, img.height)]})).json()
+    h = img.height
+    two = (await client.post("/api/receipts/scan", json={"images": [_piece(img, 0, int(h * 0.6)), _piece(img, int(h * 0.42), h)]})).json()
+    assert two["photos"] == 2 and two["overlaps"][0] >= 1
+    assert two["total"] == one["total"] == 18.52 and two["total_matches"]
+    # stesse righe (il testo può differire di uno spazio tra due letture): stessi prezzi e prodotti
+    assert [(l["net_price"], l["product_id"]) for l in two["lines"]] == [(l["net_price"], l["product_id"]) for l in one["lines"]]

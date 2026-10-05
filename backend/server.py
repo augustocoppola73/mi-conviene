@@ -925,26 +925,37 @@ async def add_saving(s: SavingIn):
 
 
 class ScanIn(BaseModel):
-    image_base64: str = Field(min_length=100)
+    # una foto sola oppure più pezzi dello stesso scontrino, dall'alto in basso
+    image_base64: Optional[str] = Field(default=None, min_length=100)
+    images: list[str] = Field(default_factory=list, max_length=6)
     saving_id: Optional[str] = None
 
 
 @api.post("/receipts/scan")
 async def scan_receipt(body: ScanIn):
     """Legge la foto dello scontrino e la abbina alla spesa confermata (se indicata)."""
-    try:
-        data = receipts.decode_image(body.image_base64)
-    except Exception:
-        raise HTTPException(422, "Immagine non valida")
-    if len(data) > 15_000_000:
-        raise HTTPException(413, "Foto troppo grande")
-    try:
-        boxes = await run_in_threadpool(receipts.ocr_image, data)
-    except ImportError:
-        raise HTTPException(503, "Lettura scontrini non installata: riavvia l'app per installarla")
-    except Exception:
-        raise HTTPException(422, "Non riesco a leggere questa foto")
-    rows = receipts.group_rows(boxes)
+    images = ([body.image_base64] if body.image_base64 else []) + body.images
+    if not images:
+        raise HTTPException(422, "Nessuna foto")
+    if len(images) > 6:
+        raise HTTPException(422, "Al massimo 6 foto per scontrino")
+    parts, n_boxes = [], 0
+    for img in images:
+        try:
+            data = receipts.decode_image(img)
+        except Exception:
+            raise HTTPException(422, "Immagine non valida")
+        if len(data) > 15_000_000:
+            raise HTTPException(413, "Foto troppo grande")
+        try:
+            boxes = await run_in_threadpool(receipts.ocr_image, data)
+        except ImportError:
+            raise HTTPException(503, "Lettura scontrini non installata: riavvia l'app per installarla")
+        except Exception:
+            raise HTTPException(422, "Non riesco a leggere questa foto")
+        n_boxes += len(boxes)
+        parts.append(receipts.group_rows(boxes))
+    rows, overlaps = receipts.merge_rows(parts)
     parsed = receipts.parse_rows(rows)
     expected, entry = [], None
     if body.saving_id:
@@ -962,7 +973,11 @@ async def scan_receipt(body: ScanIn):
     if not parsed["store_id"] and entry:
         parsed["store_id"] = entry.get("store_id")
     parsed["rows"] = rows  # testo letto, per controllo
-    parsed["ocr_boxes"] = len(boxes)
+    parsed["ocr_boxes"] = n_boxes
+    parsed["photos"] = len(images)
+    parsed["overlaps"] = overlaps  # righe ripetute tolte tra una foto e la successiva
+    if parsed["total"] is not None and not parsed["total_matches"]:
+        parsed["missing_amount"] = round(parsed["total"] - parsed["lines_sum"], 2)
     return parsed
 
 

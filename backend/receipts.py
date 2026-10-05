@@ -58,8 +58,12 @@ def ocr_image(data: bytes) -> list[tuple[list, str, float]]:
     import numpy as np
     from PIL import Image, ImageOps
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
-    if max(img.size) > 2000:  # foto del telefono troppo grandi: si riducono (più veloce, stesso risultato)
-        img.thumbnail((2000, 2000))
+    # si riduce solo se serve davvero, guardando soprattutto la larghezza: uno scontrino lungo
+    # ha il lato lungo che porta le righe, ridurlo renderebbe il testo illeggibile
+    w, h = img.size
+    scale = min(1.0, 2000 / w, 6000 / h)
+    if scale < 1.0:
+        img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
     result, _ = _engine()(np.array(img))
     return [(box, text, float(conf)) for box, text, conf in (result or [])]
 
@@ -96,6 +100,54 @@ def group_rows(boxes: list[tuple[list, str, float]]) -> list[str]:
         else:
             rows.append([it])
     return [" ".join(t for _, _, t in sorted(r, key=lambda z: z[1])) for r in rows]
+
+
+def _row_key(row: str) -> str:
+    return re.sub(r"\s+", " ", normalize(row.replace(",", ".")))
+
+
+def _row_sim(a: str, b: str) -> float:
+    ka, kb = _row_key(a), _row_key(b)
+    if not ka or not kb:
+        return 0.0
+    pa, pb = re.findall(r"\d+\.\d{2}", ka), re.findall(r"\d+\.\d{2}", kb)
+    if pa and pb and pa[-1] != pb[-1]:  # stesso testo ma prezzo diverso: righe diverse
+        return 0.0
+    return SequenceMatcher(None, ka, kb).ratio()
+
+
+def merge_rows(parts: list[list[str]], max_overlap: int = 15) -> tuple[list[str], list[int]]:
+    """Unisce le righe di più foto dello stesso scontrino (fatte dall'alto in basso).
+    Le righe in comune tra la fine di una foto e l'inizio della successiva si tengono una volta sola.
+    Restituisce le righe unite e, per ogni foto dopo la prima, quante righe ripetute sono state tolte."""
+    merged: list[str] = []
+    removed: list[int] = []
+    for i, rows in enumerate(parts):
+        rows = [r for r in rows if r.strip()]
+        if i == 0 or not merged:
+            merged.extend(rows)
+            continue
+        best = 0
+        for k in range(min(max_overlap, len(merged), len(rows)), 0, -1):
+            tail, head = merged[-k:], rows[:k]
+            sims = [_row_sim(a, b) for a, b in zip(tail, head)]
+            # tutte le coppie devono somigliarsi; una riga sola deve essere "robusta" (testo + prezzo)
+            if min(sims) >= 0.75 and sum(sims) / k >= 0.85 and (k > 1 or (len(_row_key(head[0])) >= 8 and re.search(PRICE, head[0]))):
+                best = k
+                break
+        if best == 0:
+            # l'inizio della foto potrebbe ripetere righe più in alto (foto un po' sovrapposte "a salti")
+            for j in range(min(4, len(rows))):
+                for k in range(min(max_overlap, len(merged), len(rows) - j), 1, -1):
+                    sims = [_row_sim(a, b) for a, b in zip(merged[-k:], rows[j:j + k])]
+                    if min(sims) >= 0.75 and sum(sims) / k >= 0.85:
+                        best = j + k
+                        break
+                if best:
+                    break
+        removed.append(best)
+        merged.extend(rows[best:])
+    return merged, removed
 
 
 # ---------------------------------------------------------------- interpretazione

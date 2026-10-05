@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { api, Product, SavingEntry, ScanResult } from '../api';
 import { euro } from '../format';
@@ -30,26 +30,39 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
   const [choosing, setChoosing] = useState<number | null>(null);
   const [refueled, setRefueled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
+  const [photos, setPhotos] = useState<string[]>([]); // pezzi dello scontrino, dall'alto in basso
 
   const expected = (entry.snapshot?.receipt.lines ?? []).map((l) => l.product_id);
 
+  // aggiunge una foto (un pezzo dello scontrino) alla serie
   const pick = async (camera: boolean) => {
     setError(null);
     try {
-      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], base64: true, quality: 0.7 };
+      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], base64: true, quality: 0.8 };
       if (camera && Platform.OS !== 'web') {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) { setError('Permesso fotocamera negato.'); return; }
       }
       const res = camera && Platform.OS !== 'web'
         ? await ImagePicker.launchCameraAsync(opts)
-        : await ImagePicker.launchImageLibraryAsync(opts);
-      if (res.canceled || !res.assets?.[0]) return;
-      const a = res.assets[0];
-      const b64 = a.base64 ?? (a.uri.startsWith('data:') ? a.uri : null);
-      if (!b64) { setError('Non riesco a leggere il file.'); return; }
-      setStep('reading');
-      const r = await api.scanReceipt(b64, entry.id);
+        : await ImagePicker.launchImageLibraryAsync({ ...opts, allowsMultipleSelection: true, selectionLimit: 6 - photos.length, orderedSelection: true });
+      if (res.canceled || !res.assets?.length) return;
+      const added = res.assets
+        .map((a) => (a.base64 ? `data:${a.mimeType ?? 'image/jpeg'};base64,${a.base64}` : a.uri.startsWith('data:') ? a.uri : null))
+        .filter((x): x is string => !!x);
+      if (!added.length) { setError('Non riesco a leggere il file.'); return; }
+      setPhotos((p) => [...p, ...added].slice(0, 6));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const read = async () => {
+    if (!photos.length) return;
+    setError(null);
+    setStep('reading');
+    try {
+      const r = await api.scanReceipt(photos, entry.id);
       setScan(r);
       if (r.store_id) setStore(r.store_id);
       setTotalText(r.total != null ? String(r.total).replace('.', ',') : r.lines_sum ? String(r.lines_sum).replace('.', ',') : '');
@@ -99,17 +112,48 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
             {step === 'pick' && (
               <>
                 <Text style={s.text}>
-                  Fotografa lo scontrino intero, ben steso e con buona luce. Lo leggo qui sul tuo computer: la foto non viene inviata a nessuno.
+                  Scontrino lungo? Fotografalo <Text style={{ fontWeight: '700' }}>a pezzi, da vicino</Text>, dall'alto in basso,
+                  lasciando 2-3 righe in comune tra una foto e la successiva: le righe ripetute le tolgo io.
+                  Luce buona e scontrino ben steso. Lo leggo qui sul tuo computer: la foto non va a nessuno.
                 </Text>
-                {Platform.OS !== 'web' && (
-                  <PrimaryButton label="Scatta una foto" icon="camera-outline" onPress={() => pick(true)} />
+                {photos.length > 0 && (
+                  <View style={s.thumbs}>
+                    {photos.map((p, i) => (
+                      <View key={i} style={s.thumbBox}>
+                        <Image source={{ uri: p }} style={s.thumb} resizeMode="cover" />
+                        <Text style={s.thumbN}>{i + 1}</Text>
+                        <Pressable onPress={() => setPhotos((ph) => ph.filter((_, k) => k !== i))} style={s.thumbX} hitSlop={6} accessibilityLabel={`Togli la foto ${i + 1}`}>
+                          <Icon name="close" size={12} color="#fff" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
                 )}
-                <PrimaryButton
-                  label={Platform.OS === 'web' ? 'Scegli la foto dello scontrino' : 'Scegli dalla galleria'}
-                  icon="image-outline"
-                  variant={Platform.OS === 'web' ? 'primary' : 'secondary'}
-                  onPress={() => pick(false)}
-                />
+                {photos.length < 6 && (
+                  <>
+                    {Platform.OS !== 'web' && (
+                      <PrimaryButton
+                        label={photos.length ? `Scatta il pezzo ${photos.length + 1}` : 'Scatta una foto'}
+                        icon="camera-outline"
+                        variant={photos.length ? 'secondary' : 'primary'}
+                        onPress={() => pick(true)}
+                      />
+                    )}
+                    <PrimaryButton
+                      label={photos.length ? 'Aggiungi altre foto' : Platform.OS === 'web' ? 'Scegli le foto dello scontrino' : 'Scegli dalla galleria'}
+                      icon="image-outline"
+                      variant={photos.length || Platform.OS !== 'web' ? 'secondary' : 'primary'}
+                      onPress={() => pick(false)}
+                    />
+                  </>
+                )}
+                {photos.length > 0 && (
+                  <PrimaryButton
+                    label={photos.length === 1 ? 'Leggi lo scontrino' : `Leggi lo scontrino (${photos.length} foto)`}
+                    icon="scan-outline"
+                    onPress={read}
+                  />
+                )}
               </>
             )}
 
@@ -123,6 +167,7 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
             {step === 'review' && scan && (
               <>
                 <Text style={s.text}>
+                  {(scan.photos ?? 1) > 1 ? `Ho unito ${scan.photos} foto${scan.overlaps?.some((n) => n > 0) ? ` (tolte ${scan.overlaps!.reduce((a, b) => a + b, 0)} righe ripetute)` : ''}. ` : ''}
                   Ho letto {scan.lines.length} righe e ne ho abbinate {matchedCount} ai prodotti. Controlla e correggi se serve.
                 </Text>
 
@@ -147,8 +192,7 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
                       </View>
                       {(l.quantity > 1 || l.weight_kg || l.discount > 0) && (
                         <Text style={s.small}>
-                          {l.quantity > 1 ? `${l.quantity} pezzi · ` : ''}{l.weight_kg ? `${l.weight_kg.toLocaleString('it-IT')} kg · ` : ''}
-                          {l.discount > 0 ? `sconto ${euro(l.discount)}` : ''}
+                          {[l.quantity > 1 ? `${l.quantity} pezzi` : '', l.weight_kg ? `${l.weight_kg.toLocaleString('it-IT')} kg` : '', l.discount > 0 ? `sconto ${euro(l.discount)}` : ''].filter(Boolean).join(' · ')}
                         </Text>
                       )}
                       <Pressable onPress={() => setChoosing(choosing === i ? null : i)} style={s.matchRow}>
@@ -193,6 +237,17 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
                     ? `✓ Il totale torna con la somma delle righe (${euro(scan.lines_sum)})`
                     : `Somma delle righe lette: ${euro(scan.lines_sum)}${scan.total != null ? ` · totale letto: ${euro(scan.total)}` : ''}: controlla`}
                 </Text>
+                {scan.missing_amount != null && scan.missing_amount > 0.01 && (
+                  <Text style={[s.small, { color: colors.warning }]}>
+                    Mancano circa {euro(scan.missing_amount)}: forse una riga non si leggeva bene.
+                    Puoi rifare la foto di quel pezzo da più vicino{(scan.photos ?? 1) > 1 && scan.overlaps?.some((n) => n === 0) ? ' (tra due foto non ho trovato righe in comune: forse ne manca un pezzo)' : ''}.
+                  </Text>
+                )}
+                {scan.missing_amount != null && scan.missing_amount < -0.01 && (
+                  <Text style={[s.small, { color: colors.warning }]}>
+                    Le righe superano il totale di {euro(-scan.missing_amount)}: forse una riga è stata letta due volte, controlla.
+                  </Text>
+                )}
 
                 {(entry.fuel_saving ?? 0) > 0 && (
                   <View style={s.chips}>
@@ -212,7 +267,7 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
                   disabled={!matchedCount && !totalOk}
                   onPress={save}
                 />
-                <PrimaryButton label="Rifai la foto" variant="secondary" onPress={() => { setScan(null); setStep('pick'); }} />
+                <PrimaryButton label="Rifai le foto" variant="secondary" onPress={() => { setScan(null); setPhotos([]); setStep('pick'); }} />
               </>
             )}
 
@@ -243,6 +298,11 @@ const useStyles = makeStyles((c) => ({
   lineTop: { flexDirection: 'row', gap: spacing.sm },
   lineText: { flex: 1, color: c.text, fontSize: 13, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) },
   linePrice: { color: c.text, fontSize: 13, fontWeight: '700' },
+  thumbs: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  thumbBox: { width: 64, height: 86, borderRadius: radius.sm, overflow: 'hidden', borderWidth: 1, borderColor: c.border },
+  thumb: { width: '100%', height: '100%' },
+  thumbN: { position: 'absolute', left: 4, bottom: 2, color: '#fff', fontWeight: '700', fontSize: 13, textShadowColor: '#000', textShadowRadius: 3 },
+  thumbX: { position: 'absolute', right: 3, top: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
   matchRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   inputRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg,

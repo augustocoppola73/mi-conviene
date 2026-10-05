@@ -45,6 +45,7 @@ export interface ScannedLine {
 export interface ScanResult {
   store_id: string | null; date: string | null; total: number | null; lines: ScannedLine[]; lines_sum: number;
   total_matches: boolean; missing_expected: string[]; rows: string[];
+  photos?: number; overlaps?: number[]; missing_amount?: number;
 }
 export interface CustomLine { product_id: string; name: string; quantity: number; unit: string; category_id: string | null }
 
@@ -184,7 +185,8 @@ export const api = {
     post<SavingEntry>('/savings', body),
   savings: (userId: string) => request<SavingsSummary>(`/savings/${userId}`),
   deleteSaving: (id: string) => request<{ deleted: number }>(`/savings/${id}`, { method: 'DELETE' }),
-  scanReceipt: (image_base64: string, saving_id?: string) => post<ScanResult>('/receipts/scan', { image_base64, saving_id }),
+  /** una o più foto dello stesso scontrino, dall'alto in basso */
+  scanReceipt: (images: string[], saving_id?: string) => post<ScanResult>('/receipts/scan', { images, saving_id }),
   applyReceipt: (body: {
     saving_id?: string; user_id: string; store_id: string; date?: string | null; total?: number | null;
     lines: { product_id: string | null; text: string; net_price: number; quantity: number; weight_kg: number | null }[];
