@@ -33,7 +33,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Pago Meno usa la tua posizione per trovare i supermercati vicino a te e calcolare il costo del viaggio."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

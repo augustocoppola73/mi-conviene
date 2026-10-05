@@ -41,8 +41,15 @@ export interface Receipt {
   total: number; normal_total: number; savings_vs_normal: number;
 }
 export interface Travel { distance_km: number; time_min: number; fuel_cost: number; time_cost: number }
+export interface Branch {
+  name: string; address: string | null; lat: number; lon: number; osm_id: string; opening_hours: string | null;
+}
+export interface NearbyStore extends Branch { chain: string; distance_km: number }
+export interface LocationInfo {
+  mode: 'reale' | 'esempio'; missing_chains: string[]; radius_km?: number; error?: string; habitual_missing?: string;
+}
 export interface RankedStore {
-  store_id: string; store_name: string; confidence: Confidence;
+  store_id: string; store_name: string; confidence: Confidence; branch: Branch | null;
   receipt: Receipt; travel: Travel; total_cost: number; score: number;
 }
 export interface BudgetStatus {
@@ -57,6 +64,7 @@ export interface Savings {
 export interface OptimizeResult {
   ranked: RankedStore[]; recommended: RankedStore; reasoning: string;
   budget_status: BudgetStatus | null; savings: Savings; last_similar: LastSimilar | null;
+  location: LocationInfo;
   fuel: FuelInfo; price_coverage: { real_lines: number; total_lines: number };
 }
 export interface FuelInfo {
@@ -66,6 +74,7 @@ export interface FuelInfo {
 export interface OptimizeRequest {
   user_id: string; items: ListItem[]; budget?: number | null; transport: Transport;
   habitual_store_id?: string | null; min_savings_threshold: number; fuel_type?: FuelType;
+  lat?: number; lon?: number;
 }
 
 export interface Offer {
@@ -110,6 +119,8 @@ export const api = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
   optimize: (body: OptimizeRequest) => post<OptimizeResult>('/optimize', body),
   offers: () => request<Offer[]>('/offers'),
+  storesNearby: (lat: number, lon: number) =>
+    request<{ radius_km: number; stores: NearbyStore[]; missing_chains: string[] }>(`/stores/nearby?lat=${lat}&lon=${lon}`),
 
   addSaving: (body: {
     user_id: string; store_id: string; amount: number; verified?: boolean; note?: string;

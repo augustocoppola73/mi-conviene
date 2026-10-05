@@ -15,8 +15,10 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api, BudgetSuggestion, Category, Offer } from '@/api';
+import { HScroll } from '@/components/HScroll';
 import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
+import { getCurrentPosition } from '@/location';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -82,6 +84,18 @@ export default function ListaScreen() {
     }
   }, [userId, addItem]);
 
+  const [locating, setLocating] = useState(false);
+  const useMyLocation = async () => {
+    setLocating(true);
+    try {
+      setPrefs({ location: await getCurrentPosition() });
+    } catch (e) {
+      notify('Posizione', (e as Error).message);
+    } finally {
+      setLocating(false);
+    }
+  };
+
   const findBest = async () => {
     if (!userId || !items.length) return;
     setLoading(true);
@@ -94,6 +108,7 @@ export default function ListaScreen() {
         habitual_store_id: prefs.habitualStoreId,
         min_savings_threshold: prefs.minSavingsThreshold,
         fuel_type: prefs.fuelType,
+        ...(prefs.location ? { lat: prefs.location.lat, lon: prefs.location.lon } : {}),
       });
       setLastResult(r);
       router.push('/risultati');
@@ -133,7 +148,7 @@ export default function ListaScreen() {
         {offers.length > 0 && (
           <>
             <SectionTitle>🔥 Offerte di oggi</SectionTitle>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.bleed} contentContainerStyle={s.hRow}>
+            <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
               {offers.map((o) => (
                 <View key={`${o.store_id}-${o.product_id}`} style={s.offerCard}>
                   <View style={s.offerTop}>
@@ -163,19 +178,19 @@ export default function ListaScreen() {
                   </View>
                 </View>
               ))}
-            </ScrollView>
+            </HScroll>
           </>
         )}
 
         <SectionTitle>Categorie</SectionTitle>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.bleed} contentContainerStyle={s.hRow}>
+        <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
           {catalog.categories.map((c) => (
             <Pressable key={c.id} onPress={() => setOpenCategory(c)} style={({ pressed }) => [s.catTile, pressed && { opacity: 0.7 }]}>
               <Text style={s.catEmoji}>{c.emoji}</Text>
               <Text style={s.catName} numberOfLines={1}>{c.name}</Text>
             </Pressable>
           ))}
-        </ScrollView>
+        </HScroll>
 
         <Pressable onPress={loadHabitual} style={s.habitualBtn} disabled={loadingHabitual}>
           {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Icon name="repeat" size={18} color={colors.primary} />}
@@ -259,6 +274,25 @@ export default function ListaScreen() {
             <Chip key={t.id} label={t.label} icon={t.icon as never} selected={prefs.transport === t.id} onPress={() => setPrefs({ transport: t.id })} />
           ))}
         </View>
+
+        <SectionTitle>Dove sei?</SectionTitle>
+        {prefs.location ? (
+          <View style={s.locRow}>
+            <Icon name="location" size={18} color={colors.primary} />
+            <Text style={s.locText}>Confronto i punti vendita veri più vicini a te</Text>
+            <Pressable onPress={useMyLocation} hitSlop={8} disabled={locating}>
+              <Text style={s.suggestUse}>{locating ? '…' : 'Aggiorna'}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable style={s.locCard} onPress={useMyLocation} disabled={locating}>
+            {locating ? <ActivityIndicator color={colors.primary} /> : <Icon name="location-outline" size={22} color={colors.primary} />}
+            <View style={{ flex: 1 }}>
+              <Text style={s.itemName}>Usa la mia posizione</Text>
+              <Text style={s.muted}>Così confronto i supermercati veri vicino a te, con le distanze reali. Senza, uso distanze di esempio.</Text>
+            </View>
+          </Pressable>
+        )}
 
         <SectionTitle>Dove vai di solito?</SectionTitle>
         <View style={s.wrap}>
@@ -376,6 +410,15 @@ const useStyles = makeStyles((c) => ({
     padding: spacing.md, borderRadius: radius.md, backgroundColor: c.primarySoft,
   },
   suggestText: { flex: 1, color: c.text, fontSize: 13, lineHeight: 18 },
+  locRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md,
+    borderRadius: radius.md, backgroundColor: c.primarySoft,
+  },
+  locText: { flex: 1, color: c.text, fontSize: 14 },
+  locCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg,
+    borderRadius: radius.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.primary, backgroundColor: c.surface,
+  },
   lastRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, paddingHorizontal: spacing.xs },
   lastText: { flex: 1, color: c.textSecondary, fontSize: 13, lineHeight: 18 },
   suggestUse: { color: c.primary, fontWeight: '700', fontSize: 14 },

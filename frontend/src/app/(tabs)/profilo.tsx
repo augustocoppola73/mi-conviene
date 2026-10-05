@@ -3,7 +3,8 @@ import { useCallback, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, Family } from '@/api';
+import { api, Family, NearbyStore } from '@/api';
+import { getCurrentPosition } from '@/location';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
 import { useStore } from '@/store';
@@ -39,6 +40,20 @@ export default function ProfiloScreen() {
   }, [userId]);
 
   useFocusEffect(useCallback(() => { loadFamily(); }, [loadFamily]));
+
+  const [nearby, setNearby] = useState<NearbyStore[] | null>(null);
+  const [nearbyError, setNearbyError] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const loc = prefs.location;
+  useFocusEffect(useCallback(() => {
+    if (!loc) { setNearby(null); return; }
+    setNearbyError(null);
+    api.storesNearby(loc.lat, loc.lon).then((r) => setNearby(r.stores)).catch((e: Error) => setNearbyError(e.message));
+  }, [loc]));
+  const locate = async () => {
+    setLocating(true);
+    try { setPrefs({ location: await getCurrentPosition() }); } catch (e) { notify((e as Error).message); } finally { setLocating(false); }
+  };
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -92,6 +107,33 @@ export default function ProfiloScreen() {
               ))}
             </View>
           </>
+        )}
+
+        <SectionTitle>Posizione</SectionTitle>
+        {loc ? (
+          <Card>
+            <Text style={s.help}>Punti vendita più vicini a te (OpenStreetMap), uno per catena:</Text>
+            {nearbyError && <Text style={[s.help, { color: colors.danger }]}>{nearbyError}</Text>}
+            {!nearby && !nearbyError && <Text style={s.help}>Cerco i negozi vicini…</Text>}
+            {nearby?.map((n) => (
+              <View key={n.osm_id} style={s.member}>
+                <StoreDot storeId={n.chain} size={12} />
+                <Text style={[s.memberName, { flex: 1 }]} numberOfLines={1}>
+                  {n.name}{n.address ? ` · ${n.address}` : ''}
+                </Text>
+                <Text style={s.help}>{km(n.distance_km)}</Text>
+              </View>
+            ))}
+            <View style={s.familyActions}>
+              <PrimaryButton label="Aggiorna" icon="locate-outline" variant="secondary" loading={locating} onPress={locate} style={{ flex: 1 }} />
+              <PrimaryButton label="Disattiva" variant="secondary" onPress={() => setPrefs({ location: null })} style={{ flex: 1 }} />
+            </View>
+          </Card>
+        ) : (
+          <Card>
+            <Text style={s.help}>Senza posizione uso distanze di esempio (zona Milano). Con la posizione confronto i negozi veri vicino a te.</Text>
+            <PrimaryButton label="Usa la mia posizione" icon="location-outline" loading={locating} onPress={locate} style={{ marginTop: spacing.sm }} />
+          </Card>
         )}
 
         <SectionTitle>Supermercato abituale</SectionTitle>

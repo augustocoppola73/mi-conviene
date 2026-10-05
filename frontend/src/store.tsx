@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { api, Bootstrap, FuelType, ListItem, OptimizeResult, Product, Transport } from './api';
+import type { GeoPoint } from './location';
 import { getUserId } from './user';
 
 // Chiavi con prefisso storico "margine_": rinominarle cancellerebbe i dati salvati.
@@ -15,6 +16,7 @@ export interface Prefs {
   minSavingsThreshold: number;
   displayName: string;
   fuelType: FuelType;
+  location: GeoPoint | null;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -24,6 +26,7 @@ const DEFAULT_PREFS: Prefs = {
   minSavingsThreshold: 3,
   displayName: '',
   fuelType: 'benzina',
+  location: null,
 };
 
 interface StoreValue {

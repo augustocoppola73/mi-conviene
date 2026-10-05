@@ -1,27 +1,18 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, Confidence, RankedStore } from '@/api';
+import { api, RankedStore } from '@/api';
+import { PaperReceipt } from '@/components/PaperReceipt';
 import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
-import { euro, formatQty, km } from '@/format';
+import { euro, km } from '@/format';
 import { useStore } from '@/store';
-import { Colors, makeStyles, radius, spacing, useTheme } from '@/theme';
-
-const CONFIDENCE_LABEL: Record<Confidence, string> = {
-  green: 'Reale, recente',
-  yellow: 'Reale, meno di un anno',
-  red: 'Stima o dato vecchio',
-};
+import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 function shortDate(iso: string | null) {
   if (!iso) return '';
   return new Date(iso).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: '2-digit' });
-}
-
-function confidenceColor(c: Confidence, colors: Colors) {
-  return c === 'green' ? colors.success : c === 'yellow' ? colors.warning : colors.danger;
 }
 
 export default function RisultatiScreen() {
@@ -52,7 +43,7 @@ export default function RisultatiScreen() {
     );
   }
 
-  const { recommended, ranked, reasoning, budget_status, fuel, price_coverage, savings, last_similar } = lastResult;
+  const { recommended, ranked, reasoning, budget_status, fuel, price_coverage, savings, last_similar, location } = lastResult;
   const lastToday = last_similar ? ranked.find((r) => r.store_id === last_similar.store_id) : undefined;
   const others = ranked.filter((r) => r.store_id !== recommended.store_id);
 
@@ -91,12 +82,26 @@ export default function RisultatiScreen() {
           <Text style={s.title}>{recommended.store_name}</Text>
         </View>
 
+        {recommended.branch && (
+          <Text style={s.branch}>
+            {recommended.branch.name}{recommended.branch.address ? ` · ${recommended.branch.address}` : ''}
+          </Text>
+        )}
+        {location.mode === 'esempio' && (
+          <View style={s.locNote}>
+            <Icon name="location-outline" size={15} color={colors.warning} />
+            <Text style={s.locNoteText}>
+              {location.error ? `Punti vendita non disponibili (${location.error}): ` : ''}distanze di esempio. Attiva la posizione nella Lista per usare i negozi veri vicino a te.
+            </Text>
+          </View>
+        )}
+
         <Card style={s.hero}>
           <Text style={s.heroTotal}>{euro(recommended.total_cost)}</Text>
           <Text style={s.heroSub}>
             spesa {euro(recommended.receipt.total)}
             {recommended.travel.fuel_cost > 0 ? ` + carburante ${euro(recommended.travel.fuel_cost)}` : ''}
-            {` · ${km(recommended.travel.distance_km)} · ${recommended.travel.time_min} min`}
+            {` · ${location.mode === 'reale' ? 'circa ' : ''}${km(recommended.travel.distance_km)} · ${recommended.travel.time_min} min`}
           </Text>
           <View style={s.sourceRow}>
             <Icon name={price_coverage.real_lines > 0 ? 'checkmark-done-outline' : 'information-circle-outline'} size={15} color={colors.textSecondary} />
@@ -194,6 +199,7 @@ export default function RisultatiScreen() {
                 <Text style={s.altName}>{r.store_name}</Text>
                 <Text style={s.altTotal}>{euro(r.total_cost)}</Text>
               </View>
+              {r.branch && <Text style={s.altMeta}>{r.branch.name}{r.branch.address ? ` · ${r.branch.address}` : ''}</Text>}
               <Text style={s.altMeta}>
                 spesa {euro(r.receipt.total)} · carburante {euro(r.travel.fuel_cost)} · {km(r.travel.distance_km)} · {r.travel.time_min} min
               </Text>
@@ -202,6 +208,17 @@ export default function RisultatiScreen() {
             </Card>
           ))}
         </View>
+        {location.mode === 'reale' && (location.missing_chains.length > 0 || location.habitual_missing) && (
+          <Text style={s.missing}>
+            {location.missing_chains.length > 0
+              ? `Nessun punto vendita ${location.missing_chains.join(', ')} entro ${location.radius_km ?? 6} km: esclusi dal confronto.`
+              : ''}
+            {location.habitual_missing ? ` Il tuo abituale (${location.habitual_missing}) non è vicino: non l'ho usato come riferimento.` : ''}
+          </Text>
+        )}
+        {location.mode === 'reale' && (
+          <Text style={s.missing}>Punti vendita © OpenStreetMap. Distanze in linea d'aria × 1,3 (stima del percorso stradale).</Text>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -221,7 +238,6 @@ function DeltaBadge({ delta }: { delta: number }) {
 function ReceiptToggle({ store, expanded, onToggle }: { store: RankedStore; expanded: boolean; onToggle: () => void }) {
   const s = useStyles();
   const { colors } = useTheme();
-  const { receipt } = store;
   return (
     <View style={{ marginTop: spacing.sm }}>
       <Pressable onPress={onToggle} style={s.toggle} hitSlop={6}>
@@ -229,57 +245,7 @@ function ReceiptToggle({ store, expanded, onToggle }: { store: RankedStore; expa
         <Text style={s.toggleText}>{expanded ? 'Nascondi scontrino' : 'Vedi scontrino virtuale'}</Text>
         <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
       </Pressable>
-      {expanded && (
-        <View style={s.receipt}>
-          {receipt.lines.map((l) => (
-            <View key={l.product_id} style={s.line}>
-              <View style={[s.confDot, { backgroundColor: confidenceColor(l.confidence, colors) }]} accessibilityLabel={CONFIDENCE_LABEL[l.confidence]} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.lineName}>{l.name}</Text>
-                <Text style={s.lineMeta}>
-                  {formatQty(l.quantity, l.unit)}
-                  {l.loyalty_required ? ' · con carta fedeltà' : ''}
-                </Text>
-                {l.source === 'stima' ? (
-                  <Text style={s.estimate}>prezzo stimato</Text>
-                ) : (
-                  <Pressable onPress={() => l.proof_url && Linking.openURL(l.proof_url)} hitSlop={4}>
-                    <Text style={s.real}>
-                      ✓ reale · {l.location_name}, {shortDate(l.observed_at)}
-                      {l.sample_product ? ` · “${l.sample_product}”` : ''}
-                    </Text>
-                  </Pressable>
-                )}
-              </View>
-              {l.in_promo && <Text style={s.lineStrike}>{euro(l.normal_price)}</Text>}
-              <Text style={[s.linePrice, l.in_promo && { color: colors.primary }]}>{euro(l.line_price)}</Text>
-            </View>
-          ))}
-          <View style={s.receiptTotal}>
-            <Text style={s.lineName}>Totale spesa</Text>
-            <Text style={s.linePrice}>{euro(receipt.total)}</Text>
-          </View>
-          {receipt.savings_vs_normal > 0 && (
-            <Text style={s.lineMeta}>Risparmi {euro(receipt.savings_vs_normal)} grazie alle promozioni</Text>
-          )}
-          {receipt.unknown_products.length > 0 && (
-            <Text style={[s.lineMeta, { color: colors.warning }]}>
-              {receipt.unknown_products.length} prodotti non trovati nel catalogo
-            </Text>
-          )}
-          <Text style={s.lineMeta}>
-            Prezzi reali: {receipt.real_lines} su {receipt.lines.length} · fonte Open Prices (Open Food Facts)
-          </Text>
-          <View style={s.legend}>
-            {(['green', 'yellow', 'red'] as Confidence[]).map((c) => (
-              <View key={c} style={s.legendItem}>
-                <View style={[s.confDot, { backgroundColor: confidenceColor(c, colors) }]} />
-                <Text style={s.lineMeta}>{CONFIDENCE_LABEL[c]}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
+      {expanded && <PaperReceipt store={store} />}
     </View>
   );
 }
@@ -315,6 +281,10 @@ const useStyles = makeStyles((c) => ({
   receiptTotal: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: c.border, paddingTop: spacing.sm },
   savingBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: spacing.md },
   savingText: { flex: 1, color: c.textSecondary, fontSize: 13, fontWeight: '600' },
+  branch: { color: c.textSecondary, fontSize: 13, marginTop: 2 },
+  locNote: { flexDirection: 'row', gap: 6, alignItems: 'flex-start', marginTop: spacing.sm },
+  locNoteText: { flex: 1, color: c.warning, fontSize: 12, lineHeight: 17 },
+  missing: { color: c.textSecondary, fontSize: 12, marginTop: spacing.md, lineHeight: 17 },
   lastText: { flex: 1, color: c.textSecondary, fontSize: 13, lineHeight: 18 },
   promoNote: { color: c.textSecondary, fontSize: 12, marginTop: 6 },
   sourceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },

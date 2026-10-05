@@ -29,6 +29,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
 import storage
+from stores import StoreLocator
+from prices.geo import haversine_km
 from prices.service import PriceService
 
 # ---------------------------------------------------------------------------
@@ -64,6 +66,9 @@ PRICES_AUTO_REFRESH = os.environ.get("PRICES_AUTO_REFRESH", "1") == "1"
 PRICES_REFRESH_HOURS = float(os.environ.get("PRICES_REFRESH_HOURS", "12"))
 
 prices = PriceService(PRICE_LAT, PRICE_LON, PRICE_RADIUS_KM)
+locator = StoreLocator(int(float(os.environ.get("STORES_RADIUS_KM", "6")) * 1000))
+PRICE_RECENTER_KM = 15  # oltre questa distanza dalla zona prezzi, la si sposta sull'utente
+_recenter_task: Optional[asyncio.Task] = None
 log = logging.getLogger("pago_meno")
 
 
@@ -263,6 +268,9 @@ class OptimizeRequest(BaseModel):
     habitual_store_id: Optional[str] = None
     min_savings_threshold: float = 3.0
     fuel_type: Literal["benzina", "gasolio", "gpl", "metano"] = "benzina"
+    # posizione dell'utente: se c'è si usano i punti vendita reali più vicini
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lon: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 def compute_virtual_receipt(store_id: str, items: list[ListItem]) -> dict:
@@ -370,10 +378,11 @@ def compute_savings(ranked: list[dict], recommended: dict, habitual: Optional[di
     }
 
 
-def optimize_list(req: OptimizeRequest) -> dict:
+def optimize_list(req: OptimizeRequest, stores: Optional[list[dict]] = None) -> dict:
+    """stores: punti vendita da confrontare (default: STORES con distanze di esempio)."""
     ranked = []
     fuel = fuel_info(req.fuel_type)
-    for store in STORES:
+    for store in stores if stores is not None else STORES:
         receipt = compute_virtual_receipt(store["id"], req.items)
         travel = compute_travel(store, req.transport, fuel)
         total_cost = round(receipt["total"] + travel["fuel_cost"], 2)
@@ -381,6 +390,7 @@ def optimize_list(req: OptimizeRequest) -> dict:
         ranked.append({
             "store_id": store["id"],
             "store_name": store["name"],
+            "branch": store.get("branch"),  # punto vendita reale (nome, indirizzo), se c'è la posizione
             "confidence": store_confidence(receipt),
             "receipt": receipt,
             "travel": travel,
@@ -583,11 +593,68 @@ async def bootstrap():
     }
 
 
+async def stores_for(lat: Optional[float], lon: Optional[float]) -> tuple[list[dict], dict]:
+    """Catene da confrontare: con la posizione, il punto vendita reale più vicino di
+    ognuna (le catene senza negozi vicini restano fuori); senza, le distanze di esempio."""
+    if lat is None or lon is None:
+        return STORES, {"mode": "esempio", "missing_chains": []}
+    try:
+        near = await locator.nearest(lat, lon)
+    except Exception as e:
+        log.warning("Punti vendita non disponibili (%s): uso le distanze di esempio", e)
+        return STORES, {"mode": "esempio", "missing_chains": [], "error": "OpenStreetMap non raggiungibile"}
+    maybe_recenter_prices(lat, lon)
+    chosen = []
+    for s in STORES:
+        b = near.get(s["id"])
+        if b:
+            chosen.append({**s, "distance_km": b["distance_km"],
+                           "branch": {k: b[k] for k in ("name", "address", "lat", "lon", "osm_id", "opening_hours")}})
+    missing = [s["name"] for s in STORES if s["id"] not in near]
+    if not chosen:
+        return STORES, {"mode": "esempio", "missing_chains": missing, "error": "nessun punto vendita nel raggio"}
+    return chosen, {"mode": "reale", "missing_chains": missing, "radius_km": locator.radius_m / 1000}
+
+
+def maybe_recenter_prices(lat: float, lon: float) -> None:
+    """Se l'utente è lontano dalla zona dei prezzi, sposta lì la ricerca e aggiorna in background."""
+    global _recenter_task
+    if haversine_km(lat, lon, prices.lat, prices.lon) < PRICE_RECENTER_KM:
+        return
+    if _recenter_task and not _recenter_task.done():
+        return
+    prices.lat, prices.lon = round(lat, 3), round(lon, 3)
+
+    async def run():
+        await prices.refresh()
+        rebuild_catalog()
+
+    try:
+        _recenter_task = asyncio.get_running_loop().create_task(run())
+    except RuntimeError:
+        pass
+
+
+@api.get("/stores/nearby")
+async def stores_nearby(lat: float, lon: float):
+    try:
+        near = await locator.nearest(lat, lon)
+    except Exception:
+        raise HTTPException(503, "OpenStreetMap non raggiungibile")
+    return {"radius_km": locator.radius_m / 1000,
+            "stores": sorted(near.values(), key=lambda s: s["distance_km"]),
+            "missing_chains": [s["name"] for s in STORES if s["id"] not in near]}
+
+
 @api.post("/optimize")
 async def optimize(req: OptimizeRequest):
     if req.habitual_store_id and req.habitual_store_id not in STORE_INDEX:
         raise HTTPException(422, "Supermercato abituale sconosciuto")
-    result = optimize_list(req)
+    stores, location = await stores_for(req.lat, req.lon)
+    if req.habitual_store_id and not any(s["id"] == req.habitual_store_id for s in stores):
+        location["habitual_missing"] = STORE_INDEX[req.habitual_store_id]["name"]
+    result = optimize_list(req, stores)
+    result["location"] = location
     shops = await db.history.find({"user_id": req.user_id}, NO_ID).sort("created_at", -1).to_list(BUDGET_HISTORY_LIMIT)
     last = last_similar_shop([i.product_id for i in req.items], shops)
     if last:
