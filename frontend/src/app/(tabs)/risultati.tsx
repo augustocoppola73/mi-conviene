@@ -4,6 +4,7 @@ import { Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, RankedStore } from '@/api';
+import { SmartSuggestions } from '@/components/SmartSuggestions';
 import { PaperReceipt } from '@/components/PaperReceipt';
 import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, km } from '@/format';
@@ -256,6 +257,14 @@ export default function RisultatiScreen() {
             {'\n'}Dopo la spesa, verificala lì con il totale dello scontrino.
           </Text>
         )}
+
+        <SmartSuggestions
+          items={items}
+          storeId={recommended.store_id}
+          budget={budget_status?.budget ?? null}
+          spent={budget_status ? budget_status.spend : null}
+          onListChanged={() => {}}
+        />
 
         <SectionTitle>Le alternative</SectionTitle>
         <View style={{ gap: spacing.sm }}>

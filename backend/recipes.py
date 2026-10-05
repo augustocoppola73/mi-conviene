@@ -17,6 +17,7 @@ import json
 import math
 import re
 import socket
+from functools import lru_cache
 from html import unescape
 from pathlib import Path
 from urllib.parse import urlparse
@@ -93,7 +94,9 @@ ALIASES = {"tuorli": "uova", "tuorlo": "uova", "albumi": "uova", "albume": "uova
 # peso medio di un pezzo (per gli ingredienti contati che in negozio si comprano a peso)
 PIECE_G = {"cipoll": 150, "aglio": 5, "patat": 200, "pomodor": 120, "carot": 80, "zucchin": 200, "limon": 120,
            "mel": 180, "melanzan": 300, "peperon": 200, "aranc": 200, "banan": 180, "porr": 150, "finocch": 300,
-           "sedan": 40, "cetriol": 250, "pera": 180, "pere": 180, "scalogn": 30, "peperoncin": 5, "avocad": 200}
+           "sedan": 40, "cetriol": 250, "salsicc": 100, "wurstel": 50, "würstel": 50, "hamburger": 120,
+           "fettin": 100, "cotolett": 150, "bistecc": 250, "coscia": 200, "sovracosc": 150, "filett": 150,
+           "trance": 150, "gamber": 20, "calamar": 150, "seppi": 200, "mozzarell": 125, "burrat": 200, "pera": 180, "pere": 180, "scalogn": 30, "peperoncin": 5, "avocad": 200}
 PANTRY = ("sale", "pepe", "olio", "aceto", "acqua", "zucchero", "lievito", "bicarbonato", "origano", "noce moscata",
           "brodo", "vino")
 SKIP = ("acqua",)
@@ -154,7 +157,7 @@ def parse_ingredient(line: str) -> dict:
     name = re.sub(r"\([^)]*\)", " ", name)
     name = re.split(r"\s+(?:o|oppure|per|tagliat\w*|a cubetti|a fette)\s+", name, maxsplit=1)[0]
     name = re.sub(r"\s+", " ", name).strip(" ,.:;-")
-    return {"text": text, "name": name, "amount": amount, "kind": kind, "qb": qb or amount is None, "measure": measure}
+    return {"text": text, "name": name, "amount": amount, "kind": kind, "qb": qb, "measure": measure}
 
 
 # ---------------------------------------------------------------- abbinamento al catalogo
@@ -162,10 +165,12 @@ def _core_words(name: str) -> list[str]:
     return [w for w in tokens(normalize(name)) if w not in DESCRIPTORS and len(w) >= 3]
 
 
+@lru_cache(maxsize=20000)
 def _stem(w: str) -> str:
-    return re.sub(r"[aeiou]+$", "", w) or w
+    return w.rstrip("aeiou") or w
 
 
+@lru_cache(maxsize=200000)
 def _same(a: str, b: str) -> bool:
     """Stessa parola a meno di singolare/plurale (cipolla/cipolle, pomodoro/pomodori)."""
     sa, sb = _stem(a), _stem(b)
@@ -182,10 +187,24 @@ def _product_words(p: dict) -> list[str]:
     return [w for w in tokens(normalize(p["name"])) if not re.fullmatch(r"\d+\w*|x\d+", w) and w not in DESCRIPTORS]
 
 
+_PWORDS: dict[int, list[tuple[str, list[str]]]] = {}
+_MATCH_CACHE: dict[tuple[int, str], tuple[str | None, float]] = {}
+
+
 def match_product(name: str, products: dict[str, dict]) -> tuple[str | None, float]:
+    key = (id(products), name.lower())
+    hit = _MATCH_CACHE.get(key)
+    if hit is None:
+        hit = _MATCH_CACHE[key] = _match_product(name, products)
+    return hit
+
+
+def _match_product(name: str, products: dict[str, dict]) -> tuple[str | None, float]:
     global _HEADS
     if _HEADS is None:  # parole "alimento" del catalogo (pomodoro, limone, soia...)
         _HEADS = {_stem(w) for p in products.values() for w in _product_words(p) if len(w) >= 4}
+    if id(products) not in _PWORDS:
+        _PWORDS[id(products)] = [(pid, _product_words(p)) for pid, p in products.items()]
     words = _core_words(name)
     if not words:
         return None, 0.0
@@ -193,8 +212,7 @@ def match_product(name: str, products: dict[str, dict]) -> tuple[str | None, flo
         if w in ALIASES and ALIASES[w] in products:
             return ALIASES[w], 0.95
     best, best_s = None, 0.0
-    for pid, p in products.items():
-        pw = _product_words(p)
+    for pid, pw in _PWORDS[id(products)]:
         if not pw:
             continue
         hit = [w for w in words if any(_same(w, x) for x in pw)]
@@ -238,12 +256,13 @@ def _piece_grams(name: str) -> float | None:
     return None
 
 
-def to_buy(ing: dict, product: dict) -> tuple[float, bool]:
-    """Quantità da mettere in lista (unità del prodotto) e se è una stima."""
+def needed(ing: dict, product: dict) -> tuple[float | None, bool]:
+    """Quanto prodotto serve davvero (nell'unità del prodotto, senza arrotondare) e se è una stima.
+    None = "q.b.": non si sa, si compra la confezione normale."""
     unit, ref = product["unit"], product["default_qty"]
     amount, kind = ing.get("amount"), ing.get("kind")
     if amount is None:
-        return ref, True
+        return None, True
     grams = None
     if kind in ("g", "ml"):
         grams = amount
@@ -253,27 +272,39 @@ def to_buy(ing: dict, product: dict) -> tuple[float, bool]:
         pg = _piece_grams(ing["name"]) or _piece_grams(product["name"])
         grams = amount * pg if pg else None
     pack = pack_of(product)
-    if unit == "kg":
+    if unit in ("kg", "L"):
         if grams is None:
             return ref, True
-        if pack and pack[0] == "g":  # "Riso Carnaroli 1kg": si compra il pacco intero
-            packs = max(1, math.ceil(grams / pack[1] - 1e-9))
-            return round(packs * pack[1] / 1000, 3), False
-        return round(max(0.05, math.ceil(grams / 1000 / 0.05 - 1e-9) * 0.05), 2), kind not in ("g", "ml")
-    if unit == "L":
-        if grams is None:
-            return ref, True
-        step = pack[1] / 1000 if pack and pack[0] == "ml" else 0.25
-        return round(max(step, math.ceil(grams / 1000 / step - 1e-9) * step), 3), False
-    # pz / conf: confezioni intere
-    if pack and pack[0] == "pz":
-        n = amount if kind in ("pz", None) else 1
-        return float(max(1, math.ceil(n / pack[1] - 1e-9))), False
-    if pack and grams is not None:
-        return float(max(1, math.ceil(grams / pack[1] - 1e-9))), False
+        return grams / 1000, kind not in ("g", "ml")
+    if pack and pack[0] == "pz":                      # "Uova x6": 4 uova = 0,67 confezioni
+        return (amount if kind in ("pz", None) else 1) / pack[1], False
+    if pack and grams is not None:                    # "Spaghetti 500g": 250 g = mezza confezione
+        return grams / pack[1], False
     if kind in ("pz", None) and amount:
-        return float(max(1, math.ceil(amount))), False
+        return amount, False
     return 1.0, True
+
+
+def buy_from_used(used: float | None, product: dict) -> float:
+    """Da quanto serve a quanto si compra: confezioni intere, kg arrotondati ai 50 g."""
+    unit, ref = product["unit"], product["default_qty"]
+    if used is None:
+        return ref
+    pack = pack_of(product)
+    if unit == "kg":
+        if pack and pack[0] == "g":                   # "Riso Carnaroli 1kg": si compra il pacco intero
+            return round(max(1, math.ceil(used * 1000 / pack[1] - 1e-9)) * pack[1] / 1000, 3)
+        return round(max(0.05, math.ceil(used / 0.05 - 1e-9) * 0.05), 2)
+    if unit == "L":
+        step = pack[1] / 1000 if pack and pack[0] == "ml" else 0.25
+        return round(max(step, math.ceil(used / step - 1e-9) * step), 3)
+    return float(max(1, math.ceil(used - 1e-9)))
+
+
+def to_buy(ing: dict, product: dict) -> tuple[float, bool]:
+    """Quantità da mettere in lista (unità del prodotto) e se è una stima."""
+    used, approx = needed(ing, product)
+    return buy_from_used(used, product), approx
 
 
 def is_pantry(name: str) -> bool:
@@ -335,8 +366,9 @@ def plan(ingredients: list[str], recipe_servings: int | None, servings: int, pro
                "pantry": is_pantry(ing["name"]) or ing["qb"]}
         if pid:
             p = products[pid]
-            qty, approx = to_buy(ing, p)
-            row.update(product_name=p["name"], unit=p["unit"], quantity=round(qty, 3), approx=approx)
+            used, approx = needed(ing, p)
+            row.update(product_name=p["name"], unit=p["unit"], quantity=round(buy_from_used(used, p), 3),
+                       used=round(used, 4) if used is not None else None, approx=approx)
         else:
             row.update(product_name=None, unit="pz", quantity=1, approx=True)
         out.append(row)
@@ -350,10 +382,15 @@ def plan(ingredients: list[str], recipe_servings: int | None, servings: int, pro
             if m.get("from") and r.get("from"):
                 # scorza e succo dello stesso agrume: si usano gli stessi frutti, non si sommano
                 m["quantity"] = max(m["quantity"], r["quantity"])
+                m["used"] = max(m.get("used") or 0, r.get("used") or 0) or None
                 m["amount"] = max(m["amount"] or 0, r["amount"] or 0)
                 m["from"] = m["from"] + " e " + r["from"].split(" di ")[0]
-            elif r["unit"] in ("kg", "L"):
-                m["quantity"] = round(m["quantity"] + r["quantity"], 3)
+            else:  # tuorli + albumi, burro per l'impasto + burro per la teglia: si somma quanto serve
+                if m.get("used") is not None and r.get("used") is not None:
+                    m["used"] = round(m["used"] + r["used"], 4)
+                    m["quantity"] = round(buy_from_used(m["used"], products[k]), 3)
+                else:
+                    m["quantity"] = max(m["quantity"], r["quantity"])
             m["text"] += " + " + r["text"]
             m["pantry"] = m["pantry"] and r["pantry"]
             continue
@@ -374,6 +411,12 @@ def collection() -> list[dict]:
         try:
             data = json.loads(DATA.read_text(encoding="utf-8"))
             _COLLECTION, LICENSE = data.get("recipes", []), data.get("license", "")
+            for r in _COLLECTION:  # "per 30 biscotti", "per 30 minuti": non sono persone
+                if r.get("servings") and not 1 <= r["servings"] <= 12:
+                    r["servings"] = None
+                # categorie di servizio di Wikibooks (avanzamento, collegamenti): non sono tipi di piatto
+                r["categories"] = [c for c in r.get("categories") or []
+                                   if not c.startswith(("Moduli", "Collegamento", "Pagine", "Ricette con", "Errori"))]
         except FileNotFoundError:
             _COLLECTION = []
     return _COLLECTION
@@ -490,3 +533,29 @@ async def fetch_recipe(url: str) -> dict:
             raise ValueError(f"Il sito ha risposto con un errore ({r.status_code})")
         html = r.text[:3_000_000]
     return parse_recipe_html(html, str(r.url))
+
+
+def merge_rows(groups: list[list[dict]], products: dict[str, dict]) -> list[dict]:
+    """Unisce le righe di più ricette (menu della settimana): quanto serve si somma, poi si arrotonda
+    una volta sola alle confezioni (due ricette da 250 g di spaghetti = 1 pacco, non 2)."""
+    out: dict[str, dict] = {}
+    order: list[str] = []
+    for rows in groups:
+        for r in rows:
+            key = r["product_id"] or "new:" + normalize(r["name"])
+            if key not in out:
+                out[key] = {**r, "recipes": [r.get("recipe")] if r.get("recipe") else []}
+                order.append(key)
+                continue
+            m = out[key]
+            if r.get("recipe") and r["recipe"] not in m["recipes"]:
+                m["recipes"].append(r["recipe"])
+            m["pantry"] = m["pantry"] and r["pantry"]
+            m["text"] = m["text"] + " + " + r["text"]
+            if r["product_id"]:
+                if m.get("used") is not None and r.get("used") is not None:
+                    m["used"] = round(m["used"] + r["used"], 4)
+                    m["quantity"] = round(buy_from_used(m["used"], products[r["product_id"]]), 3)
+                else:
+                    m["quantity"] = max(m["quantity"], r["quantity"])
+    return [out[k] for k in order]

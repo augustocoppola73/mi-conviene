@@ -33,7 +33,7 @@ import receipts
 import recipes
 import storage
 from catalog_extra import EXTRA_PRODUCTS, NEW_CATEGORIES
-from classify import Classifier
+from classify import Classifier, normalize
 import stores as stores_mod
 from stores import StoreLocator
 from prices import fuel as fuel_mod
@@ -724,6 +724,8 @@ async def lifespan(_app: FastAPI):
     rebuild_catalog()
     if PRICES_AUTO_REFRESH:
         tasks.append(asyncio.create_task(prices.refresh_forever(PRICES_REFRESH_HOURS, rebuild_catalog)))
+    # ricette: si preparano in background (abbinamento ingredienti -> prodotti), qualche secondo
+    tasks.append(asyncio.create_task(run_in_threadpool(lambda: [recipe_core(r) for r in recipes.collection()])))
     yield
     for t in tasks:
         t.cancel()
@@ -1290,13 +1292,112 @@ async def find_recipe(recipe_id: str, user_id: Optional[str]) -> Optional[dict]:
     return r
 
 
+# --- Ricette x lista x prezzi x abitudini (regole, nessuna AI) ---
+_RECIPE_CORE: dict[str, dict] = {}
+MAIN_DISH = ("Primi piatti", "Secondi piatti", "Piatti unici", "Risotti", "Torte salate", "Pizza")
+
+
+def recipe_core(r: dict) -> dict:
+    """Piano della ricetta alle sue dosi, in cache: cosa serve (esclusi gli ingredienti "di casa")."""
+    key = f"{r.get('id')}|{r.get('servings')}|{hash(tuple(r.get('ingredients', [])))}"
+    core = _RECIPE_CORE.get(key)
+    if core is None:
+        base = r.get("servings") or 4
+        rows = recipes.plan(r.get("ingredients", []), base, base, PRODUCT_INDEX)
+        core = {"servings": base, "rows": rows,
+                "needs": [x for x in rows if x["product_id"] and not x["pantry"]],
+                "unknown": [x["name"] for x in rows if not x["product_id"] and not x["pantry"]]}
+        _RECIPE_CORE[key] = core
+    return core
+
+
+def _row_cost(store_id: str, pid: str, qty: float) -> Optional[float]:
+    info = CATALOG.get(store_id, {}).get(pid)
+    p = PRODUCT_INDEX.get(pid)
+    if not info or not p:
+        return None
+    return info["final_price"] * qty / p["default_qty"]
+
+
+def portion_cost(core: dict, store_id: str) -> Optional[float]:
+    """Costo a persona di quello che si usa davvero (mezzo pacco di spaghetti = mezzo prezzo)."""
+    tot = 0.0
+    for row in core["needs"]:
+        p = PRODUCT_INDEX[row["product_id"]]
+        used = row.get("used") if row.get("used") is not None else p["default_qty"] * 0.25
+        c = _row_cost(store_id, row["product_id"], used)
+        if c is None:
+            return None
+        tot += c
+    return round(tot / core["servings"], 2)
+
+
+def best_portion(core: dict) -> Optional[dict]:
+    best = None
+    for st in STORES:
+        c = portion_cost(core, st["id"])
+        if c is not None and (best is None or c < best["portion"]):
+            best = {"store_id": st["id"], "store_name": st["name"], "portion": c}
+    if best:
+        best["complete"] = not core["unknown"]  # ingredienti senza prezzo esclusi dal costo
+    return best
+
+
+def buy_costs(rows: list[dict]) -> list[dict]:
+    """Quanto spendi per comprare queste righe in ogni catena (confezioni intere)."""
+    out = []
+    for st in STORES:
+        tot, ok = 0.0, True
+        for r in rows:
+            if not r.get("product_id") or r.get("pantry"):
+                continue
+            c = _row_cost(st["id"], r["product_id"], r["quantity"])
+            if c is None:
+                ok = False
+                break
+            tot += c
+        if ok:
+            out.append({"store_id": st["id"], "store_name": st["name"], "total": round(tot, 2)})
+    return sorted(out, key=lambda x: x["total"])
+
+
+async def all_recipes_for(user_id: Optional[str]) -> list[dict]:
+    ids = await family_user_ids(user_id)
+    mine = await db.recipes.find({"user_id": {"$in": ids}}, NO_ID).to_list(500) if ids else []
+    return mine + recipes.collection()
+
+
+def recipe_summary_priced(r: dict) -> dict:
+    out = recipe_summary(r)
+    out["cheapest"] = best_portion(recipe_core(r))
+    return out
+
+
 @api.get("/recipes")
-async def list_recipes(q: str = "", user_id: Optional[str] = None, limit: int = Query(40, ge=1, le=100)):
-    """Le tue ricette (e della tua famiglia) prima, poi la raccolta libera di Wikibooks."""
+async def list_recipes(q: str = "", user_id: Optional[str] = None, limit: int = Query(40, ge=1, le=100),
+                       sort: Literal["rilevanza", "prezzo"] = "rilevanza", main: bool = False):
+    """Le tue ricette (e della tua famiglia) prima, poi la raccolta libera di Wikibooks.
+    sort=prezzo: dalla più economica a persona (solo piatti con tutti gli ingredienti a prezzo)."""
     ids = await family_user_ids(user_id)
     mine = await db.recipes.find({"user_id": {"$in": ids}}, NO_ID).sort("updated_at", -1).to_list(500) if ids else []
-    found = recipes.search(mine, q, limit) + recipes.search(recipes.collection(), q, limit)
-    return {"recipes": [recipe_summary(r) for r in found[:limit]], "total_collection": len(recipes.collection()),
+    if sort == "prezzo":
+        pool = recipes.search(mine, q, 10_000) + recipes.search(recipes.collection(), q, 10_000) if q else mine + recipes.collection()
+        priced = []
+        for r in pool:
+            core = recipe_core(r)
+            cats = r.get("categories") or []
+            if core["unknown"] or len(core["needs"]) < 2 or any(c.startswith("Bevande") for c in cats):
+                continue
+            if main and r.get("source") == "Wikibooks" and not any(c.startswith(MAIN_DISH) for c in cats):
+                continue  # solo piatti principali (niente biscotti in cima alla classifica)
+            b = best_portion(core)
+            if b:
+                priced.append((b["portion"], r))
+        priced.sort(key=lambda x: x[0])
+        found = [r for _, r in priced[:limit]]
+    else:
+        found = (recipes.search(mine, q, limit) + recipes.search(recipes.collection(), q, limit))[:limit]
+    return {"recipes": [recipe_summary_priced(r) for r in found], "total_collection": len(recipes.collection()),
             "license": recipes.LICENSE}
 
 
@@ -1324,7 +1425,10 @@ async def plan_recipe(body: PlanIn):
     for row in rows:  # prodotti non in catalogo: categoria proposta per aggiungerli come nuovi
         if not row["product_id"]:
             row["category_id"] = classifier.classify(row["name"])["category_id"]
-    return {"servings": body.servings, "recipe_servings": base or 4, "assumed_servings": base is None, "items": rows}
+    costs = buy_costs(rows)
+    core = recipe_core({"id": body.recipe_id or "inline", "servings": base, "ingredients": lines})
+    return {"servings": body.servings, "recipe_servings": base or 4, "assumed_servings": base is None, "items": rows,
+            "costs": costs, "cheapest": best_portion(core)}
 
 
 @api.post("/recipes/import")
@@ -1366,6 +1470,183 @@ async def delete_recipe(recipe_id: str, user_id: str):
         raise HTTPException(404, "Ricetta non trovata")
     await db.recipes.delete_one({"id": recipe_id})
     return {"ok": True}
+
+
+class MenuEntry(BaseModel):
+    recipe_id: str
+    servings: int = Field(ge=1, le=50)
+
+
+class MenuIn(BaseModel):
+    user_id: Optional[str] = None
+    entries: list[MenuEntry] = Field(min_length=1, max_length=14)
+
+
+@api.post("/recipes/menu")
+async def recipes_menu(body: MenuIn):
+    """Più ricette (es. il menu della settimana) in un'unica lista: quantità sommate, poi arrotondate."""
+    groups, names = [], []
+    for e in body.entries:
+        r = await find_recipe(e.recipe_id, body.user_id)
+        if not r:
+            continue
+        rows = recipes.plan(r["ingredients"], r.get("servings"), e.servings, PRODUCT_INDEX)
+        for row in rows:
+            row["recipe"] = r["name"]
+            if not row["product_id"]:
+                row["category_id"] = classifier.classify(row["name"])["category_id"]
+        groups.append(rows)
+        names.append(r["name"])
+    items = recipes.merge_rows(groups, PRODUCT_INDEX)
+    return {"recipes": names, "items": items, "costs": buy_costs(items)}
+
+
+class SuggestIn(BaseModel):
+    user_id: Optional[str] = None
+    items: list[ListItem] = Field(default_factory=list)
+    store_id: Optional[str] = None       # il negozio consigliato, se c'è già il calcolo
+    budget: Optional[float] = Field(default=None, gt=0)
+    spent: Optional[float] = Field(default=None, ge=0)   # quanto costa la spesa nel negozio scelto
+    servings: int = Field(default=2, ge=1, le=30)
+
+
+def _missing_cost(rows: list[dict], store_id: Optional[str]) -> tuple[Optional[float], Optional[str]]:
+    stores = [store_id] if store_id in STORE_INDEX else [s["id"] for s in STORES]
+    best = None
+    for sid in stores:
+        tot = 0.0
+        for r in rows:
+            c = _row_cost(sid, r["product_id"], r["quantity"])
+            if c is None:
+                tot = None
+                break
+            tot += c
+        if tot is not None and (best is None or tot < best[0]):
+            best = (round(tot, 2), sid)
+    return best if best else (None, None)
+
+
+@api.post("/suggest")
+async def suggest(body: SuggestIn):
+    """Cosa puoi fare con la lista che hai:
+    - ricette che puoi già cucinare, e quelle a cui manca poco (con quanto costa il resto);
+    - cose che compri di solito e mancano;
+    - se c'è un budget: cosa ci sta ancora dentro."""
+    in_list = {i.product_id for i in body.items if not i.product_id.startswith("custom:")}
+    custom_names = {normalize(i.name or i.product_id[7:]) for i in body.items if i.product_id.startswith("custom:")}
+    remaining = round(body.budget - body.spent, 2) if body.budget is not None and body.spent is not None else None
+    ready, almost = [], []
+    for r in await all_recipes_for(body.user_id):
+        core = recipe_core(r)
+        needs = core["needs"]
+        if len(needs) + len(core["unknown"]) < 2:
+            continue
+        have = [x for x in needs if x["product_id"] in in_list]
+        miss = [x for x in needs if x["product_id"] not in in_list]
+        unk_have = [n for n in core["unknown"] if normalize(n) in custom_names]
+        unk_miss = [n for n in core["unknown"] if normalize(n) not in custom_names]
+        n_have = len(have) + len(unk_have)
+        total = len(needs) + len(core["unknown"])
+        if n_have < 2 or n_have / total < 0.5:
+            continue
+        info = {**recipe_summary(r), "uses": [x["product_name"] for x in have] + unk_have,
+                "coverage": round(n_have / total, 2)}
+        if not miss and not unk_miss:
+            ready.append(info)
+        elif len(miss) + len(unk_miss) <= 2:
+            scale = body.servings / core["servings"]
+            buy = []
+            for x in miss:  # quanto comprare di quello che manca, per le persone indicate
+                p = PRODUCT_INDEX[x["product_id"]]
+                used = x["used"] * scale if x.get("used") is not None else None
+                buy.append({**x, "quantity": recipes.buy_from_used(used, p)})
+            cost, sid = _missing_cost(buy, body.store_id) if buy else (None, None)
+            info.update(missing=[{"product_id": x["product_id"], "name": x["product_name"], "quantity": x["quantity"],
+                                  "unit": PRODUCT_INDEX[x["product_id"]]["unit"]} for x in buy],
+                        missing_new=unk_miss, missing_cost=cost,
+                        missing_store=STORE_INDEX[sid]["name"] if sid else None,
+                        fits_budget=remaining is not None and cost is not None and cost <= remaining and not unk_miss)
+            almost.append(info)
+    ready.sort(key=lambda x: (-len(x["uses"]), x["name"]))
+    almost.sort(key=lambda x: (len(x["missing"]) + len(x["missing_new"]), x["missing_cost"] if x["missing_cost"] is not None else 99, -x["coverage"]))
+
+    # cose che compri di solito e non sono in lista
+    extras = []
+    if body.user_id:
+        shops = await db.history.find({"user_id": body.user_id}, NO_ID).sort("created_at", -1).to_list(40)
+        hab = habitual_from_history(shops)
+        left = remaining
+        for h in hab["items"]:
+            if h["product_id"] in in_list:
+                continue
+            cost, sid = _missing_cost([{"product_id": h["product_id"], "quantity": h["quantity"]}], body.store_id)
+            if cost is None:
+                continue
+            fits = left is not None and cost <= left
+            if fits:
+                left = round(left - cost, 2)
+            extras.append({"product_id": h["product_id"], "name": h["name"], "quantity": h["quantity"],
+                           "unit": PRODUCT_INDEX[h["product_id"]]["unit"], "count": h["count"],
+                           "occasions": hab["occasions"], "cost": cost, "fits_budget": fits})
+    return {"ready": ready[:6], "almost": almost[:6], "habitual_missing": extras[:8], "remaining": remaining}
+
+
+class ProposeIn(BaseModel):
+    user_id: Optional[str] = None
+    count: int = Field(default=5, ge=1, le=14)
+    servings: int = Field(default=2, ge=1, le=30)
+    budget: Optional[float] = Field(default=None, gt=0)   # per tutto il menu
+    store_id: Optional[str] = None
+    exclude: list[str] = Field(default_factory=list, max_length=200)
+    items: list[ListItem] = Field(default_factory=list)   # la lista attuale: si preferiscono ricette che la usano
+
+
+@api.post("/recipes/propose")
+async def propose_menu(body: ProposeIn):
+    """Un menu di piatti principali vari e convenienti (regole):
+    economici a persona, che usano quello che hai in lista o compri spesso, senza ripetere
+    l'ingrediente principale, alternando primi e secondi, dentro il budget se indicato."""
+    in_list = {i.product_id for i in body.items}
+    habitual = set()
+    if body.user_id:
+        shops = await db.history.find({"user_id": body.user_id}, NO_ID).sort("created_at", -1).to_list(40)
+        habitual = {h["product_id"] for h in habitual_from_history(shops)["items"]}
+    cands = []
+    for r in await all_recipes_for(body.user_id):
+        if r["id"] in body.exclude:
+            continue
+        cats = r.get("categories") or []
+        if r.get("source") == "Wikibooks" and not any(c.startswith(MAIN_DISH) for c in cats):
+            continue
+        core = recipe_core(r)
+        if core["unknown"] or len(core["needs"]) < 3:
+            continue
+        sid = body.store_id if body.store_id in STORE_INDEX else None
+        portion = portion_cost(core, sid) if sid else (best_portion(core) or {}).get("portion")
+        if portion is None or portion <= 0:
+            continue
+        bonus = 0.25 * sum(1 for x in core["needs"] if x["product_id"] in in_list or x["product_id"] in habitual)
+        kind = "primo" if any(c.startswith(("Primi", "Risotti")) for c in cats) else "secondo"
+        cands.append((portion - bonus, portion, kind, core["needs"][0]["product_id"], r))
+    cands.sort(key=lambda x: (x[0], x[4]["name"]))
+    picks, mains, total = [], set(), 0.0
+    want = "primo"
+    pool = list(cands)
+    while pool and len(picks) < body.count:
+        # alterna primo/secondo quando possibile, mai lo stesso ingrediente principale
+        choice = next((c for c in pool if c[2] == want and c[3] not in mains), None) or \
+            next((c for c in pool if c[3] not in mains), None)
+        if not choice:
+            break
+        pool.remove(choice)
+        cost = round(choice[1] * body.servings, 2)
+        if body.budget is not None and total + cost > body.budget:
+            continue
+        total = round(total + cost, 2)
+        mains.add(choice[3])
+        picks.append({**recipe_summary(choice[4]), "portion": choice[1], "cost": cost, "kind": choice[2]})
+        want = "secondo" if want == "primo" else "primo"
+    return {"recipes": picks, "total": total, "servings": body.servings, "budget": body.budget}
 
 
 # --- Famiglia ---

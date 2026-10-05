@@ -1,18 +1,19 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, PlanRow, Recipe, RecipeSummary } from '@/api';
+import { api, MenuPlan, PlanRow, ProposedRecipe, Recipe, RecipeSummary } from '@/api';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
-import { formatQty } from '@/format';
+import { euro, formatQty } from '@/format';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 type View_ =
   | { kind: 'list' }
   | { kind: 'detail'; recipe: Recipe }
-  | { kind: 'edit'; recipe: Recipe };
+  | { kind: 'edit'; recipe: Recipe }
+  | { kind: 'menu' };
 
 const KIND_LABEL: Record<string, string> = { g: 'g', ml: 'ml', spicchio: 'spicchi', fetta: 'fette', foglia: 'foglie', pz: '' };
 const amountText = (r: PlanRow) => {
@@ -30,8 +31,24 @@ const amountText = (r: PlanRow) => {
 export default function RicetteScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { userId, addItem, addCustom, catalog } = useStore();
+  const { userId, addItem, addCustom, catalog, prefs, setPrefs } = useStore();
   const [view, setView] = useState<View_>({ kind: 'list' });
+  const params = useLocalSearchParams<{ open?: string }>();
+  const menu = prefs.menu ?? [];
+
+  // aperta da un suggerimento ("puoi già cucinare…"): si va dritti alla ricetta
+  useEffect(() => {
+    if (!params.open) return;
+    api.recipe(String(params.open), userId).then((r) => setView({ kind: 'detail', recipe: r })).catch(() => {});
+  }, [params.open, userId]);
+
+  const addRows = (rows: PlanRow[]) => {
+    for (const r of rows) {
+      if (r.product_id) addItem(r.product_id, r.quantity);
+      else addCustom(r.name, r.category_id ?? 'altro', 1, 'pz');
+    }
+    return rows.length;
+  };
   const [people, setPeople] = useState(2);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -52,7 +69,7 @@ export default function RicetteScreen() {
           <Icon name="chevron-back" size={24} color={colors.text} />
         </Pressable>
         <Text style={s.headerTitle}>
-          {view.kind === 'list' ? 'Ricette' : view.kind === 'edit' ? (view.recipe.id ? 'Modifica ricetta' : 'Nuova ricetta') : view.recipe.name}
+          {view.kind === 'list' ? 'Ricette' : view.kind === 'menu' ? 'Menu' : view.kind === 'edit' ? (view.recipe.id ? 'Modifica ricetta' : 'Nuova ricetta') : view.recipe.name}
         </Text>
       </View>
       {notice && (
@@ -61,8 +78,15 @@ export default function RicetteScreen() {
           <Pressable onPress={() => router.replace('/')} hitSlop={6}><Text style={s.noticeLink}>Vai alla lista</Text></Pressable>
         </Pressable>
       )}
+      {view.kind === 'list' && menu.length > 0 && (
+        <Pressable onPress={() => setView({ kind: 'menu' })} style={s.menuBar}>
+          <Text style={s.menuBarText}>🗓️ Menu: {menu.length} {menu.length === 1 ? 'piatto' : 'piatti'}</Text>
+          <Text style={s.noticeLink}>Vedi e fai la lista ›</Text>
+        </Pressable>
+      )}
       {view.kind === 'list' && (
         <RecipeList
+          onMenu={() => setView({ kind: 'menu' })}
           userId={userId}
           onOpen={(r) => setView({ kind: 'detail', recipe: r })}
           onNew={(r) => setView({ kind: 'edit', recipe: r })}
@@ -77,17 +101,29 @@ export default function RicetteScreen() {
           onEdit={() => setView({ kind: 'edit', recipe: view.recipe })}
           onDeleted={() => { setNotice('Ricetta eliminata.'); setView({ kind: 'list' }); }}
           onSaved={(r) => { setNotice('Salvata tra le tue ricette.'); setView({ kind: 'detail', recipe: r }); }}
+          inMenu={menu.some((m) => m.recipe_id === view.recipe.id)}
+          onToggleMenu={() => {
+            const id = view.recipe.id;
+            if (!id) return;
+            const has = menu.some((m) => m.recipe_id === id);
+            setPrefs({ menu: has ? menu.filter((m) => m.recipe_id !== id) : [...menu, { recipe_id: id, name: view.recipe.name, servings: people }] });
+            setNotice(has ? `«${view.recipe.name}» tolta dal menu.` : `«${view.recipe.name}» aggiunta al menu (${menu.length + 1}).`);
+          }}
           onAdd={(rows) => {
-            let n = 0;
-            for (const r of rows) {
-              if (r.product_id) addItem(r.product_id, r.quantity);
-              else addCustom(r.name, r.category_id ?? 'altro', 1, 'pz');
-              n += 1;
-            }
+            const n = addRows(rows);
             setNotice(`Aggiunti ${n} ingredienti di «${view.recipe.name}» alla lista. Puoi aggiungere un'altra ricetta.`);
             setView({ kind: 'list' });
           }}
           hasCatalog={!!catalog}
+        />
+      )}
+      {view.kind === 'menu' && (
+        <MenuView
+          userId={userId}
+          people={people}
+          onOpen={async (id) => { try { setView({ kind: 'detail', recipe: await api.recipe(id, userId) }); } catch { /* */ } }}
+          onAdded={(n) => { setNotice(`Aggiunti ${n} ingredienti del menu alla lista.`); setView({ kind: 'list' }); }}
+          addRows={addRows}
         />
       )}
       {view.kind === 'edit' && userId && (
@@ -103,10 +139,11 @@ export default function RicetteScreen() {
 }
 
 /* ------------------------------------------------------------------ elenco + ricerca + link */
-function RecipeList({ userId, onOpen, onNew }: { userId: string | null; onOpen: (r: Recipe) => void; onNew: (r: Recipe) => void }) {
+function RecipeList({ userId, onOpen, onNew, onMenu }: { userId: string | null; onOpen: (r: Recipe) => void; onNew: (r: Recipe) => void; onMenu: () => void }) {
   const s = useStyles();
   const { colors } = useTheme();
   const [q, setQ] = useState('');
+  const [sort, setSort] = useState<'rilevanza' | 'prezzo'>('rilevanza');
   const [list, setList] = useState<RecipeSummary[] | null>(null);
   const [total, setTotal] = useState(0);
   const [link, setLink] = useState('');
@@ -115,10 +152,11 @@ function RecipeList({ userId, onOpen, onNew }: { userId: string | null; onOpen: 
 
   useEffect(() => {
     const t = setTimeout(() => {
-      api.recipes(q.trim(), userId).then((r) => { setList(r.recipes); setTotal(r.total_collection); }).catch((e) => setError(e.message));
+      setList(null);
+      api.recipes(q.trim(), userId, sort).then((r) => { setList(r.recipes); setTotal(r.total_collection); }).catch((e) => setError(e.message));
     }, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [q, userId]);
+  }, [q, userId, sort]);
 
   const open = async (id: string) => {
     try { onOpen(await api.recipe(id, userId)); } catch (e) { setError((e as Error).message); }
@@ -147,16 +185,26 @@ function RecipeList({ userId, onOpen, onNew }: { userId: string | null; onOpen: 
         <PrimaryButton label="Leggi la ricetta" icon="download-outline" loading={importing} disabled={link.trim().length < 9} onPress={importLink} />
       </Card>
 
-      <PrimaryButton
-        label="Scrivi una tua ricetta" icon="create-outline" variant="secondary"
-        onPress={() => onNew({ name: '', servings: 4, ingredients: [] })}
-        style={{ marginTop: spacing.md }}
-      />
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+        <PrimaryButton
+          label="Scrivi una ricetta" icon="create-outline" variant="secondary"
+          onPress={() => onNew({ name: '', servings: 4, ingredients: [] })} style={{ flex: 1 }}
+        />
+        <PrimaryButton label="Menu" icon="calendar-outline" variant="secondary" onPress={onMenu} style={{ flex: 1 }} />
+      </View>
 
       <View style={[s.inputRow, { marginTop: spacing.lg }]}>
         <Icon name="search" size={18} color={colors.textSecondary} />
         <TextInput value={q} onChangeText={setQ} placeholder="Cerca un piatto o un ingrediente…" placeholderTextColor={colors.textSecondary} style={s.input} />
       </View>
+      <View style={s.sortRow}>
+        {([['rilevanza', 'Tutte'], ['prezzo', '€ Più economiche']] as const).map(([k, label]) => (
+          <Pressable key={k} onPress={() => setSort(k)} style={[s.sortChip, sort === k && s.sortOn]}>
+            <Text style={[s.sortText, sort === k && s.sortTextOn]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {sort === 'prezzo' && <Text style={s.muted}>Piatti principali, dal costo a persona più basso, al supermercato più conveniente. Solo ricette con tutti gli ingredienti a prezzo.</Text>}
       {error && <Text style={[s.muted, { color: colors.danger, marginTop: spacing.sm }]}>{error}</Text>}
       {!list ? <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.lg }} /> : (
         <>
@@ -186,6 +234,11 @@ function RecipeRow({ r, onPress }: { r: RecipeSummary; onPress: () => void }) {
           {r.n_ingredients} ingredienti{r.servings ? ` · per ${r.servings}` : ''}
           {r.mine ? (r.url ? ` · ${r.source}` : ' · tua') : r.categories?.length ? ` · ${r.categories[0]}` : ''}
         </Text>
+        {r.cheapest && (
+          <Text style={s.price}>
+            {r.cheapest.complete ? '' : 'da '}~{euro(r.cheapest.portion)} a persona · {r.cheapest.store_name}
+          </Text>
+        )}
       </View>
       <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
     </Pressable>
@@ -193,14 +246,16 @@ function RecipeRow({ r, onPress }: { r: RecipeSummary; onPress: () => void }) {
 }
 
 /* ------------------------------------------------------------------ dettaglio + persone + aggiunta */
-function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDeleted, onSaved, hasCatalog }: {
+function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDeleted, onSaved, hasCatalog, inMenu, onToggleMenu }: {
   recipe: Recipe; userId: string | null; people: number; setPeople: (n: number) => void;
   onAdd: (rows: PlanRow[]) => void; onEdit: () => void; onDeleted: () => void; onSaved: (r: Recipe) => void; hasCatalog: boolean;
+  inMenu: boolean; onToggleMenu: () => void;
 }) {
   const s = useStyles();
   const { colors } = useTheme();
   const [rows, setRows] = useState<PlanRow[] | null>(null);
   const [assumed, setAssumed] = useState(false);
+  const [costs, setCosts] = useState<{ best: { store_name: string; total: number } | null; portion: number | null; complete: boolean }>({ best: null, portion: null, complete: true });
   const [off, setOff] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -216,6 +271,7 @@ function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDele
         : await api.recipePlan({ ingredients: recipe.ingredients, recipe_servings: recipe.servings, servings: people });
       setRows(p.items);
       setAssumed(p.assumed_servings);
+      setCosts({ best: p.costs[0] ?? null, portion: p.cheapest?.portion ?? null, complete: p.cheapest?.complete ?? true });
       setOff(new Set(p.items.map((r, i) => (r.pantry ? i : -1)).filter((i) => i >= 0)));
     } catch (e) { setError((e as Error).message); }
   }, [recipe, people, userId]);
@@ -260,6 +316,17 @@ function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDele
         </View>
       </View>
       {assumed && <Text style={s.muted}>La ricetta non dice per quante persone è: ho considerato 4.</Text>}
+      {costs.best && (
+        <View style={s.costBox}>
+          <Text style={s.costMain}>
+            Spesa per {people}: {euro(costs.best.total)} da {costs.best.store_name}
+          </Text>
+          <Text style={s.muted}>
+            {costs.portion != null ? `Circa ${euro(costs.portion)} a persona per quello che usi` : ''}
+            {!costs.complete ? ' · esclusi i prodotti senza prezzo' : ''} · ingredienti "di casa" esclusi · confezioni intere
+          </Text>
+        </View>
+      )}
 
       <Text style={s.section}>Cosa comprare</Text>
       {!rows && !error && <ActivityIndicator color={colors.primary} />}
@@ -287,6 +354,12 @@ function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDele
         icon="cart-outline" disabled={!chosen.length || !hasCatalog} onPress={() => onAdd(chosen)}
         style={{ marginTop: spacing.md }}
       />
+      {!!recipe.id && (
+        <PrimaryButton
+          label={inMenu ? 'Nel menu ✓ (tocca per togliere)' : 'Aggiungi al menu della settimana'}
+          icon="calendar-outline" variant="secondary" onPress={onToggleMenu} style={{ marginTop: spacing.sm }}
+        />
+      )}
       {unsavedImport && userId && <PrimaryButton label="Salva tra le mie ricette" icon="bookmark-outline" variant="secondary" loading={busy} onPress={save} style={{ marginTop: spacing.sm }} />}
       {isMine && (
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
@@ -299,6 +372,135 @@ function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDele
           Ingredienti da Wikibooks «Libro di cucina», licenza CC BY-SA 4.0. Le quantità da comprare sono calcolate dall'app.
         </Text>
       )}
+    </ScrollView>
+  );
+}
+
+/* ------------------------------------------------------------------ menu della settimana */
+function MenuView({ userId, people, onOpen, onAdded, addRows }: {
+  userId: string | null; people: number; onOpen: (id: string) => void; onAdded: (n: number) => void; addRows: (rows: PlanRow[]) => number;
+}) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const { prefs, setPrefs, items } = useStore();
+  const menu = prefs.menu ?? [];
+  const [plan, setPlan] = useState<MenuPlan | null>(null);
+  const [off, setOff] = useState<Set<number>>(new Set());
+  const [count, setCount] = useState(5);
+  const [budgetText, setBudgetText] = useState('');
+  const [proposal, setProposal] = useState<{ recipes: ProposedRecipe[]; total: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const key = menu.map((m) => `${m.recipe_id}:${m.servings}`).join('|');
+
+  useEffect(() => {
+    if (!menu.length) { setPlan(null); return; }
+    api.recipeMenu(userId, menu.map((m) => ({ recipe_id: m.recipe_id, servings: m.servings })))
+      .then((p) => { setPlan(p); setOff(new Set(p.items.map((r, i) => (r.pantry ? i : -1)).filter((i) => i >= 0))); })
+      .catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, userId]);
+
+  const setServings = (id: string, n: number) => setPrefs({ menu: menu.map((m) => (m.recipe_id === id ? { ...m, servings: Math.max(1, Math.min(30, n)) } : m)) });
+  const remove = (id: string) => setPrefs({ menu: menu.filter((m) => m.recipe_id !== id) });
+  const propose = async (exclude: string[] = []) => {
+    setBusy(true);
+    setError(null);
+    const b = parseFloat(budgetText.replace(',', '.'));
+    try {
+      const r = await api.recipePropose({ user_id: userId, count, servings: people, budget: Number.isFinite(b) && b > 0 ? b : null, exclude, items });
+      setProposal(r);
+      if (!r.recipes.length) setError('Nessun menu trovato con questi limiti: prova ad alzare il budget.');
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  const chosen = (plan?.items ?? []).filter((_, i) => !off.has(i));
+
+  return (
+    <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <Card style={{ gap: spacing.sm }}>
+        <Text style={s.cardTitle}>✨ Proponimi un menu</Text>
+        <Text style={s.muted}>Piatti principali vari ed economici, che usano quello che hai in lista o compri spesso. Per {people} persone.</Text>
+        <View style={s.peopleRow}>
+          <Text style={s.label}>Quanti piatti</Text>
+          <View style={s.stepper}>
+            <Pressable onPress={() => setCount(Math.max(1, count - 1))} style={s.stepBtn}><Icon name="remove" /></Pressable>
+            <Text style={s.peopleN}>{count}</Text>
+            <Pressable onPress={() => setCount(Math.min(14, count + 1))} style={s.stepBtn}><Icon name="add" /></Pressable>
+          </View>
+        </View>
+        <View style={s.inputRow}>
+          <Text style={s.cardTitle}>€</Text>
+          <TextInput value={budgetText} onChangeText={(t) => setBudgetText(t.replace(/[^0-9.,]/g, ''))} keyboardType="decimal-pad"
+            placeholder="Budget per tutto il menu (facoltativo)" placeholderTextColor={colors.textSecondary} style={s.input} />
+        </View>
+        <PrimaryButton label="Proponi" icon="sparkles-outline" loading={busy} onPress={() => propose()} />
+        {proposal && proposal.recipes.length > 0 && (
+          <View style={{ gap: 6 }}>
+            {proposal.recipes.map((r) => (
+              <Pressable key={r.id} onPress={() => onOpen(r.id)} style={s.row}>
+                <Text style={s.rowEmoji}>{r.kind === 'primo' ? '🍝' : '🍲'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowName}>{r.name}</Text>
+                  <Text style={s.price}>~{euro(r.portion)} a persona · {euro(r.cost)} per {people}</Text>
+                </View>
+              </Pressable>
+            ))}
+            <Text style={s.muted}>Totale stimato: {euro(proposal.total)} (per quello che usi; le confezioni intere costano un po' di più)</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <PrimaryButton label="Usa questo menu" icon="checkmark" style={{ flex: 1 }}
+                onPress={() => { setPrefs({ menu: proposal.recipes.map((r) => ({ recipe_id: r.id, name: r.name, servings: people })) }); setProposal(null); }} />
+              <PrimaryButton label="Altre idee" icon="refresh" variant="secondary" style={{ flex: 1 }}
+                onPress={() => propose(proposal.recipes.map((r) => r.id))} />
+            </View>
+          </View>
+        )}
+      </Card>
+
+      <Text style={s.section}>Il tuo menu</Text>
+      {!menu.length && <Text style={s.muted}>Vuoto: aggiungi le ricette con «Aggiungi al menu», oppure fattene proporre uno.</Text>}
+      {menu.map((m) => (
+        <View key={m.recipe_id} style={s.row}>
+          <Pressable onPress={() => onOpen(m.recipe_id)} style={{ flex: 1 }}>
+            <Text style={s.rowName}>{m.name}</Text>
+            <Text style={s.muted}>per {m.servings}</Text>
+          </Pressable>
+          <Pressable onPress={() => setServings(m.recipe_id, m.servings - 1)} style={s.stepBtn}><Icon name="remove" /></Pressable>
+          <Pressable onPress={() => setServings(m.recipe_id, m.servings + 1)} style={s.stepBtn}><Icon name="add" /></Pressable>
+          <Pressable onPress={() => remove(m.recipe_id)} hitSlop={8} accessibilityLabel={`Togli ${m.name}`}><Icon name="trash-outline" color={colors.danger} /></Pressable>
+        </View>
+      ))}
+
+      {plan && plan.items.length > 0 && (
+        <>
+          <Text style={s.section}>Cosa comprare per tutto il menu</Text>
+          {plan.costs[0] && (
+            <View style={s.costBox}>
+              <Text style={s.costMain}>{euro(plan.costs[0].total)} da {plan.costs[0].store_name}</Text>
+              <Text style={s.muted}>quantità sommate tra le ricette e arrotondate una volta sola alle confezioni</Text>
+            </View>
+          )}
+          {plan.items.map((r, i) => {
+            const on = !off.has(i);
+            return (
+              <Pressable key={i} onPress={() => setOff((o) => { const n = new Set(o); if (n.has(i)) n.delete(i); else n.add(i); return n; })}
+                style={[s.ingRow, on && s.ingOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
+                <Icon name={on ? 'checkbox' : 'square-outline'} size={22} color={on ? colors.primary : colors.textSecondary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowName}>{r.product_name ?? r.name}</Text>
+                  <Text style={s.muted} numberOfLines={2}>
+                    {r.recipes.join(', ')}{r.pantry ? ' · di solito in casa' : ''}{!r.product_id ? ' · prodotto nuovo' : ''}
+                  </Text>
+                </View>
+                <Text style={s.buyQty}>{r.product_id ? formatQty(r.quantity, r.unit) : '1 pz'}</Text>
+              </Pressable>
+            );
+          })}
+          <PrimaryButton label={`Aggiungi ${chosen.length} ingredienti alla lista`} icon="cart-outline" disabled={!chosen.length}
+            onPress={() => onAdded(addRows(chosen))} style={{ marginTop: spacing.md }} />
+          <PrimaryButton label="Svuota il menu" variant="secondary" onPress={() => setPrefs({ menu: [] })} style={{ marginTop: spacing.sm }} />
+        </>
+      )}
+      {error && <Text style={[s.muted, { color: colors.danger }]}>{error}</Text>}
     </ScrollView>
   );
 }
@@ -386,4 +588,14 @@ const useStyles = makeStyles((c) => ({
   ingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: c.border },
   ingOn: { borderColor: c.primary, backgroundColor: c.primarySoft },
   buyQty: { color: c.text, fontSize: 14, fontWeight: '700' },
+  price: { color: c.success, fontSize: 12, fontWeight: '600', marginTop: 1 },
+  sortRow: { flexDirection: 'row', gap: 6, marginTop: spacing.md },
+  sortChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
+  sortOn: { backgroundColor: c.primary, borderColor: c.primary },
+  sortText: { color: c.text, fontSize: 13 },
+  sortTextOn: { color: c.primaryText },
+  costBox: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: c.surfaceMuted, gap: 2 },
+  costMain: { color: c.text, fontSize: 15, fontWeight: '700' },
+  menuBar: { marginHorizontal: spacing.lg, marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: c.primarySoft, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  menuBarText: { color: c.text, fontSize: 14, fontWeight: '700' },
 }));

@@ -75,8 +75,10 @@ def clean_wiki(s: str) -> str:
 
 def servings(intro: str, text: str) -> int | None:
     for src in (intro, text[:1500]):
-        m = re.search(r"(?:per|dosi per|porzioni:?|persone:?)\s*'*\s*(\d{1,2})\s*'*\s*(?:persone|porzioni|pers)?", clean_wiki(src), re.I)
-        if m and 0 < int(m.group(1)) <= 30:
+        t = clean_wiki(src)
+        m = re.search(r"(?:per|dosi per)\s*(\d{1,2})\s*(?:persone|porzioni|pers\b|commensali)", t, re.I) or \
+            re.search(r"(?:porzioni|persone|dosi)\s*:?\s*(\d{1,2})\b", t, re.I)
+        if m and 0 < int(m.group(1)) <= 12:
             return int(m.group(1))
     return None
 

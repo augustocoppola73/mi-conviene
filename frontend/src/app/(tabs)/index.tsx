@@ -21,6 +21,7 @@ import { HabitualPicker } from '@/components/HabitualPicker';
 import { HScroll } from '@/components/HScroll';
 import { ProductSearch } from '@/components/ProductSearch';
 import { ShoppingList } from '@/components/ShoppingList';
+import { SmartSuggestions } from '@/components/SmartSuggestions';
 import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
 import { getCurrentPosition } from '@/location';
@@ -279,6 +280,7 @@ export default function ListaScreen() {
             removeItem={removeItem}
           />
         )}
+        {items.length >= 2 && <SmartSuggestions items={items} />}
 
         <SectionTitle>Budget</SectionTitle>
         <View style={s.budgetBox}>

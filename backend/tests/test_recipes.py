@@ -133,3 +133,51 @@ def test_zest_variants(line, pid, n):
 def test_zest_and_juice_of_same_lemons_not_summed():
     rows = recipes.plan(["scorza grattata di limone", "80 ml di succo di limone"], 4, 4, P)
     assert len(rows) == 1 and rows[0]["amount"] == 2 and rows[0]["from"] == "scorza di limone e succo"
+
+
+async def test_suggest_ready_almost_and_budget(client):
+    # nella raccolta di prova: amatriciana (spaghetti, guanciale, pelati, pecorino)
+    items = [{"product_id": "spaghetti", "quantity": 1}, {"product_id": "pelati", "quantity": 1},
+             {"product_id": "pecorino", "quantity": 0.2}]
+    s = (await client.post("/api/suggest", json={"items": items, "servings": 2})).json()
+    a = s["almost"][0]
+    assert a["id"] == "wb:amatriciana" and a["missing_new"] == ["guanciale"] and a["missing"] == []
+    items.append({"product_id": "custom:guanciale", "quantity": 1, "name": "guanciale"})
+    s = (await client.post("/api/suggest", json={"items": items})).json()
+    assert [r["id"] for r in s["ready"]] == ["wb:amatriciana"]
+    # budget: manca il pecorino, costa meno di quanto resta
+    items = [{"product_id": "spaghetti", "quantity": 1}, {"product_id": "pelati", "quantity": 1},
+             {"product_id": "custom:guanciale", "quantity": 1, "name": "guanciale"}]
+    s = (await client.post("/api/suggest", json={"items": items, "store_id": "lidl", "budget": 30, "spent": 20})).json()
+    a = s["almost"][0]
+    assert s["remaining"] == 10 and [m["product_id"] for m in a["missing"]] == ["pecorino"]
+    assert a["missing_cost"] > 0 and a["fits_budget"] and a["missing_store"] == "Lidl"
+
+
+async def test_suggest_habitual_missing_fits_budget(client):
+    for items in (["caffe", "pasta", "uova"], ["caffe", "latte"], ["caffe", "pasta", "mele"]):
+        await client.post("/api/history", json={"user_id": "h", "items": [{"product_id": p, "quantity": 1} for p in items]})
+    s = (await client.post("/api/suggest", json={"user_id": "h", "items": [{"product_id": "latte", "quantity": 1}],
+                                                 "store_id": "lidl", "budget": 50, "spent": 45})).json()
+    names = {h["product_id"]: h for h in s["habitual_missing"]}
+    assert set(names) == {"caffe", "pasta"} and names["caffe"]["count"] == 3 and names["caffe"]["fits_budget"]
+
+
+async def test_price_sort_menu_and_propose(client):
+    r = (await client.get("/api/recipes", params={"sort": "prezzo"})).json()["recipes"]
+    assert r == []   # l'amatriciana ha il guanciale senza prezzo: fuori dalla classifica dei prezzi
+    await client.post("/api/recipes", json={"user_id": "m", "name": "Pasta al pomodoro", "servings": 2,
+                                           "ingredients": ["200 g di spaghetti", "1 scatola di pelati", "1 cipolla", "basilico"]})
+    await client.post("/api/recipes", json={"user_id": "m", "name": "Frittata di patate", "servings": 2,
+                                           "ingredients": ["4 uova", "2 patate", "1 cipolla", "parmigiano 30 g"]})
+    r = (await client.get("/api/recipes", params={"sort": "prezzo", "user_id": "m"})).json()["recipes"]
+    assert {x["name"] for x in r} == {"Pasta al pomodoro", "Frittata di patate"} and all(x["cheapest"]["portion"] > 0 for x in r)
+    p = (await client.post("/api/recipes/propose", json={"user_id": "m", "count": 2, "servings": 2})).json()
+    assert len(p["recipes"]) == 2 and p["total"] > 0
+    ids = [x["id"] for x in p["recipes"]]
+    m = (await client.post("/api/recipes/menu", json={"user_id": "m", "entries": [{"recipe_id": i, "servings": 2} for i in ids]})).json()
+    cip = next(i for i in m["items"] if i["product_id"] == "cipolle")
+    assert len(cip["recipes"]) == 2 and cip["quantity"] == 0.3   # 2 cipolle in tutto, sommate
+    assert m["costs"] and m["costs"][0]["total"] > 0
+    tight = (await client.post("/api/recipes/propose", json={"user_id": "m", "count": 2, "servings": 2, "budget": 0.5})).json()
+    assert tight["total"] <= 0.5

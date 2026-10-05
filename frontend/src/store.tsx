@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { api, Bootstrap, FuelType, ListItem, OptimizeResult, Product, Transport } from './api';
+import { api, Bootstrap, FuelType, ListItem, MenuEntry, OptimizeResult, Product, Transport } from './api';
 import type { GeoPoint } from './location';
 import { getUserId } from './user';
 
@@ -19,6 +19,8 @@ export interface Prefs {
   location: GeoPoint | null;
   refuel: boolean;
   refuelLiters: number | null;
+  /** menu in preparazione (ricette scelte, con le persone) */
+  menu: MenuEntry[];
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -31,6 +33,7 @@ const DEFAULT_PREFS: Prefs = {
   location: null,
   refuel: false,
   refuelLiters: null,
+  menu: [],
 };
 
 interface StoreValue {
