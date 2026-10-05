@@ -1688,6 +1688,194 @@ async def propose_menu(body: ProposeIn):
     return {"recipes": picks, "total": total, "servings": body.servings, "budget": body.budget}
 
 
+# --- Spesa in corso (in negozio: si smarca quello che metti nel carrello) ---
+class ShopItemIn(BaseModel):
+    product_id: str
+    quantity: float = Field(gt=0, le=999)
+    name: Optional[str] = Field(default=None, max_length=80)
+    category_id: Optional[str] = None
+    unit: Optional[str] = None
+
+
+class ShopCreate(BaseModel):
+    user_id: str
+    store_id: str
+    saving_id: Optional[str] = None
+    branch: Optional[str] = Field(default=None, max_length=200)
+    items: list[ShopItemIn] = Field(min_length=1, max_length=300)
+    display_name: Optional[str] = Field(default=None, max_length=40)
+
+
+class ShopCheck(BaseModel):
+    user_id: str
+    key: str
+    checked: bool
+    display_name: Optional[str] = Field(default=None, max_length=40)
+
+
+class ShopAdd(BaseModel):
+    user_id: str
+    item: ShopItemIn
+
+
+class ShopUser(BaseModel):
+    user_id: str
+
+
+def _shop_item(it: ShopItemIn, store_id: str, in_store: bool = False) -> dict:
+    p = PRODUCT_INDEX.get(it.product_id)
+    price = None
+    if p:
+        info = CATALOG.get(store_id, {}).get(it.product_id)
+        if info:
+            price = round(info["final_price"] * it.quantity / p["default_qty"], 2)
+    return {"key": it.product_id, "product_id": it.product_id, "name": p["name"] if p else (it.name or it.product_id[7:]),
+            "quantity": it.quantity, "unit": p["unit"] if p else (it.unit or "pz"),
+            "category_id": p["category_id"] if p else (it.category_id or "altro"),
+            "price": price, "checked": False, "checked_by": None, "checked_at": None, "added_in_store": in_store}
+
+
+async def aisle_key(user_id: str, store_id: str) -> str:
+    fam = await db.families.find_one({"members.user_id": user_id}, NO_ID)
+    return f"{fam['code'] if fam else user_id}:{store_id}"
+
+
+async def aisle_order(user_id: str, store_id: str) -> list[str]:
+    """Ordine dei reparti in quel negozio, imparato da come smarchi (poi l'ordine standard)."""
+    doc = await db.aisles.find_one({"key": await aisle_key(user_id, store_id)}, NO_ID)
+    learned = sorted((doc or {}).get("ranks", {}).items(), key=lambda kv: kv[1]["avg"])
+    base = [c["id"] for c in CATEGORIES]
+    seen = [c for c, _ in learned if c in base]
+    return seen + [c for c in base if c not in seen]
+
+
+async def learn_aisles(shop: dict) -> None:
+    """Media mobile della posizione in cui ogni reparto viene smarcato la prima volta."""
+    checks = sorted((i for i in shop["items"] if i["checked"] and i.get("checked_at")), key=lambda i: i["checked_at"])
+    order: list[str] = []
+    for i in checks:
+        if i["category_id"] not in order:
+            order.append(i["category_id"])
+    if len(order) < 2:
+        return
+    key = await aisle_key(shop["user_id"], shop["store_id"])
+    doc = await db.aisles.find_one({"key": key}, NO_ID) or {"key": key, "ranks": {}}
+    n_cats = len(order)
+    for pos, cat in enumerate(order):
+        rel = pos / (n_cats - 1)                # 0 = primo reparto, 1 = ultimo
+        r = doc["ranks"].get(cat, {"avg": rel, "n": 0})
+        r["avg"] = round((r["avg"] * r["n"] + rel) / (r["n"] + 1), 3)
+        r["n"] = min(r["n"] + 1, 20)           # le ultime spese contano di più
+        doc["ranks"][cat] = r
+    await db.aisles.update_one({"key": key}, {"$set": doc}, upsert=True)
+
+
+async def visible_shop_owners(user_id: str) -> list[str]:
+    return await family_user_ids(user_id) or [user_id]
+
+
+async def get_shop_for(shop_id: str, user_id: str) -> dict:
+    shop = await db.shops.find_one({"id": shop_id}, NO_ID)
+    if not shop or shop["user_id"] not in await visible_shop_owners(user_id):
+        raise HTTPException(404, "Spesa non trovata")
+    return shop
+
+
+async def shop_out(shop: dict, user_id: str) -> dict:
+    items = shop["items"]
+    done = [i for i in items if i["checked"]]
+    return {**shop, "aisles": await aisle_order(shop["user_id"], shop["store_id"]),
+            "progress": {"checked": len(done), "total": len(items),
+                         "cart": round(sum(i["price"] or 0 for i in done), 2),
+                         "estimated": round(sum(i["price"] or 0 for i in items), 2)},
+            "mine": shop["user_id"] == user_id}
+
+
+@api.post("/shops")
+async def create_shop(body: ShopCreate):
+    """Alla conferma del negozio: la lista diventa la spesa in corso (una sola alla volta per persona)."""
+    if body.store_id not in STORE_INDEX:
+        raise HTTPException(422, "Negozio sconosciuto")
+    await db.shops.update_many({"user_id": body.user_id, "status": "active"}, {"$set": {"status": "replaced"}})
+    seen, items = set(), []
+    for it in body.items:
+        if it.product_id in seen:
+            continue
+        seen.add(it.product_id)
+        items.append(_shop_item(it, body.store_id))
+    doc = {"id": str(uuid.uuid4()), "user_id": body.user_id, "display_name": body.display_name,
+           "store_id": body.store_id, "store_name": STORE_INDEX[body.store_id]["name"], "branch": body.branch,
+           "saving_id": body.saving_id, "items": items, "status": "active", "created_at": now_iso(), "updated_at": now_iso()}
+    await db.shops.insert_one(dict(doc))
+    return await shop_out(doc, body.user_id)
+
+
+@api.get("/shops/active")
+async def active_shop(user_id: str):
+    """La spesa in corso tua o di qualcuno della tua famiglia (la più recente)."""
+    owners = await visible_shop_owners(user_id)
+    shops = await db.shops.find({"user_id": {"$in": owners}, "status": "active"}, NO_ID).sort("created_at", -1).to_list(5)
+    if not shops:
+        return {"shop": None}
+    mine = next((s for s in shops if s["user_id"] == user_id), None)
+    return {"shop": await shop_out(mine or shops[0], user_id), "others": len(shops) - 1}
+
+
+@api.post("/shops/{shop_id}/check")
+async def check_item(shop_id: str, body: ShopCheck):
+    shop = await get_shop_for(shop_id, body.user_id)
+    if shop["status"] != "active":
+        raise HTTPException(409, "Questa spesa è già chiusa")
+    found = False
+    for i in shop["items"]:
+        if i["key"] == body.key:
+            i["checked"] = body.checked
+            i["checked_by"] = (body.display_name or None) if body.checked else None
+            i["checked_by_id"] = body.user_id if body.checked else None
+            i["checked_at"] = now_iso() if body.checked else None
+            found = True
+    if not found:
+        raise HTTPException(404, "Prodotto non trovato")
+    await db.shops.update_one({"id": shop_id}, {"$set": {"items": shop["items"], "updated_at": now_iso()}})
+    return await shop_out(shop, body.user_id)
+
+
+@api.post("/shops/{shop_id}/add")
+async def add_to_shop(shop_id: str, body: ShopAdd):
+    """Una cosa vista in negozio: si aggiunge al volo (già nel carrello)."""
+    shop = await get_shop_for(shop_id, body.user_id)
+    if shop["status"] != "active":
+        raise HTTPException(409, "Questa spesa è già chiusa")
+    existing = next((i for i in shop["items"] if i["key"] == body.item.product_id), None)
+    if existing:
+        existing["quantity"] = round(existing["quantity"] + body.item.quantity, 3)
+    else:
+        it = _shop_item(body.item, shop["store_id"], in_store=True)
+        it.update(checked=True, checked_at=now_iso(), checked_by=None, checked_by_id=body.user_id)
+        shop["items"].append(it)
+    await db.shops.update_one({"id": shop_id}, {"$set": {"items": shop["items"], "updated_at": now_iso()}})
+    return await shop_out(shop, body.user_id)
+
+
+@api.post("/shops/{shop_id}/finish")
+async def finish_shop(shop_id: str, body: ShopUser):
+    """Fine spesa: impara l'ordine dei reparti e restituisce quello che non hai preso."""
+    shop = await get_shop_for(shop_id, body.user_id)
+    await learn_aisles(shop)
+    await db.shops.update_one({"id": shop_id}, {"$set": {"status": "done", "finished_at": now_iso()}})
+    missing = [i for i in shop["items"] if not i["checked"]]
+    return {"missing": missing, "saving_id": shop.get("saving_id"), "store_name": shop["store_name"],
+            "cart": round(sum(i["price"] or 0 for i in shop["items"] if i["checked"]), 2)}
+
+
+@api.post("/shops/{shop_id}/cancel")
+async def cancel_shop(shop_id: str, body: ShopUser):
+    """Annulla: la lista torna com'era (tutti i prodotti)."""
+    shop = await get_shop_for(shop_id, body.user_id)
+    await db.shops.update_one({"id": shop_id}, {"$set": {"status": "cancelled"}})
+    return {"items": shop["items"]}
+
+
 # --- Famiglia ---
 class FamilyCreate(BaseModel):
     user_id: str

@@ -17,7 +17,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 log = logging.getLogger("mi_conviene.storage")
 
-COLLECTIONS = ("savings", "lists", "history", "families", "family_lists", "user_prices", "recipes")
+COLLECTIONS = ("savings", "lists", "history", "families", "family_lists", "user_prices", "recipes", "shops", "aisles")
 LOCAL_FILE = Path(os.environ.get("LOCAL_DB_FILE", Path(__file__).resolve().parent / "data" / "local_db.json"))
 
 

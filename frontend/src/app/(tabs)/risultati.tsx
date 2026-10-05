@@ -19,7 +19,8 @@ function shortDate(iso: string | null) {
 export default function RisultatiScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { lastResult, userId, items, prefs, setPrefs } = useStore();
+  const { lastResult, userId, items, prefs, setPrefs, clearItems } = useStore();
+  const [shopError, setShopError] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [refStore, setRefStore] = useState<string | null>(null); // negozio di confronto scelto alla conferma
   const [rememberHabitual, setRememberHabitual] = useState(false);
@@ -83,7 +84,8 @@ export default function RisultatiScreen() {
       const h = await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: recommended.total_cost });
       const amount = addToPiggyBank ? Math.round((shopSaving + fuelSaving) * 100) / 100 : 0;
       // la voce va comunque nel Salvadanaio (anche a zero) per poterla verificare con lo scontrino vero
-      await api.addSaving({
+      const listAtConfirm = items;
+      const entry = await api.addSaving({
         user_id: userId,
         store_id: recommended.store_id,
         // stima totale = spesa + pieno sulla strada (la parte pieno si azzera se alla verifica dici che non l'hai fatto)
@@ -103,6 +105,19 @@ export default function RisultatiScreen() {
       setAddedAmount(amount);
       setConfirmed(recommended.store_id);
       setAskOpen(false);
+      // la lista diventa la "spesa in corso" da smarcare in negozio; la Lista in home si svuota
+      try {
+        await api.shopCreate({
+          user_id: userId, store_id: recommended.store_id, saving_id: entry.id,
+          branch: recommended.branch ? [recommended.branch.name, recommended.branch.address].filter(Boolean).join(' · ') : null,
+          display_name: prefs.displayName || null,
+          items: listAtConfirm.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null, unit: i.unit ?? null })),
+        });
+        clearItems();
+        setShopError(null);
+      } catch (e) {
+        setShopError((e as Error).message);
+      }
     } finally {
       setSaving(false);
     }
@@ -254,9 +269,13 @@ export default function RisultatiScreen() {
         {confirmed === recommended.store_id && (
           <Text style={s.confirmNote}>
             {addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
-            {'\n'}Dopo la spesa, verificala lì con il totale dello scontrino.
+            {'\n'}La lista è pronta da smarcare in negozio.
           </Text>
         )}
+        {confirmed === recommended.store_id && !shopError && (
+          <PrimaryButton label="Vai alla spesa in corso" icon="basket-outline" onPress={() => router.push('/spesa')} style={{ marginTop: spacing.sm }} />
+        )}
+        {shopError && <Text style={[s.confirmNote, { color: colors.danger }]}>Non riesco a preparare la spesa in corso: {shopError}</Text>}
 
         <SmartSuggestions
           items={items}

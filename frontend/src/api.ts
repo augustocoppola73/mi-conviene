@@ -176,6 +176,16 @@ export interface Suggestions { ready: SuggestRecipe[]; almost: SuggestRecipe[]; 
 export interface MenuEntry { recipe_id: string; name: string; servings: number }
 export interface MenuPlan { recipes: string[]; items: (PlanRow & { recipes: string[] })[]; costs: StoreCost[] }
 export interface ProposedRecipe extends RecipeSummary { portion: number; cost: number; kind: string }
+export interface ShopItem {
+  key: string; product_id: string; name: string; quantity: number; unit: string; category_id: string;
+  price: number | null; checked: boolean; checked_by: string | null; checked_by_id?: string | null; checked_at: string | null; added_in_store: boolean;
+}
+export interface Shop {
+  id: string; user_id: string; display_name?: string | null; store_id: string; store_name: string; branch?: string | null;
+  saving_id?: string | null; items: ShopItem[]; status: string; created_at: string; aisles: string[]; mine: boolean;
+  progress: { checked: number; total: number; cart: number; estimated: number };
+}
+export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null }
 export interface FamilyMember { user_id: string; display_name: string }
 export interface Family { code: string; created_at: string; members: FamilyMember[] }
 export interface FamilyList { code: string; items: ListItem[]; updated_by?: string; updated_at?: string }
@@ -251,6 +261,15 @@ export const api = {
   recipeUpdate: (id: string, body: RecipeIn) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   recipeDelete: (id: string, user_id: string) => request<{ ok: boolean }>(`/recipes/${encodeURIComponent(id)}?user_id=${user_id}`, { method: 'DELETE' }),
   geocode: (q: string) => request<{ lat: number; lon: number; label: string }[]>(`/geocode?q=${encodeURIComponent(q)}`),
+  shopCreate: (body: { user_id: string; store_id: string; saving_id?: string; branch?: string | null; items: ShopItemIn[]; display_name?: string | null }) =>
+    post<Shop>('/shops', body),
+  shopActive: (user_id: string) => request<{ shop: Shop | null; others?: number }>(`/shops/active?user_id=${user_id}`),
+  shopCheck: (id: string, user_id: string, key: string, checked: boolean, display_name?: string | null) =>
+    post<Shop>(`/shops/${id}/check`, { user_id, key, checked, display_name }),
+  shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
+  shopFinish: (id: string, user_id: string) =>
+    post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number }>(`/shops/${id}/finish`, { user_id }),
+  shopCancel: (id: string, user_id: string) => post<{ items: ShopItem[] }>(`/shops/${id}/cancel`, { user_id }),
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>
     post<Family>('/family/join', { user_id, display_name, code }),

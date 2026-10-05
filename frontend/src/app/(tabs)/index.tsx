@@ -16,6 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api, BudgetSuggestion, Category, Flyer, HabitualItem, Offer } from '@/api';
+import { ActiveShopBanner } from '@/components/ActiveShopBanner';
 import { FuelCard } from '@/components/FuelCard';
 import { HabitualPicker } from '@/components/HabitualPicker';
 import { HScroll } from '@/components/HScroll';
@@ -184,6 +185,7 @@ export default function ListaScreen() {
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.kicker}>Mi Conviene · Ciao 👋</Text>
         <Text style={s.title}>Cosa devi comprare?</Text>
+        <ActiveShopBanner />
         <View style={{ marginTop: spacing.md }}>
           <ProductSearch
             products={catalog.products}
