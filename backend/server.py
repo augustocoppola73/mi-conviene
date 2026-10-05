@@ -852,6 +852,8 @@ class SavingIn(BaseModel):
     fuel_median: Optional[float] = None
     fuel_detour_cost: Optional[float] = None
     fuel_station: Optional[str] = None
+    # scontrino virtuale calcolato alla conferma (negozio, righe, totali): per rivederlo nello storico
+    snapshot: Optional[dict] = None
 
 
 class VerifyIn(BaseModel):

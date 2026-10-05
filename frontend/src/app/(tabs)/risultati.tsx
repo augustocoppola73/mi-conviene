@@ -93,6 +93,7 @@ export default function RisultatiScreen() {
         history_id: h.id,
         estimated_spend: recommended.receipt.total,
         estimated_total: recommended.total_cost,
+        snapshot: recommended, // lo scontrino virtuale di oggi, per rivederlo nello storico
         ...(stop && addToPiggyBank ? {
           fuel_saving: fuelSaving, fuel_liters: stop.liters, fuel_median: stop.median,
           fuel_detour_cost: stop.detour_cost, fuel_station: `${stop.brand}, ${stop.address}`,

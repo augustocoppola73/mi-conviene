@@ -32,7 +32,7 @@ function Teeth({ flip }: { flip?: boolean }) {
   );
 }
 
-export function PaperReceipt({ store, when = new Date() }: { store: RankedStore; when?: Date }) {
+export function PaperReceipt({ store, when = new Date(), paid }: { store: RankedStore; when?: Date; paid?: number | null }) {
   const { receipt, travel } = store;
   const date = when.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const time = when.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -75,7 +75,7 @@ export function PaperReceipt({ store, when = new Date() }: { store: RankedStore;
           );
         })}
 
-        {receipt.custom_items?.length > 0 && (
+        {(receipt.custom_items?.length ?? 0) > 0 && (
           <>
             <Text style={st.t}>{dash}</Text>
             <Text style={[st.t, st.faded]}>ALTRO DA COMPRARE (SENZA PREZZO)</Text>
@@ -90,6 +90,13 @@ export function PaperReceipt({ store, when = new Date() }: { store: RankedStore;
         <Text style={[st.t, st.total]}>{cols('TOTALE EURO', num(receipt.total), 22)}</Text>
         {travel.fuel_cost > 0 && <Text style={[st.t, st.faded]}>{cols('+ CARBURANTE VIAGGIO', num(travel.fuel_cost))}</Text>}
         <Text style={st.t}>{dash}</Text>
+        {paid != null && (
+          <>
+            <Text style={[st.t, st.total]}>{cols('PAGATO DAVVERO', num(paid), 22)}</Text>
+            <Text style={[st.t, st.faded]}>{cols(paid <= receipt.total ? 'IN MENO DEL PREVISTO' : 'IN PIU DEL PREVISTO', num(Math.abs(receipt.total - paid)))}</Text>
+            <Text style={st.t}>{dash}</Text>
+          </>
+        )}
         <Text style={[st.t, st.faded]}>{cols('PREZZI REALI', `${receipt.real_lines}/${pieces}`)}</Text>
         <Text style={[st.t, st.faded]}>R = PREZZO REALE (OPEN PRICES)</Text>
         <Text style={[st.t, st.faded]}>S = PREZZO STIMATO</Text>

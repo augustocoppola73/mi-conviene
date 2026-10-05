@@ -4,6 +4,7 @@ import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, SavingEntry, SavingsSummary } from '@/api';
+import { PaperReceipt } from '@/components/PaperReceipt';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate } from '@/format';
 import { useStore } from '@/store';
@@ -40,6 +41,7 @@ export default function SalvadanaioScreen() {
   const [paidText, setPaidText] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [openReceipt, setOpenReceipt] = useState<string | null>(null);
   const [refueled, setRefueled] = useState<boolean | null>(null);
   const [fuelText, setFuelText] = useState('');
 
@@ -190,6 +192,15 @@ export default function SalvadanaioScreen() {
                         </Pressable>
                       </View>
                     )}
+                    {e.snapshot && (
+                      <Pressable onPress={() => setOpenReceipt(openReceipt === e.id ? null : e.id)} style={s.receiptToggle} hitSlop={6}>
+                        <Icon name="receipt-outline" size={15} color={colors.primary} />
+                        <Text style={s.receiptLink}>{openReceipt === e.id ? 'Nascondi scontrino' : 'Vedi scontrino calcolato'}</Text>
+                      </Pressable>
+                    )}
+                    {e.snapshot && openReceipt === e.id && (
+                      <PaperReceipt store={e.snapshot} when={new Date(e.created_at)} paid={e.verified ? e.paid : null} />
+                    )}
                   </Card>
                 ))}
               </View>
@@ -308,6 +319,8 @@ const useStyles = makeStyles((c) => ({
   amountEstimated: { color: c.textSecondary },
   status: { color: c.textSecondary, fontSize: 11 },
   footer: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderTopWidth: 1, borderTopColor: c.border, paddingTop: spacing.sm },
+  receiptToggle: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  receiptLink: { color: c.primary, fontSize: 13, fontWeight: '600' },
   link: { color: c.primary, fontSize: 13, fontWeight: '600', marginLeft: 'auto' },
   linkMuted: { color: c.textSecondary, fontSize: 13 },
   verifyBtn: {

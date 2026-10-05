@@ -119,6 +119,7 @@ export interface SavingEntry {
   price_basis?: PriceBasis | null; reference_type?: 'habitual' | 'median' | null;
   fuel_saving?: number; fuel_liters?: number | null; fuel_median?: number | null; fuel_detour_cost?: number | null;
   fuel_station?: string | null; verified_fuel?: number | null; refueled?: boolean | null; fuel_price_paid?: number | null;
+  snapshot?: RankedStore | null;
 }
 export interface SavingsSummary {
   entries: SavingEntry[]; total: number; total_estimated: number; total_verified: number; to_verify: number;
@@ -168,6 +169,7 @@ export const api = {
     reference_type?: 'habitual' | 'median'; price_basis?: PriceBasis;
     history_id?: string; estimated_spend?: number; estimated_total?: number;
     fuel_saving?: number; fuel_liters?: number; fuel_median?: number; fuel_detour_cost?: number; fuel_station?: string;
+    snapshot?: RankedStore;
   }) =>
     post<SavingEntry>('/savings', body),
   savings: (userId: string) => request<SavingsSummary>(`/savings/${userId}`),

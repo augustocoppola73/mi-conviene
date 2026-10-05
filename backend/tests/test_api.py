@@ -364,3 +364,13 @@ def test_categories_of_known_products():
     assert cat["ricotta"] == "latticini" and cat["mozzarella"] == "latticini"
     # scritto a mano ma uguale a un prodotto del catalogo: stessa categoria del catalogo
     assert server.classifier.classify("prosciutto cotto")["category_id"] == "salumi"
+
+
+
+async def test_saving_keeps_receipt_snapshot(client):
+    r = (await client.post("/api/optimize", json={"user_id": "s", "items": LIST})).json()
+    snap = r["recommended"]
+    await client.post("/api/savings", json={"user_id": "s", "store_id": snap["store_id"], "amount": 1, "snapshot": snap})
+    e = (await client.get("/api/savings/s")).json()["entries"][0]
+    assert e["snapshot"]["receipt"]["total"] == snap["receipt"]["total"]
+    assert len(e["snapshot"]["receipt"]["lines"]) == len(LIST)
