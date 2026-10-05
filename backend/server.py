@@ -261,6 +261,9 @@ class OptimizeRequest(BaseModel):
     # posizione dell'utente: se c'è si usano i punti vendita reali più vicini
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lon: Optional[float] = Field(default=None, ge=-180, le=180)
+    # "devo anche fare carburante": si cerca il distributore migliore sulla strada di ogni negozio
+    refuel: bool = False
+    refuel_liters: Optional[float] = Field(default=None, gt=0, le=200)  # facoltativo: default 40 l
 
 
 def compute_virtual_receipt(store_id: str, items: list[ListItem]) -> dict:
@@ -365,19 +368,76 @@ def compute_savings(ranked: list[dict], recommended: dict, habitual: Optional[di
         "reference": reference,
         "price_basis": basis,  # su che prezzi è calcolato: il risparmio resta "stimato" finché non c'è lo scontrino
         "promo_savings": recommended["receipt"]["savings_vs_normal"],
+        # risparmio sul pieno sulla strada: a parte, conta solo se il pieno lo fai davvero
+        "fuel_saving": (recommended.get("fuel_stop") or {}).get("saving", 0.0),
     }
+
+
+DEFAULT_REFUEL_LITERS = 40.0  # pieno medio, se l'utente non indica i litri
+MAX_DETOUR_KM = 3.0  # oltre, non è più "sulla strada"
+
+
+def best_fuel_stop(home: tuple[float, float], store_pt: tuple[float, float], stations: list[dict],
+                   fuel_type: str, liters: float, median: Optional[float]) -> Optional[dict]:
+    """Il distributore che conviene di più fermandosi sulla strada casa -> negozio.
+
+    deviazione = (casa->distributore + distributore->negozio - casa->negozio) x fattore strada
+    costo      = prezzo x litri + carburante della deviazione + tempo della deviazione (pesato)
+    risparmio  = pieno al prezzo medio della zona - (prezzo x litri + carburante della deviazione)"""
+    if not median:
+        return None
+    direct = haversine_km(*home, *store_pt)
+    best = None
+    for st in stations:
+        price = (st["prices"].get(fuel_type) or {}).get("self")
+        if price is None:
+            continue
+        detour = (haversine_km(*home, st["lat"], st["lon"]) + haversine_km(st["lat"], st["lon"], *store_pt) - direct) \
+            * stores_mod.ROAD_FACTOR
+        detour = max(detour, 0.0)
+        if detour > MAX_DETOUR_KM:
+            continue
+        detour_fuel = detour * FUEL_CONSUMPTION_L_100KM / 100 * price
+        detour_min = detour / TRANSPORT_SPEED["car"] * 60
+        cost = price * liters + detour_fuel
+        rank = cost + TIME_WEIGHT * detour_min / 60 * TIME_VALUE
+        if best is None or rank < best["_rank"]:
+            best = {"_rank": rank, "station_id": st["id"], "brand": st["brand"], "address": st["address"],
+                    "city": st["city"], "lat": st["lat"], "lon": st["lon"], "price": price,
+                    "detour_km": round(detour, 1), "detour_min": round(detour_min), "detour_cost": round(detour_fuel, 2),
+                    "liters": liters, "median": median, "fill_cost": round(price * liters, 2),
+                    "saving": round(median * liters - cost, 2),
+                    "maps_url": f"https://www.google.com/maps/search/?api=1&query={st['lat']},{st['lon']}"}
+    if not best:
+        return None
+    best.pop("_rank")
+    return best
 
 
 def optimize_list(req: OptimizeRequest, stores: Optional[list[dict]] = None) -> dict:
     """stores: punti vendita da confrontare (default: STORES con distanze di esempio)."""
     ranked = []
     fuel = fuel_info(req.fuel_type)
+    liters = req.refuel_liters or DEFAULT_REFUEL_LITERS
+    can_refuel = req.refuel and req.transport == "car" and req.lat is not None and req.lon is not None
     for store in stores if stores is not None else STORES:
         receipt = compute_virtual_receipt(store["id"], req.items)
         travel = compute_travel(store, req.transport, fuel)
         total_cost = round(receipt["total"] + travel["fuel_cost"], 2)
         score = round(total_cost + TIME_WEIGHT * travel["time_cost"], 2)
+        stop = None
+        if can_refuel:
+            b = store.get("branch") or {}
+            pt = (b.get("lat", store.get("lat")), b.get("lon", store.get("lng")))
+            stop = best_fuel_stop((req.lat, req.lon), pt, prices.stations, req.fuel_type, liters,
+                                  fuel["price_per_liter"] if fuel["source"] == "mimit" else None)
+            if stop and stop["saving"] > 0:
+                # il pieno conveniente sulla strada rende più conveniente questo negozio
+                score = round(score - stop["saving"] + TIME_WEIGHT * stop["detour_min"] / 60 * TIME_VALUE, 2)
+            elif stop:
+                stop = None  # nessun distributore sulla strada batte la media: niente deviazione
         ranked.append({
+            "fuel_stop": stop,
             "store_id": store["id"],
             "store_name": store["name"],
             "branch": store.get("branch"),  # punto vendita reale (nome, indirizzo), se c'è la posizione
@@ -387,6 +447,9 @@ def optimize_list(req: OptimizeRequest, stores: Optional[list[dict]] = None) -> 
             "total_cost": total_cost,
             "score": score,
         })
+    for r in ranked:
+        # costo complessivo per il confronto: spesa + viaggio - risparmio sul pieno
+        r["effective_cost"] = round(r["total_cost"] - (r["fuel_stop"]["saving"] if r["fuel_stop"] else 0), 2)
     ranked.sort(key=lambda r: r["score"])
     best = ranked[0]
     recommended = best
@@ -394,7 +457,7 @@ def optimize_list(req: OptimizeRequest, stores: Optional[list[dict]] = None) -> 
 
     # Regola anti-fatica: non cambiare supermercato per pochi euro.
     if habitual and habitual is not best:
-        delta = round(habitual["total_cost"] - best["total_cost"], 2)
+        delta = round(habitual["effective_cost"] - best["effective_cost"], 2)
         if delta < req.min_savings_threshold:
             recommended = habitual
             reasoning = (
@@ -411,7 +474,7 @@ def optimize_list(req: OptimizeRequest, stores: Optional[list[dict]] = None) -> 
         reasoning = f"Il tuo {habitual['store_name']} è già la scelta migliore per questa lista."
     else:
         second = ranked[1] if len(ranked) > 1 else None
-        diff = round(second["total_cost"] - best["total_cost"], 2) if second else 0
+        diff = round(second["effective_cost"] - best["effective_cost"], 2) if second else 0
         if second and diff < 0:
             # il secondo costa meno in euro, ma il tempo di viaggio in più non lo ripaga
             reasoning = (
@@ -423,6 +486,13 @@ def optimize_list(req: OptimizeRequest, stores: Optional[list[dict]] = None) -> 
                 f"{best['store_name']} è il più conveniente: {euro(best['total_cost'])} "
                 f"viaggio incluso" + (f", {euro(diff)} in meno di {second['store_name']}." if second else ".")
             )
+
+    stop = recommended.get("fuel_stop")
+    if stop:
+        reasoning += (f" Sulla strada fai {req.fuel_type} da {stop['brand']} a {stop['price']:.3f} €/l".replace(".", ",")
+                      + f": risparmi {euro(stop['saving'])} sul pieno.")
+    elif can_refuel:
+        reasoning += " Nessun distributore sulla strada costa meno della media in zona."
 
     budget_status = None
     if req.budget is not None and req.budget > 0:
@@ -746,10 +816,29 @@ class SavingIn(BaseModel):
     history_id: Optional[str] = None  # la spesa confermata a cui si riferisce
     estimated_spend: Optional[float] = Field(default=None, ge=0)  # totale scontrino previsto (senza viaggio)
     estimated_total: Optional[float] = Field(default=None, ge=0)  # previsto + carburante
+    # pieno sulla strada (facoltativo): stima a parte, conta solo se il pieno viene fatto
+    fuel_saving: float = 0.0
+    fuel_liters: Optional[float] = None
+    fuel_median: Optional[float] = None
+    fuel_detour_cost: Optional[float] = None
+    fuel_station: Optional[str] = None
 
 
 class VerifyIn(BaseModel):
     paid: float = Field(gt=0, description="totale pagato alla cassa, dallo scontrino vero")
+    refueled: Optional[bool] = None  # hai fatto il pieno consigliato? (solo se c'era)
+    fuel_price: Optional[float] = Field(default=None, gt=0, lt=5)  # €/l pagati davvero
+
+
+def verified_fuel_saving(entry: dict, refueled: Optional[bool], fuel_price: Optional[float]) -> float:
+    est = entry.get("fuel_saving") or 0.0
+    if not est and fuel_price is None:
+        return 0.0
+    if refueled is False:
+        return 0.0  # il pieno non l'hai fatto: niente risparmio carburante
+    if fuel_price is not None and entry.get("fuel_median") and entry.get("fuel_liters"):
+        return round((entry["fuel_median"] - fuel_price) * entry["fuel_liters"] - (entry.get("fuel_detour_cost") or 0), 2)
+    return round(est, 2)  # confermato senza prezzo: resta la stima
 
 
 def verified_saving(entry: dict, paid: float) -> float:
@@ -757,9 +846,10 @@ def verified_saving(entry: dict, paid: float) -> float:
     Può essere NEGATIVO: se alla cassa hai speso più del riferimento, la differenza
     viene tolta dal Salvadanaio. Il riferimento resta quello calcolato alla conferma."""
     expected = entry.get("estimated_spend")
+    shop = entry["amount"] - (entry.get("fuel_saving") or 0.0)  # parte spesa della stima
     if expected is None:  # voci vecchie senza spesa prevista: si conferma lo stimato
-        return round(entry["amount"], 2)
-    return round(entry["amount"] + expected - paid, 2)
+        return round(shop, 2)
+    return round(shop + expected - paid, 2)
 
 
 def saving_value(e: dict) -> float:
@@ -780,8 +870,11 @@ async def verify_saving(entry_id: str, body: VerifyIn):
     entry = await db.savings.find_one({"id": entry_id}, NO_ID)
     if not entry:
         raise HTTPException(404, "Voce non trovata")
-    amount = verified_saving(entry, body.paid)
-    update = {"verified": True, "verified_amount": amount, "paid": round(body.paid, 2), "verified_at": now_iso()}
+    shop = verified_saving(entry, body.paid)
+    fuel_part = verified_fuel_saving(entry, body.refueled, body.fuel_price)
+    update = {"verified": True, "verified_amount": round(shop + fuel_part, 2), "verified_fuel": fuel_part,
+              "paid": round(body.paid, 2), "fuel_price_paid": body.fuel_price, "refueled": body.refueled,
+              "verified_at": now_iso()}
     await db.savings.update_one({"id": entry_id}, {"$set": update})
     # lo storico usa la spesa vera (viaggio incluso): i budget suggeriti diventano più precisi
     if entry.get("history_id"):

@@ -50,6 +50,12 @@ export default function ProfiloScreen() {
     setNearbyError(null);
     api.storesNearby(loc.lat, loc.lon).then((r) => setNearby(r.stores)).catch((e: Error) => setNearbyError(e.message));
   }, [loc]));
+  // distanza reale del punto vendita più vicino (se c'è la posizione); mai le distanze di esempio
+  const habitualLabel = (id: string, name: string) => {
+    if (!loc || !nearby) return name;
+    const n = nearby.find((x) => x.chain === id);
+    return n ? `${name} · ${km(n.distance_km)}` : `${name} · non vicino`;
+  };
   const locate = async () => {
     setLocating(true);
     try { setPrefs({ location: await getCurrentPosition() }); } catch (e) { notify((e as Error).message); } finally { setLocating(false); }
@@ -142,7 +148,7 @@ export default function ProfiloScreen() {
           {catalog?.stores.map((st) => (
             <Chip
               key={st.id}
-              label={`${st.name} · ${km(st.distance_km)}`}
+              label={habitualLabel(st.id, st.name)}
               leading={<StoreDot storeId={st.id} size={14} />}
               selected={prefs.habitualStoreId === st.id}
               onPress={() => setPrefs({ habitualStoreId: st.id })}

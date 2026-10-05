@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, RankedStore } from '@/api';
@@ -50,6 +50,8 @@ export default function RisultatiScreen() {
   // Il risparmio lo calcola il backend contro un riferimento oggettivo (abituale o
   // spesa tipica in zona). Il budget non entra mai nel conto.
   const estimatedSaving = savings.amount;
+  const stop = recommended.fuel_stop;
+  const fuelSaving = stop ? savings.fuel_saving : 0;
 
   const confirm = async () => {
     if (!userId) return;
@@ -60,13 +62,18 @@ export default function RisultatiScreen() {
       await api.addSaving({
         user_id: userId,
         store_id: recommended.store_id,
-        amount: Math.round(estimatedSaving * 100) / 100,
+        // stima totale = spesa + pieno sulla strada (la parte pieno si azzera se alla verifica dici che non l'hai fatto)
+        amount: Math.round((estimatedSaving + fuelSaving) * 100) / 100,
         note: savings.reference.label,
         reference_type: savings.reference.type,
         price_basis: savings.price_basis,
         history_id: h.id,
         estimated_spend: recommended.receipt.total,
         estimated_total: recommended.total_cost,
+        ...(stop ? {
+          fuel_saving: fuelSaving, fuel_liters: stop.liters, fuel_median: stop.median,
+          fuel_detour_cost: stop.detour_cost, fuel_station: `${stop.brand}, ${stop.address}`,
+        } : {}),
       });
       setConfirmed(recommended.store_id);
     } finally {
@@ -139,6 +146,19 @@ export default function RisultatiScreen() {
               </Text>
             </View>
           )}
+          {stop && (
+            <Pressable onPress={() => Linking.openURL(stop.maps_url)} style={s.fuelStop}>
+              <Text style={s.fuelStopTitle}>⛽ Sulla strada: {stop.brand} · {stop.price.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l</Text>
+              <Text style={s.fuelStopText}>
+                {stop.address}{stop.city ? `, ${stop.city}` : ''} · deviazione circa {stop.detour_km.toLocaleString('it-IT')} km
+              </Text>
+              <Text style={s.fuelStopText}>
+                Pieno da {stop.liters.toLocaleString('it-IT')} l: {euro(stop.fill_cost)} · risparmi {euro(stop.saving)} rispetto alla media
+                ({stop.median.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l), deviazione inclusa
+              </Text>
+              <Text style={s.fuelStopLink}>Portami lì ↗</Text>
+            </Pressable>
+          )}
           <View style={s.savingBox}>
             <Icon name="wallet-outline" size={16} color={estimatedSaving > 0 ? colors.success : colors.textSecondary} />
             <Text style={[s.savingText, estimatedSaving > 0 && { color: colors.success }]}>
@@ -150,6 +170,11 @@ export default function RisultatiScreen() {
               {estimatedSaving > 0 && savings.price_basis !== 'reale' ? ' · stima, da verificare con lo scontrino' : ''}
             </Text>
           </View>
+          {stop && fuelSaving > 0 && (
+            <Text style={[s.savingText, { color: colors.success, marginTop: 4, marginLeft: 22 }]}>
+              + {euro(fuelSaving)} sul pieno, se lo fai lì (lo confermi alla verifica)
+            </Text>
+          )}
           {savings.promo_savings > 0 && (
             <Text style={s.promoNote}>
               Le promozioni ti fanno risparmiare {euro(savings.promo_savings)} sul prezzo pieno (non conteggiate nel Salvadanaio)
@@ -189,7 +214,7 @@ export default function RisultatiScreen() {
         />
         {confirmed === recommended.store_id && (
           <Text style={s.confirmNote}>
-            {estimatedSaving > 0 ? `Aggiunti ${euro(estimatedSaving)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
+            {estimatedSaving + fuelSaving > 0 ? `Aggiunti ${euro(estimatedSaving + fuelSaving)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
             {'\n'}Dopo la spesa, verificala lì con il totale dello scontrino.
           </Text>
         )}
@@ -207,7 +232,10 @@ export default function RisultatiScreen() {
               <Text style={s.altMeta}>
                 spesa {euro(r.receipt.total)} · carburante {euro(r.travel.fuel_cost)} · {km(r.travel.distance_km)} · {r.travel.time_min} min
               </Text>
-              <DeltaBadge delta={r.total_cost - recommended.total_cost} />
+              {r.fuel_stop && (
+                <Text style={s.altMeta}>⛽ sulla strada {r.fuel_stop.brand} {r.fuel_stop.price.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l · −{euro(r.fuel_stop.saving)} sul pieno</Text>
+              )}
+              <DeltaBadge delta={r.effective_cost - recommended.effective_cost} />
               <ReceiptToggle store={r} expanded={expanded === r.store_id} onToggle={() => setExpanded(expanded === r.store_id ? null : r.store_id)} />
             </Card>
           ))}
@@ -283,6 +311,10 @@ const useStyles = makeStyles((c) => ({
   lineStrike: { color: c.textSecondary, fontSize: 12, textDecorationLine: 'line-through' },
   linePrice: { color: c.text, fontSize: 14, fontWeight: '600', minWidth: 60, textAlign: 'right' },
   receiptTotal: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: c.border, paddingTop: spacing.sm },
+  fuelStop: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: c.surface, gap: 2 },
+  fuelStopTitle: { color: c.text, fontSize: 14, fontWeight: '700' },
+  fuelStopText: { color: c.textSecondary, fontSize: 12, lineHeight: 17 },
+  fuelStopLink: { color: c.primary, fontSize: 13, fontWeight: '700', marginTop: 2 },
   savingBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: spacing.md },
   savingText: { flex: 1, color: c.textSecondary, fontSize: 13, fontWeight: '600' },
   branch: { color: c.textSecondary, fontSize: 13, marginTop: 2 },

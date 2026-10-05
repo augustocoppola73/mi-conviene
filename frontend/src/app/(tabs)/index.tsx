@@ -117,6 +117,8 @@ export default function ListaScreen() {
         min_savings_threshold: prefs.minSavingsThreshold,
         fuel_type: prefs.fuelType,
         ...(prefs.location ? { lat: prefs.location.lat, lon: prefs.location.lon } : {}),
+        refuel: prefs.transport === 'car' && prefs.refuel,
+        refuel_liters: prefs.refuelLiters,
       });
       setLastResult(r);
       router.push('/risultati');
@@ -322,6 +324,37 @@ export default function ListaScreen() {
               lat={prefs.location?.lat}
               lon={prefs.location?.lon}
             />
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: prefs.refuel }}
+              onPress={() => setPrefs({ refuel: !prefs.refuel })}
+              style={[s.refuelRow, prefs.refuel && s.refuelOn]}>
+              <Icon name={prefs.refuel ? 'checkbox' : 'square-outline'} size={22} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.itemName}>Devo anche fare carburante</Text>
+                <Text style={s.muted}>
+                  {prefs.location
+                    ? 'Cerco il distributore più conveniente sulla strada di ogni supermercato e lo metto nel confronto.'
+                    : 'Attiva la posizione qui sotto: serve per sapere qual è la tua strada.'}
+                </Text>
+              </View>
+            </Pressable>
+            {prefs.refuel && (
+              <View style={s.litersRow}>
+                <Text style={s.muted}>Litri (facoltativo)</Text>
+                <TextInput
+                  value={prefs.refuelLiters != null ? String(prefs.refuelLiters) : ''}
+                  onChangeText={(t) => {
+                    const n = parseFloat(t.replace(',', '.'));
+                    setPrefs({ refuelLiters: Number.isFinite(n) && n > 0 ? Math.min(n, 200) : null });
+                  }}
+                  keyboardType="decimal-pad"
+                  placeholder="40 (pieno medio)"
+                  placeholderTextColor={colors.textSecondary}
+                  style={s.litersInput}
+                />
+              </View>
+            )}
           </View>
         )}
 
@@ -475,6 +508,16 @@ const useStyles = makeStyles((c) => ({
   locCard: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg,
     borderRadius: radius.lg, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.primary, backgroundColor: c.surface,
+  },
+  refuelRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, marginTop: spacing.sm,
+    borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface,
+  },
+  refuelOn: { borderColor: c.primary, backgroundColor: c.primarySoft },
+  litersRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm, paddingHorizontal: spacing.xs },
+  litersInput: {
+    flex: 1, minWidth: 0, color: c.text, fontSize: 16, paddingHorizontal: spacing.md, paddingVertical: 10,
+    borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface,
   },
   lastRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, paddingHorizontal: spacing.xs },
   lastText: { flex: 1, color: c.textSecondary, fontSize: 13, lineHeight: 18 },

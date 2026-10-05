@@ -264,3 +264,58 @@ async def test_verify_saving_with_real_receipt(client):
     assert (await client.get("/api/savings/v")).json()["total"] == 3
     assert (await client.post("/api/savings/nope/verify", json={"paid": 1})).status_code == 404
     assert (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 0})).status_code == 422
+
+
+def _station(id_, lat, lon, price, fuel="gasolio"):
+    return {"id": id_, "brand": f"B{id_}", "address": "Via X", "city": "Milano", "lat": lat, "lon": lon,
+            "prices": {fuel: {"self": price}}}
+
+
+def test_best_fuel_stop_prefers_on_the_way():
+    home, shop = (45.46, 9.19), (45.48, 9.19)  # negozio ~2,2 km a nord
+    on_way = _station("a", 45.47, 9.19, 2.10)       # proprio sulla strada
+    far = _station("b", 45.46, 9.25, 2.05)          # più economico ma fuori strada (> 3 km di deviazione)
+    stop = server.best_fuel_stop(home, shop, [on_way, far], "gasolio", 40, median=2.20)
+    assert stop["station_id"] == "a" and stop["detour_km"] < 0.2
+    assert stop["saving"] == round(2.20 * 40 - (2.10 * 40 + stop["detour_cost"]), 2)
+    assert server.best_fuel_stop(home, shop, [far], "gasolio", 40, median=2.20) is None
+
+
+def test_refuel_changes_recommendation(monkeypatch):
+    # due negozi: A un po' più economico, B con un distributore conveniente sulla strada
+    stores = [
+        {"id": "conad", "name": "Conad", "distance_km": 1.0, "price_level": 1.0, "lat": 45.47, "lng": 9.30,
+         "branch": {"lat": 45.47, "lon": 9.30}},
+        {"id": "esselunga", "name": "Esselunga", "distance_km": 1.0, "price_level": 1.0, "lat": 45.47, "lng": 9.10,
+         "branch": {"lat": 45.47, "lon": 9.10}},
+    ]
+    monkeypatch.setattr(server.prices, "stations", [_station("z", 45.465, 9.145, 1.80)])
+    monkeypatch.setattr(server.prices, "fuel", {"gasolio": {"price_per_liter": 2.20, "observed_at": "2026-10-05", "stations": 10}})
+    base = dict(user_id="u", items=LIST, transport="car", fuel_type="gasolio", lat=45.46, lon=9.19)
+    without = server.optimize_list(server.OptimizeRequest(**base), stores)
+    with_fuel = server.optimize_list(server.OptimizeRequest(**base, refuel=True), stores)
+    ess = next(r for r in with_fuel["ranked"] if r["store_id"] == "esselunga")
+    assert ess["fuel_stop"] and ess["fuel_stop"]["station_id"] == "z" and ess["fuel_stop"]["liters"] == 40
+    assert ess["effective_cost"] == round(ess["total_cost"] - ess["fuel_stop"]["saving"], 2)
+    assert with_fuel["recommended"]["store_id"] == "esselunga"
+    assert with_fuel["savings"]["fuel_saving"] == ess["fuel_stop"]["saving"]
+    assert "Sulla strada" in with_fuel["reasoning"]
+    assert all(r["fuel_stop"] is None for r in without["ranked"])
+    # litri indicati
+    r30 = server.optimize_list(server.OptimizeRequest(**base, refuel=True, refuel_liters=30), stores)
+    assert next(r for r in r30["ranked"] if r["store_id"] == "esselunga")["fuel_stop"]["liters"] == 30
+
+
+async def test_verify_with_fuel(client):
+    e = (await client.post("/api/savings", json={"user_id": "f", "store_id": "conad", "amount": 5, "estimated_spend": 30,
+                                                 "fuel_saving": 2, "fuel_liters": 40, "fuel_median": 2.2,
+                                                 "fuel_detour_cost": 0.1})).json()
+    # pieno non fatto: resta solo la parte spesa (5 - 2 = 3, pagato come previsto)
+    v = (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 30, "refueled": False})).json()
+    assert v["verified_amount"] == 3 and v["verified_fuel"] == 0
+    # pieno fatto a 2,10: (2,20 - 2,10) x 40 - 0,10 = 3,90
+    v = (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 30, "refueled": True, "fuel_price": 2.10})).json()
+    assert v["verified_fuel"] == 3.9 and v["verified_amount"] == 6.9
+    # pieno fatto senza indicare il prezzo: resta la stima (2)
+    v = (await client.post(f"/api/savings/{e['id']}/verify", json={"paid": 30, "refueled": True})).json()
+    assert v["verified_amount"] == 5

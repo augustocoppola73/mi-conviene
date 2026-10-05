@@ -61,8 +61,14 @@ export interface NearbyStore extends Branch { chain: string; distance_km: number
 export interface LocationInfo {
   mode: 'reale' | 'esempio'; missing_chains: string[]; radius_km?: number; error?: string; habitual_missing?: string;
 }
+export interface FuelStop {
+  station_id: string; brand: string; address: string; city: string; lat: number; lon: number; price: number;
+  detour_km: number; detour_min: number; detour_cost: number; liters: number; median: number;
+  fill_cost: number; saving: number; maps_url: string;
+}
 export interface RankedStore {
   store_id: string; store_name: string; confidence: Confidence; branch: Branch | null;
+  fuel_stop: FuelStop | null; effective_cost: number;
   receipt: Receipt; travel: Travel; total_cost: number; score: number;
 }
 export interface BudgetStatus {
@@ -71,7 +77,7 @@ export interface BudgetStatus {
 }
 export type PriceBasis = 'reale' | 'misto' | 'stima';
 export interface Savings {
-  amount: number; reference_cost: number; price_basis: PriceBasis; promo_savings: number;
+  amount: number; reference_cost: number; price_basis: PriceBasis; promo_savings: number; fuel_saving: number;
   reference: { type: 'habitual' | 'median'; label: string; store_id: string | null };
 }
 export interface OptimizeResult {
@@ -87,7 +93,7 @@ export interface FuelInfo {
 export interface OptimizeRequest {
   user_id: string; items: ListItem[]; budget?: number | null; transport: Transport;
   habitual_store_id?: string | null; min_savings_threshold: number; fuel_type?: FuelType;
-  lat?: number; lon?: number;
+  lat?: number; lon?: number; refuel?: boolean; refuel_liters?: number | null;
 }
 
 export interface Offer {
@@ -101,6 +107,8 @@ export interface SavingEntry {
   verified_amount: number | null; paid: number | null;
   estimated_spend: number | null; estimated_total: number | null; history_id: string | null;
   price_basis?: PriceBasis | null; reference_type?: 'habitual' | 'median' | null;
+  fuel_saving?: number; fuel_liters?: number | null; fuel_median?: number | null; fuel_detour_cost?: number | null;
+  fuel_station?: string | null; verified_fuel?: number | null; refueled?: boolean | null; fuel_price_paid?: number | null;
 }
 export interface SavingsSummary {
   entries: SavingEntry[]; total: number; total_estimated: number; total_verified: number; to_verify: number;
@@ -148,11 +156,13 @@ export const api = {
     user_id: string; store_id: string; amount: number; note?: string;
     reference_type?: 'habitual' | 'median'; price_basis?: PriceBasis;
     history_id?: string; estimated_spend?: number; estimated_total?: number;
+    fuel_saving?: number; fuel_liters?: number; fuel_median?: number; fuel_detour_cost?: number; fuel_station?: string;
   }) =>
     post<SavingEntry>('/savings', body),
   savings: (userId: string) => request<SavingsSummary>(`/savings/${userId}`),
   deleteSaving: (id: string) => request<{ deleted: number }>(`/savings/${id}`, { method: 'DELETE' }),
-  verifySaving: (id: string, paid: number) => post<SavingEntry>(`/savings/${id}/verify`, { paid }),
+  verifySaving: (id: string, paid: number, refueled?: boolean, fuel_price?: number) =>
+    post<SavingEntry>(`/savings/${id}/verify`, { paid, refueled, fuel_price }),
   unverifySaving: (id: string) => post(`/savings/${id}/unverify`, {}),
 
   addHistory: (body: { user_id: string; items: ListItem[]; store_id?: string; total_cost?: number }) =>

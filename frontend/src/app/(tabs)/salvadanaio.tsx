@@ -13,10 +13,20 @@ const value = (e: SavingEntry) => (e.verified ? e.verified_amount ?? 0 : e.amoun
 /** "+€1,20" oppure "−€5,34" */
 const signed = (n: number) => `${n < 0 ? '−' : '+'}${euro(Math.abs(n))}`;
 
-/** Stessa formula del backend, per l'anteprima mentre scrivi. */
-function previewVerified(e: SavingEntry, paid: number): number {
-  if (e.estimated_spend == null) return e.amount;
-  return Math.round((e.amount + e.estimated_spend - paid) * 100) / 100; // può essere negativo
+/** Stesse formule del backend, per l'anteprima mentre scrivi. */
+function previewFuel(e: SavingEntry, refueled: boolean | null, fuelPrice: number | null): number {
+  const est = e.fuel_saving ?? 0;
+  if (!est) return 0;
+  if (refueled === false) return 0;
+  if (fuelPrice != null && e.fuel_median && e.fuel_liters) {
+    return Math.round(((e.fuel_median - fuelPrice) * e.fuel_liters - (e.fuel_detour_cost ?? 0)) * 100) / 100;
+  }
+  return est;
+}
+function previewVerified(e: SavingEntry, paid: number, refueled: boolean | null = null, fuelPrice: number | null = null): number {
+  const shop = e.amount - (e.fuel_saving ?? 0);
+  const shopPart = e.estimated_spend == null ? shop : shop + e.estimated_spend - paid; // può essere negativo
+  return Math.round((shopPart + previewFuel(e, refueled, fuelPrice)) * 100) / 100;
 }
 
 export default function SalvadanaioScreen() {
@@ -30,6 +40,8 @@ export default function SalvadanaioScreen() {
   const [paidText, setPaidText] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [refueled, setRefueled] = useState<boolean | null>(null);
+  const [fuelText, setFuelText] = useState('');
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -52,7 +64,12 @@ export default function SalvadanaioScreen() {
   const openVerify = (e: SavingEntry) => {
     setVerifying(e);
     setPaidText(e.paid != null ? String(e.paid).replace('.', ',') : '');
+    setRefueled(e.refueled ?? null);
+    setFuelText(e.fuel_price_paid != null ? String(e.fuel_price_paid).replace('.', ',') : '');
   };
+  const fuelPrice = parseFloat(fuelText.replace(',', '.'));
+  const fuelOk = Number.isFinite(fuelPrice) && fuelPrice > 0 && fuelPrice < 5;
+  const hasFuel = (verifying?.fuel_saving ?? 0) > 0;
   const paid = parseFloat(paidText.replace(',', '.'));
   const paidOk = Number.isFinite(paid) && paid > 0;
 
@@ -60,7 +77,8 @@ export default function SalvadanaioScreen() {
     if (!verifying || !paidOk) return;
     setBusy(true);
     try {
-      await api.verifySaving(verifying.id, paid);
+      await api.verifySaving(verifying.id, paid, hasFuel ? refueled ?? undefined : undefined,
+        hasFuel && refueled !== false && fuelOk ? fuelPrice : undefined);
       setVerifying(null);
       await load();
     } finally {
@@ -201,6 +219,33 @@ export default function SalvadanaioScreen() {
                 onSubmitEditing={doVerify}
               />
             </View>
+            {verifying && hasFuel && (
+              <View style={s.fuelQ}>
+                <Text style={s.helpText}>
+                  Hai fatto carburante da <Text style={s.bold}>{verifying.fuel_station}</Text>?
+                </Text>
+                <View style={s.actions}>
+                  <Pressable onPress={() => setRefueled(true)} style={[s.choice, refueled === true && s.choiceOn]}>
+                    <Text style={[s.choiceText, refueled === true && s.choiceTextOn]}>Sì</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setRefueled(false)} style={[s.choice, refueled === false && s.choiceOn]}>
+                    <Text style={[s.choiceText, refueled === false && s.choiceTextOn]}>No</Text>
+                  </Pressable>
+                </View>
+                {refueled === true && (
+                  <View style={s.inputRow}>
+                    <TextInput
+                      value={fuelText}
+                      onChangeText={(t) => setFuelText(t.replace(/[^0-9.,]/g, ''))}
+                      keyboardType="decimal-pad"
+                      placeholder="Prezzo pagato €/l (facoltativo)"
+                      placeholderTextColor={colors.textSecondary}
+                      style={[s.input, { fontSize: 16 }]}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
             {verifying && paidOk && (
               <View style={s.preview}>
                 {verifying.estimated_spend != null && (
@@ -211,11 +256,17 @@ export default function SalvadanaioScreen() {
                       : `${euro(paid - verifying.estimated_spend)} in più`}
                   </Text>
                 )}
-                {previewVerified(verifying, paid) >= 0 ? (
-                  <Text style={s.previewValue}>Risparmio verificato: {signed(previewVerified(verifying, paid))}</Text>
+                {previewVerified(verifying, paid, refueled, fuelOk ? fuelPrice : null) >= 0 ? (
+                  <Text style={s.previewValue}>Risparmio verificato: {signed(previewVerified(verifying, paid, refueled, fuelOk ? fuelPrice : null))}</Text>
                 ) : (
                   <Text style={[s.previewValue, { color: colors.danger }]}>
-                    Hai speso {euro(-previewVerified(verifying, paid))} più del riferimento: verranno tolti dal Salvadanaio
+                    Hai speso {euro(-previewVerified(verifying, paid, refueled, fuelOk ? fuelPrice : null))} più del riferimento: verranno tolti dal Salvadanaio
+                  </Text>
+                )}
+                {hasFuel && (
+                  <Text style={s.rowMeta}>
+                    di cui carburante: {euro(previewFuel(verifying, refueled, fuelOk ? fuelPrice : null))}
+                    {refueled === null ? ' (stima: rispondi alla domanda sopra)' : ''}
                   </Text>
                 )}
                 <Text style={s.rowMeta}>(stima era {euro(verifying.amount)})</Text>
@@ -276,4 +327,9 @@ const useStyles = makeStyles((c) => ({
   preview: { backgroundColor: c.primarySoft, borderRadius: radius.md, padding: spacing.md, gap: 4 },
   previewValue: { color: c.success, fontSize: 16, fontWeight: '700' },
   actions: { flexDirection: 'row', gap: spacing.sm },
+  fuelQ: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.border },
+  choice: { flex: 1, paddingVertical: 10, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border, alignItems: 'center' },
+  choiceOn: { backgroundColor: c.primary, borderColor: c.primary },
+  choiceText: { color: c.text, fontWeight: '600' },
+  choiceTextOn: { color: c.primaryText },
 }));

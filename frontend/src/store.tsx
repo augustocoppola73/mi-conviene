@@ -17,6 +17,8 @@ export interface Prefs {
   displayName: string;
   fuelType: FuelType;
   location: GeoPoint | null;
+  refuel: boolean;
+  refuelLiters: number | null;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -27,6 +29,8 @@ const DEFAULT_PREFS: Prefs = {
   displayName: '',
   fuelType: 'benzina',
   location: null,
+  refuel: false,
+  refuelLiters: null,
 };
 
 interface StoreValue {
