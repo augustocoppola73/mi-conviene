@@ -3,7 +3,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { IS_CLOUD, redeemDeviceCode, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
+import { IS_CLOUD, joinFamilyWithEmail, redeemDeviceCode, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
 import { pendingInvite } from '../invite';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { Icon, PrimaryButton } from './ui';
@@ -26,14 +26,18 @@ function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
   const s = useStyles();
   const { colors } = useTheme();
   const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState<false | 'email' | 'guest'>(false);
   const [error, setError] = useState<string | null>(null);
+  const validEmail = /^\S+@\S+\.\S+$/.test(email.trim());
+  const remember = () => { try { localStorage.setItem('mc_invito_auto', name.trim()); } catch { /* pazienza */ } };
   const enter = async () => {
-    setBusy(true); setError(null);
-    try {
-      try { localStorage.setItem('mc_invito_auto', name.trim()); } catch { /* pazienza */ }
-      await signInWithoutAccount(name);
-    } catch (e) { setError((e as Error).message); setBusy(false); }
+    setBusy('email'); setError(null);
+    try { remember(); await joinFamilyWithEmail(code, email, name); } catch (e) { setError((e as Error).message); setBusy(false); }
+  };
+  const guest = async () => {
+    setBusy('guest'); setError(null);
+    try { remember(); await signInWithoutAccount(name); } catch (e) { setError((e as Error).message); setBusy(false); }
   };
   return (
     <SafeAreaView style={s.screen}>
@@ -43,10 +47,15 @@ function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
         <Text style={s.sub}>Entra nella famiglia {code} su Mi Conviene: fate la spesa insieme e vedete dove conviene.</Text>
         <Text style={s.label}>Come ti chiami?</Text>
         <TextInput value={name} onChangeText={setName} placeholder="Il tuo nome" placeholderTextColor={colors.textSecondary}
-          autoComplete="given-name" style={s.input} onSubmitEditing={() => name.trim() && enter()} />
-        <PrimaryButton label="Entra nella famiglia" icon="log-in-outline" onPress={enter} loading={busy} disabled={!name.trim()} />
-        <Text style={s.note}>Niente registrazione: entri subito da questo telefono. Se vuoi, poi lo salvi con Google dal Profilo.</Text>
-        <PrimaryButton label="Ho già un account" variant="secondary" onPress={onOther} style={{ marginTop: spacing.md }} />
+          autoComplete="given-name" style={s.input} />
+        <Text style={s.label}>La tua email</Text>
+        <TextInput value={email} onChangeText={setEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
+          autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email" style={s.input}
+          onSubmitEditing={() => name.trim() && validEmail && enter()} />
+        <PrimaryButton label="Entra nella famiglia" icon="log-in-outline" onPress={enter} loading={busy === 'email'} disabled={!name.trim() || !validEmail} />
+        <Text style={s.note}>Non ti mandiamo nessuna email: l'indirizzo serve a ritrovarti. Su un altro telefono rientri con il codice famiglia {code} e la stessa email.</Text>
+        <PrimaryButton label="Entra senza email" variant="secondary" onPress={guest} loading={busy === 'guest'} disabled={!name.trim()} style={{ marginTop: spacing.md }} />
+        <PrimaryButton label="Ho già un account" variant="secondary" onPress={onOther} style={{ marginTop: spacing.sm }} />
         {error && <Text style={s.error}>{error}</Text>}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -87,7 +96,10 @@ function LoginForm() {
   };
   const redeem = async () => {
     setBusy('link'); setError(null);
-    try { await redeemDeviceCode(linkCode); } catch (e) { setError((e as Error).message); setBusy(false); }
+    try {
+      if (linkCode.length === 6) await joinFamilyWithEmail(linkCode, email);
+      else await redeemDeviceCode(linkCode);
+    } catch (e) { setError((e as Error).message); setBusy(false); }
   };
   const guest = async () => {
     setBusy('guest'); setError(null);
@@ -119,15 +131,19 @@ function LoginForm() {
             <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />
             <PrimaryButton label="Inizia senza account" icon="arrow-forward-outline" variant="secondary" onPress={guest} loading={busy === 'guest'} style={{ marginTop: spacing.sm }} />
             {!linking ? (
-              <PrimaryButton label="Ho un codice di collegamento" icon="phone-portrait-outline" variant="secondary" onPress={() => setLinking(true)} style={{ marginTop: spacing.sm }} />
+              <PrimaryButton label="Ho un codice" icon="key-outline" variant="secondary" onPress={() => setLinking(true)} style={{ marginTop: spacing.sm }} />
             ) : (
               <View style={{ marginTop: spacing.md }}>
-                <Text style={s.label}>Codice di collegamento</Text>
+                <Text style={s.label}>Codice famiglia (6) o di collegamento (8)</Text>
                 <TextInput value={linkCode} onChangeText={(t) => setLinkCode(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-                  placeholder="ABCD2345" placeholderTextColor={colors.textSecondary} autoCapitalize="characters" autoCorrect={false}
+                  placeholder="ABC234" placeholderTextColor={colors.textSecondary} autoCapitalize="characters" autoCorrect={false}
                   style={[s.input, { letterSpacing: 4, fontSize: 20, textAlign: 'center' }]} />
-                <PrimaryButton label="Entra con il codice" icon="log-in-outline" onPress={redeem} loading={busy === 'link'} disabled={linkCode.length !== 8} />
-                <Text style={s.note}>Il codice lo crei dove sei già dentro: Profilo → Account → "Collega un altro telefono".</Text>
+                {linkCode.length === 6 && (
+                  <Text style={s.note}>Codice famiglia: scrivi sopra la tua email (quella con cui sei nella famiglia) e premi Entra.</Text>
+                )}
+                <PrimaryButton label="Entra con il codice" icon="log-in-outline" onPress={redeem} loading={busy === 'link'}
+                  disabled={!(linkCode.length === 8 || (linkCode.length === 6 && valid))} style={{ marginTop: spacing.sm }} />
+                <Text style={s.note}>Codice famiglia: lo trovi in Profilo → Famiglia sul telefono di chi è già dentro. Codice di collegamento: Profilo → Account → "Collega un altro telefono".</Text>
               </View>
             )}
             <Text style={s.note}>Niente password. Con Google o con l'email ritrovi i tuoi dati su ogni dispositivo; senza account restano su questo telefono (puoi salvarli dopo con Google).</Text>

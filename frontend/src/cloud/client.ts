@@ -81,6 +81,23 @@ export async function redeemDeviceCode(code: string): Promise<void> {
   if (e2) throw new Error('Codice non valido o scaduto');
 }
 
+/** Invito in famiglia: si entra con il codice famiglia e la propria email (nessuna email da aspettare). */
+export async function joinFamilyWithEmail(family: string, email: string, name?: string): Promise<void> {
+  const { data, error } = await sb().functions.invoke('collega', { body: { action: 'join', family, email: email.trim(), name } });
+  if (error) throw new Error(await functionError(error, 'Non riesco a entrare'));
+  if (data?.error) throw new Error(data.error);
+  const { error: e2 } = await sb().auth.verifyOtp({ token_hash: data.token_hash, type: 'magiclink' });
+  if (e2) throw new Error('Non riesco a entrare: riprova');
+}
+
+/** Account senza registrazione: aggiunge l'email (così lo ritrovi con codice famiglia + email). */
+export async function attachEmail(email: string): Promise<void> {
+  const { data, error } = await sb().functions.invoke('collega', { body: { action: 'attach_email', email: email.trim() } });
+  if (error) throw new Error(await functionError(error, 'Email non salvata'));
+  if (data?.error) throw new Error(data.error);
+  await sb().auth.refreshSession();
+}
+
 async function functionError(error: any, fallback: string): Promise<string> {
   try { const body = await error.context?.json?.(); if (body?.error) return body.error; } catch { /* niente */ }
   return fallback;

@@ -4,7 +4,7 @@ import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, Family, NearbyStore } from '@/api';
-import { createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
+import { attachEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
 import { shareInvite } from '@/invite';
 import { getCurrentPosition } from '@/location';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
@@ -317,9 +317,18 @@ function AccountCard() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   useFocusEffect(useCallback(() => {
-    sb().auth.getUser().then(({ data }) => data.user && setUser({ email: data.user.email || null, anonymous: !!data.user.is_anonymous })).catch(() => {});
+    sb().auth.getUser().then(({ data }) => data.user && setUser({ email: data.user.email || null, anonymous: !!data.user.is_anonymous && !data.user.email })).catch(() => {});
   }, []));
   const [devCode, setDevCode] = useState<{ code: string; minutes: number } | null>(null);
+  const [newEmail, setNewEmail] = useState('');
+  const addEmail = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      await attachEmail(newEmail);
+      const { data } = await sb().auth.getUser();
+      if (data.user) setUser({ email: data.user.email || null, anonymous: !!data.user.is_anonymous && !data.user.email });
+    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
   const newDevCode = async () => {
     setBusy(true); setMsg(null);
     try { setDevCode(await createDeviceCode()); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
@@ -339,8 +348,12 @@ function AccountCard() {
       <Card style={{ gap: spacing.sm }}>
         {user?.anonymous ? (
           <>
-            <Text style={text}>Stai usando l'app senza account: i tuoi dati sono online ma legati a questo telefono. Salvali con Google per ritrovarli anche se cambi telefono.</Text>
-            <PrimaryButton label="Salva con Google" icon="logo-google" onPress={save} loading={busy} />
+            <Text style={text}>Stai usando l'app senza email: i tuoi dati sono online ma legati a questo telefono. Aggiungi la tua email per ritrovarli anche su un altro telefono (con il codice famiglia e la stessa email).</Text>
+            <TextInput value={newEmail} onChangeText={setNewEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
+              autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email"
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16 }} />
+            <PrimaryButton label="Aggiungi la mia email" icon="mail-outline" onPress={addEmail} loading={busy} disabled={!/^\S+@\S+\.\S+$/.test(newEmail.trim())} />
+            <PrimaryButton label="Salva con Google" icon="logo-google" variant="secondary" onPress={save} loading={busy} />
           </>
         ) : user?.email ? (
           <>

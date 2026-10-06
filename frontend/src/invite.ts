@@ -16,7 +16,7 @@ export function inviteLink(code: string): string {
 export async function shareInvite(code: string, from: string): Promise<'shared' | 'copied' | 'cancelled'> {
   const link = inviteLink(code);
   const message = `${from ? `${from} ti invita` : 'Ti invito'} nella famiglia su Mi Conviene: facciamo la spesa insieme e vediamo dove conviene.\n` +
-    `Apri il link, scrivi il tuo nome e sei dentro: ${link}`;
+    `Apri il link, scrivi nome ed email e sei dentro (nessuna email da aspettare): ${link}\nSu un altro telefono rientri con il codice famiglia ${code} e la tua email.`;
   if (Platform.OS === 'web') {
     const nav = globalThis.navigator as any;
     if (nav?.share) {
