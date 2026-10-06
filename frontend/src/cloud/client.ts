@@ -48,6 +48,22 @@ function returnUrl(): string | undefined {
   return url;
 }
 
+/** Entra senza registrazione: account legato a questo telefono (si può salvare dopo con Google). */
+export async function signInWithoutAccount(displayName?: string): Promise<void> {
+  const name = (displayName || '').trim().slice(0, 40);
+  const { error } = await sb().auth.signInAnonymously(name ? { options: { data: { display_name: name } } } : undefined);
+  if (error) {
+    throw new Error(error.message.toLowerCase().includes('anonymous') ? "L'ingresso senza account non è ancora attivo" : error.message);
+  }
+}
+
+/** Account senza registrazione → collegato a Google: stessi dati, ritrovabili su ogni dispositivo. */
+export async function saveAccountWithGoogle(): Promise<void> {
+  const { error } = await sb().auth.linkIdentity({ provider: 'google', options: { redirectTo: returnUrl() } });
+  if (error) throw new Error(error.message.toLowerCase().includes('manual linking') || error.message.includes('not enabled')
+    ? 'Il salvataggio con Google non è ancora attivo' : error.message);
+}
+
 /** Accesso con l'account Google (nessuna email da aspettare). */
 export async function signInWithGoogle(): Promise<void> {
   const { error } = await sb().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: returnUrl() } });

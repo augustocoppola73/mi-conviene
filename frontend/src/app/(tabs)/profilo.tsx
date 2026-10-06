@@ -4,7 +4,7 @@ import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, Family, NearbyStore } from '@/api';
-import { IS_CLOUD, sb, signOut } from '@/cloud/client';
+import { IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
 import { shareInvite } from '@/invite';
 import { getCurrentPosition } from '@/location';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
@@ -178,7 +178,7 @@ export default function ProfiloScreen() {
         <SectionTitle>Famiglia</SectionTitle>
         {family ? (
           <Card>
-            <Text style={s.help}>Invita chi fa la spesa con te: riceve un link, entra con la sua email e conferma.</Text>
+            <Text style={s.help}>Invita chi fa la spesa con te: riceve un link su WhatsApp o SMS, scrive il suo nome ed è dentro.</Text>
             <Text style={s.code} selectable>{family.code}</Text>
             <PrimaryButton
               label="Invita in famiglia"
@@ -313,16 +313,35 @@ const useStyles = makeStyles((c) => ({
 
 function AccountCard() {
   const { colors } = useTheme();
-  const [email, setEmail] = useState<string | null>(null);
+  const [user, setUser] = useState<{ email: string | null; anonymous: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
   useFocusEffect(useCallback(() => {
-    sb().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null)).catch(() => {});
+    sb().auth.getUser().then(({ data }) => data.user && setUser({ email: data.user.email || null, anonymous: !!data.user.is_anonymous })).catch(() => {});
   }, []));
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try { await saveAccountWithGoogle(); } catch (e) { setMsg((e as Error).message); setBusy(false); }
+  };
+  const exit = () => {
+    if (user?.anonymous && !(globalThis.confirm?.("Sei senza account: uscendo non potrai più rientrare in questi dati. Salvali prima con Google. Esci lo stesso?") ?? true)) return;
+    signOut();
+  };
+  const text = { color: colors.text, fontSize: 14, lineHeight: 20 };
   return (
     <>
       <SectionTitle>Account</SectionTitle>
       <Card style={{ gap: spacing.sm }}>
-        {email && <Text style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>Sei entrato come {email}. I tuoi dati sono salvati online e li ritrovi su ogni dispositivo.</Text>}
-        <PrimaryButton label="Esci" icon="log-out-outline" variant="secondary" onPress={() => signOut()} />
+        {user?.anonymous ? (
+          <>
+            <Text style={text}>Stai usando l'app senza account: i tuoi dati sono online ma legati a questo telefono. Salvali con Google per ritrovarli anche se cambi telefono.</Text>
+            <PrimaryButton label="Salva con Google" icon="logo-google" onPress={save} loading={busy} />
+          </>
+        ) : user?.email ? (
+          <Text style={text}>Sei entrato come {user.email}. I tuoi dati sono salvati online e li ritrovi su ogni dispositivo.</Text>
+        ) : null}
+        {msg && <Text style={{ color: colors.danger, fontSize: 14 }}>{msg}</Text>}
+        <PrimaryButton label="Esci" icon="log-out-outline" variant="secondary" onPress={exit} />
       </Card>
     </>
   );

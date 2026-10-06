@@ -10,7 +10,7 @@ import { makeStyles, radius, spacing } from '../theme';
 import { PrimaryButton } from './ui';
 
 export function InviteHandler() {
-  const { userId, prefs, hydrated } = useStore();
+  const { userId, prefs, setPrefs, hydrated } = useStore();
   const s = useStyles();
   const [code, setCode] = useState<string | null>(null);
   const [current, setCurrent] = useState<string | null>(null);
@@ -21,9 +21,22 @@ export function InviteHandler() {
     if (!hydrated || !userId) return;
     const c = pendingInvite();
     if (!c) return;
-    api.familyByUser(userId).then((f) => {
+    // entrato adesso dalla schermata d'invito (senza account): si entra nella famiglia senza altre domande
+    let auto: string | null = null;
+    try { auto = localStorage.getItem('mc_invito_auto'); localStorage.removeItem('mc_invito_auto'); } catch { /* niente */ }
+    api.familyByUser(userId).then(async (f) => {
       const mine = 'code' in f ? f.code : null;
       if (mine === c) { clearInvite(); return; }   // già dentro
+      if (auto !== null && !mine) {
+        if (auto) setPrefs({ displayName: auto });
+        try {
+          const fam = await api.familyJoin(userId, auto, c);
+          clearInvite();
+          const others = fam.members.filter((m) => m.user_id !== userId).map((m) => m.display_name).join(', ');
+          setTimeout(() => globalThis.alert?.(`Benvenuto! Sei nella famiglia${others ? ` con ${others}` : ''}.`), 300);
+          return;
+        } catch { /* si ripiega sulla domanda */ }
+      }
       setCurrent(mine);
       setCode(c);
     }).catch(() => setCode(c));

@@ -1,9 +1,10 @@
-/** Versione online: prima di tutto si accede con un link via email (niente password). */
+/** Versione online: si entra con Google, con un link via email, oppure senza account (anche da un invito). */
 import { ReactNode, useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { IS_CLOUD, sb, sendLoginLink, signInWithGoogle, verifyCode } from '../cloud/client';
+import { IS_CLOUD, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
+import { pendingInvite } from '../invite';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { Icon, PrimaryButton } from './ui';
 
@@ -20,6 +21,38 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return <Login />;
 }
 
+/** Chi arriva da un invito: basta il nome, si entra subito nella famiglia (niente email). */
+function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const enter = async () => {
+    setBusy(true); setError(null);
+    try {
+      try { localStorage.setItem('mc_invito_auto', name.trim()); } catch { /* pazienza */ }
+      await signInWithoutAccount(name);
+    } catch (e) { setError((e as Error).message); setBusy(false); }
+  };
+  return (
+    <SafeAreaView style={s.screen}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.wrap}>
+        <View style={s.logo}><Icon name="people" size={34} color={colors.primaryText} /></View>
+        <Text style={s.title}>Ti hanno invitato</Text>
+        <Text style={s.sub}>Entra nella famiglia {code} su Mi Conviene: fate la spesa insieme e vedete dove conviene.</Text>
+        <Text style={s.label}>Come ti chiami?</Text>
+        <TextInput value={name} onChangeText={setName} placeholder="Il tuo nome" placeholderTextColor={colors.textSecondary}
+          autoComplete="given-name" style={s.input} onSubmitEditing={() => name.trim() && enter()} />
+        <PrimaryButton label="Entra nella famiglia" icon="log-in-outline" onPress={enter} loading={busy} disabled={!name.trim()} />
+        <Text style={s.note}>Niente registrazione: entri subito da questo telefono. Se vuoi, poi lo salvi con Google dal Profilo.</Text>
+        <PrimaryButton label="Ho già un account" variant="secondary" onPress={onOther} style={{ marginTop: spacing.md }} />
+        {error && <Text style={s.error}>{error}</Text>}
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
 function Loading() {
   const { colors } = useTheme();
   return (
@@ -30,19 +63,29 @@ function Loading() {
 }
 
 function Login() {
+  const [invite, setInvite] = useState(pendingInvite);
+  if (invite) return <InviteLogin code={invite} onOther={() => setInvite(null)} />;
+  return <LoginForm />;
+}
+
+function LoginForm() {
   const s = useStyles();
   const { colors } = useTheme();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [withCode, setWithCode] = useState(false);
-  const [busy, setBusy] = useState<false | 'email' | 'google'>(false);
+  const [busy, setBusy] = useState<false | 'email' | 'google' | 'guest'>(false);
   const [error, setError] = useState<string | null>(null);
   const valid = /^\S+@\S+\.\S+$/.test(email.trim());
 
   const google = async () => {
     setBusy('google'); setError(null);
     try { await signInWithGoogle(); } catch (e) { setError((e as Error).message); setBusy(false); }
+  };
+  const guest = async () => {
+    setBusy('guest'); setError(null);
+    try { await signInWithoutAccount(); } catch (e) { setError((e as Error).message); setBusy(false); }
   };
   const send = async () => {
     setBusy('email'); setError(null);
@@ -68,7 +111,8 @@ function Login() {
               autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email" style={s.input}
               onSubmitEditing={() => valid && send()} />
             <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />
-            <Text style={s.note}>Niente password: con Google entri subito, con l'email ti arriva un link. Lo stesso indirizzo ti fa ritrovare i tuoi dati su ogni dispositivo.</Text>
+            <PrimaryButton label="Inizia senza account" icon="arrow-forward-outline" variant="secondary" onPress={guest} loading={busy === 'guest'} style={{ marginTop: spacing.sm }} />
+            <Text style={s.note}>Niente password. Con Google o con l'email ritrovi i tuoi dati su ogni dispositivo; senza account restano su questo telefono (puoi salvarli dopo con Google).</Text>
           </>
         ) : (
           <>
