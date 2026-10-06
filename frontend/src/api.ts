@@ -140,6 +140,8 @@ export interface SavingEntry {
   snapshot?: RankedStore | null;
   /** salvadanaio di famiglia: è tua? altrimenti chi l'ha fatta */
   mine?: boolean; by?: string | null;
+  /** a fine spesa: cosa è cambiato rispetto alla lista */
+  added_in_store?: string[]; not_bought?: string[]; planned_spend?: number | null;
   real_receipt?: { store_id: string; date: string; total: number; lines: { product_id: string | null; text: string; net_price: number }[] } | null;
 }
 export interface SavingsSummary {

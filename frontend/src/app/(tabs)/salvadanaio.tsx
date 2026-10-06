@@ -207,6 +207,13 @@ export default function SalvadanaioScreen() {
                         </Pressable>
                       </View>
                     )}
+                    {(e.added_in_store?.length || e.not_bought?.length) ? (
+                      <Text style={s.rowMeta}>
+                        {e.added_in_store?.length ? `+ aggiunti in negozio: ${e.added_in_store.join(', ')}` : ''}
+                        {e.added_in_store?.length && e.not_bought?.length ? ' · ' : ''}
+                        {e.not_bought?.length ? `non presi: ${e.not_bought.join(', ')}` : ''}
+                      </Text>
+                    ) : null}
                     {e.snapshot && (
                       <Pressable onPress={() => setOpenReceipt(openReceipt === e.id ? null : e.id)} style={s.receiptToggle} hitSlop={6}>
                         <Icon name="receipt-outline" size={15} color={colors.primary} />

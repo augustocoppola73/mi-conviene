@@ -97,3 +97,24 @@ async def test_presa_in_carico(client):
     # Laura la lascia: libera per tutti
     r = (await client.post(f"/api/shops/{shop['id']}/take", json={"user_id": "lau", "mode": "release"})).json()
     assert r["taken_by"] is None
+
+
+async def test_fine_spesa_aggiorna_lo_scontrino(client):
+    """Le cose aggiunte in negozio entrano nello scontrino calcolato; quelle non prese escono."""
+    items = [{"product_id": "latte", "quantity": 1}, {"product_id": "mele", "quantity": 1}]
+    h = (await client.post("/api/history", json={"user_id": "a", "items": items, "store_id": "lidl", "total_cost": 5})).json()
+    opt = (await client.post("/api/optimize", json={"user_id": "a", "items": items, "transport": "walk",
+                                                     "min_savings_threshold": 3})).json()
+    lidl = next(r for r in opt["ranked"] if r["store_id"] == "lidl")
+    sv = (await client.post("/api/savings", json={"user_id": "a", "store_id": "lidl", "amount": 1, "history_id": h["id"],
+                                                    "estimated_spend": lidl["receipt"]["total"],
+                                                    "estimated_total": lidl["total_cost"], "snapshot": lidl})).json()
+    shop = (await client.post("/api/shops", json={"user_id": "a", "store_id": "lidl", "saving_id": sv["id"], "items": items})).json()
+    await client.post(f"/api/shops/{shop['id']}/check", json={"user_id": "a", "key": "latte", "checked": True})
+    await client.post(f"/api/shops/{shop['id']}/add", json={"user_id": "a", "item": {"product_id": "caffe", "quantity": 1}})
+    await client.post(f"/api/shops/{shop['id']}/finish", json={"user_id": "a"})
+    e = (await client.get("/api/savings/a")).json()["entries"][0]
+    ids = [l["product_id"] for l in e["snapshot"]["receipt"]["lines"]]
+    assert ids == ["latte", "caffe"] or sorted(ids) == ["caffe", "latte"]
+    assert e["added_in_store"] == ["Caffè macinato 250g"] or len(e["added_in_store"]) == 1
+    assert e["not_bought"] and e["estimated_spend"] == e["snapshot"]["receipt"]["total"]

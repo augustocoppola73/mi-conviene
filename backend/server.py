@@ -1994,6 +1994,35 @@ async def shop_price(shop_id: str, body: ShopPrice):
     return await shop_out(shop, body.user_id)
 
 
+async def finalize_saving(shop: dict) -> None:
+    """Fine spesa: lo scontrino calcolato diventa quello di ciò che è finito davvero nel carrello
+    (anche le cose aggiunte in negozio, senza quelle non prese), con i prezzi visti in negozio."""
+    if not shop.get("saving_id"):
+        return
+    entry = await db.savings.find_one({"id": shop["saving_id"]}, NO_ID)
+    if not entry:
+        return
+    bought = [i for i in shop["items"] if i["checked"]]
+    items = [ListItem(product_id=i["product_id"], quantity=i["quantity"], name=i.get("name"),
+                      category_id=i.get("category_id"), unit=i.get("unit")) for i in bought]
+    receipt = compute_virtual_receipt(shop["store_id"], items)
+    upd: dict = {}
+    snap = entry.get("snapshot")
+    if snap:
+        fuel = (snap.get("travel") or {}).get("fuel_cost", 0)
+        snap = {**snap, "receipt": receipt, "total_cost": round(receipt["total"] + fuel, 2)}
+        snap["effective_cost"] = round(snap["total_cost"] - ((snap.get("fuel_stop") or {}).get("saving") or 0), 2)
+        upd["snapshot"] = snap
+    travel = (entry.get("estimated_total") or 0) - (entry.get("estimated_spend") or 0)
+    upd.update(planned_spend=entry.get("planned_spend", entry.get("estimated_spend")),
+               estimated_spend=receipt["total"], estimated_total=round(receipt["total"] + max(travel, 0), 2),
+               added_in_store=[i["name"] for i in bought if i.get("added_in_store")],
+               not_bought=[i["name"] for i in shop["items"] if not i["checked"]])
+    await db.savings.update_one({"id": entry["id"]}, {"$set": upd})
+    if entry.get("history_id"):
+        await db.history.update_one({"id": entry["history_id"]}, {"$set": {"items": [i.model_dump() for i in items]}})
+
+
 @api.post("/shops/{shop_id}/finish")
 async def finish_shop(shop_id: str, body: ShopUser):
     """Fine spesa: impara l'ordine dei reparti e restituisce quello che non hai preso."""
@@ -2001,6 +2030,7 @@ async def finish_shop(shop_id: str, body: ShopUser):
     guard_act(shop, body.user_id)
     await learn_aisles(shop)
     await db.shops.update_one({"id": shop_id}, {"$set": {"status": "done", "finished_at": now_iso()}})
+    await finalize_saving(shop)
     missing = [i for i in shop["items"] if not i["checked"]]
     return {"missing": missing, "saving_id": shop.get("saving_id"), "store_name": shop["store_name"],
             "cart": round(sum(i["price"] or 0 for i in shop["items"] if i["checked"]), 2)}

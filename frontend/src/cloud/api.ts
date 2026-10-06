@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type * as T from '../api';
 import {
-  buildPriceBook, fuelInfo, FuelStation, HistoryShop, habitualFromHistory, lastSimilarShop, optimizeList, PriceBook,
+  buildPriceBook, computeVirtualReceipt, fuelInfo, FuelStation, HistoryShop, habitualFromHistory, lastSimilarShop, optimizeList, PriceBook,
   RealPrice, savingValue, suggestBudget, UserPrice, verifiedFuelSaving, verifiedSaving,
 } from '../engine/core';
 import { classify } from '../engine/classify';
@@ -209,6 +209,39 @@ async function learnFromShop(row: any) {
   const { data } = await sb().from('aisles').select('ranks').eq('owner_id', owner).eq('store_id', row.store_id).maybeSingle();
   const ranks = learnAisles(row.items, data?.ranks);
   if (ranks) await sb().from('aisles').upsert({ owner_id: owner, store_id: row.store_id, ranks, updated_at: nowIso() });
+}
+
+/**
+ * Fine spesa: lo scontrino calcolato diventa quello di ciò che è finito davvero nel carrello
+ * (comprese le cose aggiunte in negozio, senza quelle non prese), con i prezzi visti in negozio.
+ * Così la verifica con lo scontrino vero confronta cose uguali.
+ */
+async function finalizeSaving(shop: any) {
+  if (!shop.saving_id) return;
+  const row = await savingRow(shop.saving_id);
+  const data = { ...(row.data || {}) };
+  const bought: T.ShopItem[] = shop.items.filter((i: T.ShopItem) => i.checked);
+  const listItems = bought.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name, category_id: i.category_id, unit: i.unit }));
+  bookCache = null;  // i prezzi segnati in negozio valgono subito
+  const receipt: any = computeVirtualReceipt(await priceBook(), shop.store_id, listItems);
+  const snap = data.snapshot ? { ...data.snapshot } : null;
+  if (snap) {
+    const fuel = snap.travel?.fuel_cost ?? 0;
+    snap.receipt = receipt;
+    snap.total_cost = r2(receipt.total + fuel);
+    snap.effective_cost = r2(snap.total_cost - (snap.fuel_stop?.saving ?? 0));
+    data.snapshot = snap;
+  }
+  const travel = (data.estimated_total ?? 0) - (data.estimated_spend ?? 0);
+  data.planned_spend = data.planned_spend ?? data.estimated_spend ?? null;   // quello previsto alla conferma
+  data.estimated_spend = receipt.total;
+  data.estimated_total = r2(receipt.total + Math.max(travel, 0));
+  data.added_in_store = bought.filter((i) => i.added_in_store).map((i) => i.name);
+  data.not_bought = shop.items.filter((i: T.ShopItem) => !i.checked).map((i: T.ShopItem) => i.name);
+  data.bought_by = shop.taken_by?.name ?? shop.display_name ?? null;
+  check(await sb().from('savings').update({ data }).eq('id', row.id));
+  // lo storico (abitudini, budget) registra quello che è stato comprato davvero
+  if (data.history_id) await sb().from('history').update({ items: listItems }).eq('id', data.history_id);
 }
 
 // ------------------------------------------------------------------ API
@@ -566,6 +599,7 @@ export const cloudApi = {
     guardAct(shop, await uid());
     await learnFromShop(shop).catch(() => {});
     check(await sb().from('shops').update({ status: 'done', finished_at: nowIso() }).eq('id', id));
+    await finalizeSaving(shop).catch(() => {});
     const items: T.ShopItem[] = shop.items;
     return { missing: items.filter((i) => !i.checked), saving_id: shop.saving_id ?? null, store_name: shop.store_name as string,
       cart: r2(items.filter((i) => i.checked).reduce((s, i) => s + (i.price || 0), 0)) };
