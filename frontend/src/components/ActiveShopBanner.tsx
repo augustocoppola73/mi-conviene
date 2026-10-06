@@ -31,6 +31,9 @@ export function ActiveShopBanner() {
       <View style={{ flex: 1 }}>
         <Text style={s.title}>Spesa in corso · {shop.store_name}{shop.mine ? '' : ` (${shop.display_name ?? 'famiglia'})`}</Text>
         <Text style={s.meta} numberOfLines={1}>
+          {shop.taken_by
+            ? (shop.taken_by.user_id === userId ? 'La stai facendo tu · ' : `La sta facendo ${shop.taken_by.name ?? 'un familiare'} · `)
+            : ''}
           {checked} di {total} nel carrello{shop.branch ? ` · ${shop.branch}` : ''}
         </Text>
       </View>

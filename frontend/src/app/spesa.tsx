@@ -114,11 +114,28 @@ export default function SpesaScreen() {
     return () => clearInterval(t);
   }, [refresh]));
 
+  const take = async () => {
+    if (!shop || !userId) return;
+    setShop({ ...shop, taken_by: { user_id: userId, name, at: new Date().toISOString() } });
+    try { const sh = await api.shopTake(shop.id, userId, name); setShop(applyPending(sh)); save(sh); } catch { /* riprovo al prossimo aggiornamento */ }
+  };
+
+  // un familiare apre la lista di un altro: la prende in carico (se nessuno l'ha già fatto)
+  const autoTook = useRef<string | null>(null);
+  useEffect(() => {
+    if (shop && userId && !shop.mine && !shop.taken_by && autoTook.current !== shop.id) {
+      autoTook.current = shop.id;
+      take();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop?.id, shop?.taken_by, userId]);
+
   const toggle = (it: ShopItem) => {
     if (!shop || !userId) return;
     const checked = !it.checked;
     const next = {
       ...shop,
+      taken_by: shop.taken_by ?? (checked ? { user_id: userId, name, at: new Date().toISOString() } : null),
       items: shop.items.map((i) => (i.key === it.key ? { ...i, checked, checked_at: checked ? new Date().toISOString() : null, checked_by: checked ? name : null, checked_by_id: checked ? userId : null } : i)),
     };
     setShop(next);
@@ -272,8 +289,23 @@ export default function SpesaScreen() {
         <View style={{ flex: 1 }}>
           <Text style={s.title}>🛒 {shop.store_name}</Text>
           {!!shop.branch && <Text style={s.muted} numberOfLines={1}>{shop.branch}</Text>}
-          {!shop.mine && <Text style={s.muted}>Spesa di {shop.display_name ?? 'un familiare'}: smarcate insieme</Text>}
+          {!shop.mine && <Text style={s.muted}>Lista di {shop.display_name ?? 'un familiare'}</Text>}
         </View>
+      </View>
+      <View style={s.takenRow}>
+        {shop.taken_by ? (
+          <Text style={s.takenText}>
+            🙋 {shop.taken_by.user_id === userId ? 'La stai facendo tu' : `La sta facendo ${shop.taken_by.name ?? 'un familiare'}`}
+            {' · dalle '}{new Date(shop.taken_by.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        ) : (
+          <Text style={s.takenText}>Nessuno l'ha ancora presa in carico</Text>
+        )}
+        {shop.taken_by?.user_id !== userId && (
+          <Pressable onPress={take} style={s.takeBtn} accessibilityRole="button">
+            <Text style={s.takeBtnText}>La faccio io</Text>
+          </Pressable>
+        )}
       </View>
       <View style={s.progressBox}>
         <View style={s.progressTrack}><View style={[s.progressFill, { width: `${Math.round(pct * 100)}%` }]} /></View>
@@ -397,6 +429,11 @@ const useStyles = makeStyles((c) => ({
   safe: { flex: 1, backgroundColor: c.background },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   title: { color: c.text, fontSize: 22, fontWeight: '800' },
+  takenRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.lg, marginBottom: spacing.sm,
+    padding: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: c.primarySoft },
+  takenText: { flex: 1, color: c.text, fontSize: 14, fontWeight: '600' },
+  takeBtn: { backgroundColor: c.primary, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  takeBtnText: { color: c.primaryText, fontWeight: '700', fontSize: 13 },
   text: { color: c.text, fontSize: 14, lineHeight: 20 },
   muted: { color: c.textSecondary, fontSize: 12 },
   progressBox: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 4 },

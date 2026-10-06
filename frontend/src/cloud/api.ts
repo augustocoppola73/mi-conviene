@@ -189,7 +189,7 @@ async function updateShop(id: string, change: (row: any) => void): Promise<any> 
     const row = await shopRow(id);
     change(row);
     const stamp = nowIso();
-    const res = check(await sb().from('shops').update({ items: row.items, updated_at: stamp })
+    const res = check(await sb().from('shops').update({ items: row.items, taken_by: row.taken_by ?? null, updated_at: stamp })
       .eq('id', id).eq('updated_at', row.updated_at).select('*')) as any[];
     if (res.length) return res[0];
   }
@@ -485,6 +485,18 @@ export const cloudApi = {
         }
       }
       if (!found) throw new Error('Prodotto non trovato');
+      // chi smarca per primo prende in carico la spesa
+      if (checked && !shop.taken_by) shop.taken_by = { user_id: me, name: display_name || null, at: nowIso() };
+    });
+    return shopOut(row, me);
+  },
+
+  /** "La faccio io": chi va in negozio prende in carico la spesa (gli altri lo vedono). */
+  shopTake: async (id: string, _user_id: string, display_name?: string | null): Promise<T.Shop> => {
+    const me = await uid();
+    const row = await updateShop(id, (shop) => {
+      if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+      shop.taken_by = { user_id: me, name: display_name || null, at: nowIso() };
     });
     return shopOut(row, me);
   },

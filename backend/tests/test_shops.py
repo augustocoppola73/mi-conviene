@@ -71,3 +71,20 @@ async def test_price_seen_in_store(client):
     assert it["checked"] and it["seen"]["kind"] == "offerta" and it["price"] == 1.58
     assert server.CATALOG["lidl"]["latte"]["promo_price"] == 0.79     # 2 litri a 1,58 = 0,79 al litro
     server.RECEIPT_PROMOS.clear(); server.rebuild_catalog()
+
+
+async def test_presa_in_carico(client):
+    """Chi apre o smarca per primo la spesa di un familiare la prende in carico, e gli altri lo vedono."""
+    fam = (await client.post("/api/family/create", json={"user_id": "aug", "display_name": "Augusto"})).json()
+    await client.post("/api/family/join", json={"user_id": "lau", "display_name": "Laura", "code": fam["code"]})
+    shop = (await client.post("/api/shops", json={"user_id": "aug", "store_id": "lidl", "display_name": "Augusto",
+                                                  "items": [{"product_id": "latte", "quantity": 1}]})).json()
+    assert shop.get("taken_by") is None
+    r = (await client.post(f"/api/shops/{shop['id']}/take", json={"user_id": "lau", "display_name": "Laura"})).json()
+    assert r["taken_by"]["name"] == "Laura"
+    seen = (await client.get("/api/shops/active", params={"user_id": "aug"})).json()["shop"]
+    assert seen["taken_by"]["user_id"] == "lau"
+    # una spunta non cambia chi l'ha presa in carico
+    await client.post(f"/api/shops/{shop['id']}/check",
+                      json={"user_id": "aug", "key": "latte", "checked": True, "display_name": "Augusto"})
+    assert (await client.get("/api/shops/active", params={"user_id": "aug"})).json()["shop"]["taken_by"]["name"] == "Laura"

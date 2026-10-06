@@ -1901,7 +1901,26 @@ async def check_item(shop_id: str, body: ShopCheck):
             found = True
     if not found:
         raise HTTPException(404, "Prodotto non trovato")
-    await db.shops.update_one({"id": shop_id}, {"$set": {"items": shop["items"], "updated_at": now_iso()}})
+    if body.checked and not shop.get("taken_by"):   # chi smarca per primo prende in carico la spesa
+        shop["taken_by"] = {"user_id": body.user_id, "name": body.display_name or None, "at": now_iso()}
+    await db.shops.update_one({"id": shop_id}, {"$set": {"items": shop["items"], "taken_by": shop.get("taken_by"),
+                                                         "updated_at": now_iso()}})
+    return await shop_out(shop, body.user_id)
+
+
+class ShopTake(BaseModel):
+    user_id: str
+    display_name: Optional[str] = Field(default=None, max_length=40)
+
+
+@api.post("/shops/{shop_id}/take")
+async def take_shop(shop_id: str, body: ShopTake):
+    """La faccio io: chi va in negozio prende in carico la spesa (gli altri della famiglia lo vedono)."""
+    shop = await get_shop_for(shop_id, body.user_id)
+    if shop["status"] != "active":
+        raise HTTPException(409, "Questa spesa è già chiusa")
+    shop["taken_by"] = {"user_id": body.user_id, "name": body.display_name or None, "at": now_iso()}
+    await db.shops.update_one({"id": shop_id}, {"$set": {"taken_by": shop["taken_by"], "updated_at": now_iso()}})
     return await shop_out(shop, body.user_id)
 
 

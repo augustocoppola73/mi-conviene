@@ -134,8 +134,10 @@ create table if not exists public.shops (            -- spesa in corso (smarcata
   status text not null default 'active' check (status in ('active', 'done', 'cancelled', 'replaced')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  finished_at timestamptz
+  finished_at timestamptz,
+  taken_by jsonb                                     -- chi sta facendo la spesa: {user_id, name, at}
 );
+alter table public.shops add column if not exists taken_by jsonb;
 create index if not exists shops_user_idx on public.shops (user_id, status, created_at desc);
 create index if not exists shops_family_idx on public.shops (family_id, status);
 
