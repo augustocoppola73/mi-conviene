@@ -138,6 +138,8 @@ export interface SavingEntry {
   fuel_saving?: number; fuel_liters?: number | null; fuel_median?: number | null; fuel_detour_cost?: number | null;
   fuel_station?: string | null; verified_fuel?: number | null; refueled?: boolean | null; fuel_price_paid?: number | null;
   snapshot?: RankedStore | null;
+  /** salvadanaio di famiglia: è tua? altrimenti chi l'ha fatta */
+  mine?: boolean; by?: string | null;
   real_receipt?: { store_id: string; date: string; total: number; lines: { product_id: string | null; text: string; net_price: number }[] } | null;
 }
 export interface SavingsSummary {

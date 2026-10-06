@@ -297,8 +297,15 @@ export const cloudApi = {
   },
 
   savings: async (_userId: string): Promise<T.SavingsSummary> => {
+    const me = await uid();
     const rows = check(await sb().from('savings').select('*').order('created_at', { ascending: false }).limit(500)) as any[];
-    const entries = rows.map(savingOut);
+    // salvadanaio di famiglia: le spese degli altri con il loro nome
+    const names = new Map<string, string>();
+    if (rows.some((r) => r.user_id !== me)) {
+      const { data } = await sb().rpc('family_members');
+      for (const m of (data as any[]) || []) names.set(m.user_id, m.display_name || 'un familiare');
+    }
+    const entries = rows.map((r) => ({ ...savingOut(r), mine: r.user_id === me, by: r.user_id === me ? null : names.get(r.user_id) ?? 'un familiare' }));
     return {
       entries,
       total: r2(entries.reduce((s, e) => s + savingValue(e), 0)),

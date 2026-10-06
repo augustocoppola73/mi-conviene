@@ -165,7 +165,7 @@ export default function SalvadanaioScreen() {
                       <StoreDot storeId={e.store_id} size={14} />
                       <View style={{ flex: 1 }}>
                         <Text style={s.rowTitle}>{e.store_name}</Text>
-                        <Text style={s.rowMeta}>{formatDate(e.created_at)}{e.note ? ` · ${e.note}` : ''}</Text>
+                        <Text style={s.rowMeta}>{formatDate(e.created_at)}{e.by ? ` · fatta da ${e.by}` : ''}{e.note ? ` · ${e.note}` : ''}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={[s.amount, !e.verified && s.amountEstimated, value(e) < 0 && { color: colors.danger }]}>
@@ -190,9 +190,11 @@ export default function SalvadanaioScreen() {
                       <View style={s.footer}>
                         {e.estimated_spend != null && <Text style={s.rowMeta}>Spesa prevista {euro(e.estimated_spend)}</Text>}
                         <View style={{ flex: 1 }} />
-                        <Pressable onPress={() => remove(e.id)} hitSlop={6} accessibilityLabel="Elimina">
-                          <Icon name="trash-outline" size={18} color={colors.danger} />
-                        </Pressable>
+                        {e.mine !== false && (
+                          <Pressable onPress={() => remove(e.id)} hitSlop={6} accessibilityLabel="Elimina">
+                            <Icon name="trash-outline" size={18} color={colors.danger} />
+                          </Pressable>
+                        )}
                         {!IS_CLOUD && (
                           <Pressable onPress={() => setScanning(e)} style={[s.verifyBtn, s.scanBtn]} accessibilityLabel="Leggi lo scontrino dalla foto">
                             <Icon name="camera-outline" size={16} color={colors.primary} />
