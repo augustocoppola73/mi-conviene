@@ -37,17 +37,26 @@ export async function currentSession(): Promise<Session | null> {
   return (await sb().auth.getSession()).data.session;
 }
 
+/** Dove torna l'app dopo l'accesso (con l'eventuale invito in famiglia in sospeso). */
+function returnUrl(): string | undefined {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return undefined;
+  let url = window.location.origin;
+  try {
+    const invite = localStorage.getItem('mc_invito_famiglia');
+    if (invite) url += `/?famiglia=${encodeURIComponent(invite)}`;
+  } catch { /* niente invito */ }
+  return url;
+}
+
+/** Accesso con l'account Google (nessuna email da aspettare). */
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await sb().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: returnUrl() } });
+  if (error) throw new Error(error.message.includes('not enabled') ? "L'accesso con Google non è ancora attivo" : error.message);
+}
+
 /** Link di accesso via email (nessuna password). */
 export async function sendLoginLink(email: string): Promise<void> {
-  let redirect: string | undefined;
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    redirect = window.location.origin;
-    // invito in famiglia in sospeso: viaggia nel link dell'email (se lo apri da un altro browser non si perde)
-    try {
-      const invite = localStorage.getItem('mc_invito_famiglia');
-      if (invite) redirect += `/?famiglia=${encodeURIComponent(invite)}`;
-    } catch { /* niente invito */ }
-  }
+  const redirect = returnUrl();
   const { error } = await sb().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } });
   if (error) throw new Error(error.message.includes('rate') ? 'Troppe richieste: riprova tra qualche minuto' : error.message);
 }

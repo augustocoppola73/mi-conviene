@@ -3,7 +3,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { IS_CLOUD, sb, sendLoginLink, verifyCode } from '../cloud/client';
+import { IS_CLOUD, sb, sendLoginLink, signInWithGoogle, verifyCode } from '../cloud/client';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { Icon, PrimaryButton } from './ui';
 
@@ -36,16 +36,20 @@ function Login() {
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [withCode, setWithCode] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<false | 'email' | 'google'>(false);
   const [error, setError] = useState<string | null>(null);
   const valid = /^\S+@\S+\.\S+$/.test(email.trim());
 
+  const google = async () => {
+    setBusy('google'); setError(null);
+    try { await signInWithGoogle(); } catch (e) { setError((e as Error).message); setBusy(false); }
+  };
   const send = async () => {
-    setBusy(true); setError(null);
+    setBusy('email'); setError(null);
     try { await sendLoginLink(email); setSent(true); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const confirm = async () => {
-    setBusy(true); setError(null);
+    setBusy('email'); setError(null);
     try { await verifyCode(email, code); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
 
@@ -57,12 +61,14 @@ function Login() {
         <Text style={s.sub}>Dove fare la spesa spendendo meno, viaggio compreso.</Text>
         {!sent ? (
           <>
+            <PrimaryButton label="Continua con Google" icon="logo-google" variant="secondary" onPress={google} loading={busy === 'google'} />
+            <View style={s.orRow}><View style={s.line} /><Text style={s.or}>oppure con la tua email</Text><View style={s.line} /></View>
             <Text style={s.label}>La tua email</Text>
             <TextInput value={email} onChangeText={setEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
               autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email" style={s.input}
               onSubmitEditing={() => valid && send()} />
-            <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy} disabled={!valid} />
-            <Text style={s.note}>Niente password: ti arriva un'email con un link. Lo stesso indirizzo ti fa ritrovare i tuoi dati su ogni dispositivo.</Text>
+            <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />
+            <Text style={s.note}>Niente password: con Google entri subito, con l'email ti arriva un link. Lo stesso indirizzo ti fa ritrovare i tuoi dati su ogni dispositivo.</Text>
           </>
         ) : (
           <>
@@ -74,7 +80,7 @@ function Login() {
                 <Text style={s.label}>Codice dell'email</Text>
                 <TextInput value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 8))} placeholder="123456"
                   placeholderTextColor={colors.textSecondary} keyboardType="number-pad" inputMode="numeric" style={s.input} />
-                <PrimaryButton label="Entra" icon="log-in-outline" onPress={confirm} loading={busy} disabled={code.length < 6} />
+                <PrimaryButton label="Entra" icon="log-in-outline" onPress={confirm} loading={busy === 'email'} disabled={code.length < 6} />
               </>
             )}
             <PrimaryButton label="Cambia email" variant="secondary" onPress={() => { setSent(false); setCode(''); setWithCode(false); }} style={{ marginTop: spacing.sm }} />
@@ -98,4 +104,7 @@ const useStyles = makeStyles((c) => ({
   note: { fontSize: 13, color: c.textSecondary, marginTop: spacing.md, lineHeight: 18 },
   ok: { fontSize: 15, color: c.text, marginBottom: spacing.lg, lineHeight: 21 },
   error: { fontSize: 14, color: c.danger, marginTop: spacing.md },
+  orRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.lg },
+  line: { flex: 1, height: 1, backgroundColor: c.border },
+  or: { fontSize: 13, color: c.textSecondary },
 }));
