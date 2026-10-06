@@ -64,6 +64,28 @@ export async function saveAccountWithGoogle(): Promise<void> {
     ? 'Il salvataggio con Google non è ancora attivo' : error.message);
 }
 
+/** Collega un altro dispositivo: codice di 8 caratteri (10 minuti) da scrivere sull'altro telefono. */
+export async function createDeviceCode(): Promise<{ code: string; minutes: number }> {
+  const { data, error } = await sb().functions.invoke('collega', { body: { action: 'create' } });
+  if (error) throw new Error(await functionError(error, 'Non riesco a creare il codice'));
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+/** Entra con il codice creato su un altro dispositivo (niente email). */
+export async function redeemDeviceCode(code: string): Promise<void> {
+  const { data, error } = await sb().functions.invoke('collega', { body: { action: 'redeem', code } });
+  if (error) throw new Error(await functionError(error, 'Codice non valido o scaduto'));
+  if (data?.error) throw new Error(data.error);
+  const { error: e2 } = await sb().auth.verifyOtp({ token_hash: data.token_hash, type: 'magiclink' });
+  if (e2) throw new Error('Codice non valido o scaduto');
+}
+
+async function functionError(error: any, fallback: string): Promise<string> {
+  try { const body = await error.context?.json?.(); if (body?.error) return body.error; } catch { /* niente */ }
+  return fallback;
+}
+
 /** Accesso con l'account Google (nessuna email da aspettare). */
 export async function signInWithGoogle(): Promise<void> {
   const { error } = await sb().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: returnUrl() } });

@@ -3,7 +3,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { IS_CLOUD, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
+import { IS_CLOUD, redeemDeviceCode, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
 import { pendingInvite } from '../invite';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { Icon, PrimaryButton } from './ui';
@@ -75,13 +75,19 @@ function LoginForm() {
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [withCode, setWithCode] = useState(false);
-  const [busy, setBusy] = useState<false | 'email' | 'google' | 'guest'>(false);
+  const [busy, setBusy] = useState<false | 'email' | 'google' | 'guest' | 'link'>(false);
+  const [linking, setLinking] = useState(false);
+  const [linkCode, setLinkCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const valid = /^\S+@\S+\.\S+$/.test(email.trim());
 
   const google = async () => {
     setBusy('google'); setError(null);
     try { await signInWithGoogle(); } catch (e) { setError((e as Error).message); setBusy(false); }
+  };
+  const redeem = async () => {
+    setBusy('link'); setError(null);
+    try { await redeemDeviceCode(linkCode); } catch (e) { setError((e as Error).message); setBusy(false); }
   };
   const guest = async () => {
     setBusy('guest'); setError(null);
@@ -112,6 +118,18 @@ function LoginForm() {
               onSubmitEditing={() => valid && send()} />
             <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />
             <PrimaryButton label="Inizia senza account" icon="arrow-forward-outline" variant="secondary" onPress={guest} loading={busy === 'guest'} style={{ marginTop: spacing.sm }} />
+            {!linking ? (
+              <PrimaryButton label="Ho un codice di collegamento" icon="phone-portrait-outline" variant="secondary" onPress={() => setLinking(true)} style={{ marginTop: spacing.sm }} />
+            ) : (
+              <View style={{ marginTop: spacing.md }}>
+                <Text style={s.label}>Codice di collegamento</Text>
+                <TextInput value={linkCode} onChangeText={(t) => setLinkCode(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+                  placeholder="ABCD2345" placeholderTextColor={colors.textSecondary} autoCapitalize="characters" autoCorrect={false}
+                  style={[s.input, { letterSpacing: 4, fontSize: 20, textAlign: 'center' }]} />
+                <PrimaryButton label="Entra con il codice" icon="log-in-outline" onPress={redeem} loading={busy === 'link'} disabled={linkCode.length !== 8} />
+                <Text style={s.note}>Il codice lo crei dove sei già dentro: Profilo → Account → "Collega un altro telefono".</Text>
+              </View>
+            )}
             <Text style={s.note}>Niente password. Con Google o con l'email ritrovi i tuoi dati su ogni dispositivo; senza account restano su questo telefono (puoi salvarli dopo con Google).</Text>
           </>
         ) : (

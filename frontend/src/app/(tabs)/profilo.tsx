@@ -4,7 +4,7 @@ import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, Family, NearbyStore } from '@/api';
-import { IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
+import { createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
 import { shareInvite } from '@/invite';
 import { getCurrentPosition } from '@/location';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
@@ -319,6 +319,11 @@ function AccountCard() {
   useFocusEffect(useCallback(() => {
     sb().auth.getUser().then(({ data }) => data.user && setUser({ email: data.user.email || null, anonymous: !!data.user.is_anonymous })).catch(() => {});
   }, []));
+  const [devCode, setDevCode] = useState<{ code: string; minutes: number } | null>(null);
+  const newDevCode = async () => {
+    setBusy(true); setMsg(null);
+    try { setDevCode(await createDeviceCode()); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
   const save = async () => {
     setBusy(true); setMsg(null);
     try { await saveAccountWithGoogle(); } catch (e) { setMsg((e as Error).message); setBusy(false); }
@@ -338,7 +343,18 @@ function AccountCard() {
             <PrimaryButton label="Salva con Google" icon="logo-google" onPress={save} loading={busy} />
           </>
         ) : user?.email ? (
-          <Text style={text}>Sei entrato come {user.email}. I tuoi dati sono salvati online e li ritrovi su ogni dispositivo.</Text>
+          <>
+            <Text style={text}>Sei entrato come {user.email}. I tuoi dati sono salvati online e li ritrovi su ogni dispositivo.</Text>
+            {devCode ? (
+              <View style={{ alignItems: 'center', gap: 4, paddingVertical: spacing.sm }}>
+                <Text style={[text, { fontSize: 13 }]}>Sull'altro telefono: "Ho un codice di collegamento" e scrivi</Text>
+                <Text selectable style={{ color: colors.text, fontSize: 30, fontWeight: '800', letterSpacing: 6 }}>{devCode.code}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Vale {devCode.minutes} minuti e una volta sola</Text>
+              </View>
+            ) : (
+              <PrimaryButton label="Collega un altro telefono" icon="phone-portrait-outline" variant="secondary" onPress={newDevCode} loading={busy} />
+            )}
+          </>
         ) : null}
         {msg && <Text style={{ color: colors.danger, fontSize: 14 }}>{msg}</Text>}
         <PrimaryButton label="Esci" icon="log-out-outline" variant="secondary" onPress={exit} />
