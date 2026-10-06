@@ -1891,6 +1891,7 @@ async def check_item(shop_id: str, body: ShopCheck):
     shop = await get_shop_for(shop_id, body.user_id)
     if shop["status"] != "active":
         raise HTTPException(409, "Questa spesa è già chiusa")
+    guard_act(shop, body.user_id)
     found = False
     for i in shop["items"]:
         if i["key"] == body.key:
@@ -1902,7 +1903,7 @@ async def check_item(shop_id: str, body: ShopCheck):
     if not found:
         raise HTTPException(404, "Prodotto non trovato")
     if body.checked and not shop.get("taken_by"):   # chi smarca per primo prende in carico la spesa
-        shop["taken_by"] = {"user_id": body.user_id, "name": body.display_name or None, "at": now_iso()}
+        shop["taken_by"] = {"user_id": body.user_id, "name": body.display_name or None, "at": now_iso(), "helpers": []}
     await db.shops.update_one({"id": shop_id}, {"$set": {"items": shop["items"], "taken_by": shop.get("taken_by"),
                                                          "updated_at": now_iso()}})
     return await shop_out(shop, body.user_id)
@@ -1911,15 +1912,33 @@ async def check_item(shop_id: str, body: ShopCheck):
 class ShopTake(BaseModel):
     user_id: str
     display_name: Optional[str] = Field(default=None, max_length=40)
+    mode: Literal["take", "help", "release"] = "take"
+
+
+def guard_act(shop: dict, user_id: str) -> None:
+    """Spesa presa in carico da un altro: si guarda soltanto (a meno di aiutare o prenderla)."""
+    t = shop.get("taken_by")
+    if t and t["user_id"] != user_id and not any(h["user_id"] == user_id for h in t.get("helpers", [])):
+        raise HTTPException(409, f"La sta facendo {t.get('name') or 'un familiare'}: premi \"Vi aiuto\" per smarcare anche tu")
 
 
 @api.post("/shops/{shop_id}/take")
 async def take_shop(shop_id: str, body: ShopTake):
-    """La faccio io: chi va in negozio prende in carico la spesa (gli altri della famiglia lo vedono)."""
+    """La faccio io / vi aiuto / la lascio: chi va in negozio prende in carico la spesa (gli altri lo vedono)."""
     shop = await get_shop_for(shop_id, body.user_id)
     if shop["status"] != "active":
         raise HTTPException(409, "Questa spesa è già chiusa")
-    shop["taken_by"] = {"user_id": body.user_id, "name": body.display_name or None, "at": now_iso()}
+    t, me, name = shop.get("taken_by"), body.user_id, body.display_name or None
+    if body.mode == "take" or (body.mode == "help" and not t):
+        shop["taken_by"] = {"user_id": me, "name": name, "at": now_iso(), "helpers": []}
+    elif body.mode == "help":
+        if t["user_id"] != me and not any(h["user_id"] == me for h in t.get("helpers", [])):
+            t["helpers"] = t.get("helpers", []) + [{"user_id": me, "name": name}]
+    elif t:
+        if t["user_id"] == me:
+            shop["taken_by"] = None
+        else:
+            t["helpers"] = [h for h in t.get("helpers", []) if h["user_id"] != me]
     await db.shops.update_one({"id": shop_id}, {"$set": {"taken_by": shop["taken_by"], "updated_at": now_iso()}})
     return await shop_out(shop, body.user_id)
 
@@ -1930,6 +1949,7 @@ async def add_to_shop(shop_id: str, body: ShopAdd):
     shop = await get_shop_for(shop_id, body.user_id)
     if shop["status"] != "active":
         raise HTTPException(409, "Questa spesa è già chiusa")
+    guard_act(shop, body.user_id)
     existing = next((i for i in shop["items"] if i["key"] == body.item.product_id), None)
     if existing:
         existing["quantity"] = round(existing["quantity"] + body.item.quantity, 3)
@@ -1955,6 +1975,7 @@ class ShopPrice(BaseModel):
 async def shop_price(shop_id: str, body: ShopPrice):
     """In negozio: segni il prezzo che vedi (normale, in offerta o di un'altra marca) e il prodotto va nel carrello."""
     shop = await get_shop_for(shop_id, body.user_id)
+    guard_act(shop, body.user_id)
     item = next((i for i in shop["items"] if i["key"] == body.key), None)
     if not item:
         raise HTTPException(404, "Prodotto non trovato")
@@ -1977,6 +1998,7 @@ async def shop_price(shop_id: str, body: ShopPrice):
 async def finish_shop(shop_id: str, body: ShopUser):
     """Fine spesa: impara l'ordine dei reparti e restituisce quello che non hai preso."""
     shop = await get_shop_for(shop_id, body.user_id)
+    guard_act(shop, body.user_id)
     await learn_aisles(shop)
     await db.shops.update_one({"id": shop_id}, {"$set": {"status": "done", "finished_at": now_iso()}})
     missing = [i for i in shop["items"] if not i["checked"]]

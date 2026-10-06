@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, PriceKind, Shop, ShopItem } from '@/api';
+import { api, canActOn, PriceKind, Shop, ShopItem, TakeMode } from '@/api';
 import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
 import { ProductSearch } from '@/components/ProductSearch';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
@@ -114,28 +114,34 @@ export default function SpesaScreen() {
     return () => clearInterval(t);
   }, [refresh]));
 
-  const take = async () => {
+  const take = async (mode: TakeMode = 'take') => {
     if (!shop || !userId) return;
-    setShop({ ...shop, taken_by: { user_id: userId, name, at: new Date().toISOString() } });
-    try { const sh = await api.shopTake(shop.id, userId, name); setShop(applyPending(sh)); save(sh); } catch { /* riprovo al prossimo aggiornamento */ }
+    if (mode === 'take' && shop.taken_by && shop.taken_by.user_id !== userId) {
+      const who = shop.taken_by.name ?? 'un familiare';
+      const ok = globalThis.confirm?.(`La sta facendo ${who}. Vuoi prenderla tu? Fallo solo se ${who} non la sta più facendo.`) ?? true;
+      if (!ok) return;
+    }
+    try { const sh = await api.shopTake(shop.id, userId, name, mode); setShop(applyPending(sh)); save(sh); } catch (e) { globalThis.alert?.((e as Error).message); }
   };
+  const canAct = shop ? canActOn(shop, userId) : false;
 
   // un familiare apre la lista di un altro: la prende in carico (se nessuno l'ha già fatto)
   const autoTook = useRef<string | null>(null);
   useEffect(() => {
     if (shop && userId && !shop.mine && !shop.taken_by && autoTook.current !== shop.id) {
       autoTook.current = shop.id;
-      take();
+      take('take');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop?.id, shop?.taken_by, userId]);
 
   const toggle = (it: ShopItem) => {
     if (!shop || !userId) return;
+    if (!canAct) { globalThis.alert?.(`La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: se siete insieme in negozio premi "Vi aiuto".`); return; }
     const checked = !it.checked;
     const next = {
       ...shop,
-      taken_by: shop.taken_by ?? (checked ? { user_id: userId, name, at: new Date().toISOString() } : null),
+      taken_by: shop.taken_by ?? (checked ? { user_id: userId, name, at: new Date().toISOString(), helpers: [] } : null),
       items: shop.items.map((i) => (i.key === it.key ? { ...i, checked, checked_at: checked ? new Date().toISOString() : null, checked_by: checked ? name : null, checked_by_id: checked ? userId : null } : i)),
     };
     setShop(next);
@@ -292,20 +298,30 @@ export default function SpesaScreen() {
           {!shop.mine && <Text style={s.muted}>Lista di {shop.display_name ?? 'un familiare'}</Text>}
         </View>
       </View>
-      <View style={s.takenRow}>
-        {shop.taken_by ? (
-          <Text style={s.takenText}>
-            🙋 {shop.taken_by.user_id === userId ? 'La stai facendo tu' : `La sta facendo ${shop.taken_by.name ?? 'un familiare'}`}
-            {' · dalle '}{new Date(shop.taken_by.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        ) : (
-          <Text style={s.takenText}>Nessuno l'ha ancora presa in carico</Text>
-        )}
-        {shop.taken_by?.user_id !== userId && (
-          <Pressable onPress={take} style={s.takeBtn} accessibilityRole="button">
-            <Text style={s.takeBtnText}>La faccio io</Text>
-          </Pressable>
-        )}
+      <View style={s.takenBox}>
+        {(() => {
+          const t = shop.taken_by;
+          const helpers = (t?.helpers ?? []).map((h) => (h.user_id === userId ? 'te' : h.name ?? 'un familiare'));
+          const since = t ? new Date(t.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
+          const helping = !!t?.helpers?.some((h) => h.user_id === userId);
+          return (
+            <>
+              <Text style={s.takenText}>
+                {!t ? "Nessuno l'ha ancora presa in carico"
+                  : `🙋 ${t.user_id === userId ? 'La stai facendo tu' : `La sta facendo ${t.name ?? 'un familiare'}`}`
+                    + (helpers.length ? ` con ${helpers.join(', ')}` : '') + ` · dalle ${since}`}
+              </Text>
+              {!canAct && <Text style={s.muted}>Vedi le spunte in diretta. Se siete insieme in negozio, aiuta a smarcare.</Text>}
+              <View style={s.takeActions}>
+                {!t && <TakeBtn label="La faccio io" onPress={() => take('take')} />}
+                {t && !canAct && <TakeBtn label="Vi aiuto" onPress={() => take('help')} />}
+                {t && !canAct && <TakeBtn label="Prendila tu" secondary onPress={() => take('take')} />}
+                {t && t.user_id === userId && <TakeBtn label="Lasciala" secondary onPress={() => take('release')} />}
+                {helping && <TakeBtn label="Smetti di aiutare" secondary onPress={() => take('release')} />}
+              </View>
+            </>
+          );
+        })()}
       </View>
       <View style={s.progressBox}>
         <View style={s.progressTrack}><View style={[s.progressFill, { width: `${Math.round(pct * 100)}%` }]} /></View>
@@ -335,7 +351,7 @@ export default function SpesaScreen() {
                     </Text>
                   )}
                 </View>
-                {!i.product_id.startsWith('custom:') && (
+                {canAct && !i.product_id.startsWith('custom:') && (
                   <Pressable onPress={() => openPrice(i)} hitSlop={8} style={s.priceBtn} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
                     <Text style={s.priceBtnText}>€</Text>
                   </Pressable>
@@ -345,7 +361,7 @@ export default function SpesaScreen() {
           </View>
         ))}
 
-        {adding ? (
+        {!canAct ? null : adding ? (
           <View style={{ marginTop: spacing.md }}>
             <ProductSearch
               products={catalog?.products ?? []}
@@ -383,10 +399,12 @@ export default function SpesaScreen() {
           </View>
         )}
 
-        <PrimaryButton label="Ho finito la spesa" icon="flag-outline" onPress={finish} style={{ marginTop: spacing.xl }} />
-        <Pressable onPress={() => setConfirmCancel(true)} style={{ alignSelf: 'center', padding: spacing.md }}>
-          <Text style={[s.muted, { color: colors.danger }]}>Annulla la spesa (la lista torna com'era)</Text>
-        </Pressable>
+        {canAct && <PrimaryButton label="Ho finito la spesa" icon="flag-outline" onPress={finish} style={{ marginTop: spacing.xl }} />}
+        {(canAct || shop.mine) && (
+          <Pressable onPress={() => setConfirmCancel(true)} style={{ alignSelf: 'center', padding: spacing.md }}>
+            <Text style={[s.muted, { color: colors.danger }]}>Annulla la spesa (la lista torna com'era)</Text>
+          </Pressable>
+        )}
       </ScrollView>
 
       <Modal visible={!!pricing} transparent animationType="fade" onRequestClose={() => setPricing(null)}>
@@ -429,10 +447,12 @@ const useStyles = makeStyles((c) => ({
   safe: { flex: 1, backgroundColor: c.background },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   title: { color: c.text, fontSize: 22, fontWeight: '800' },
-  takenRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.lg, marginBottom: spacing.sm,
-    padding: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: c.primarySoft },
-  takenText: { flex: 1, color: c.text, fontSize: 14, fontWeight: '600' },
+  takenBox: { gap: 6, marginHorizontal: spacing.lg, marginBottom: spacing.sm, padding: spacing.sm, paddingHorizontal: spacing.md,
+    borderRadius: radius.md, backgroundColor: c.primarySoft },
+  takenText: { color: c.text, fontSize: 14, fontWeight: '600' },
+  takeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   takeBtn: { backgroundColor: c.primary, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  takeBtnSecondary: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.primary },
   takeBtnText: { color: c.primaryText, fontWeight: '700', fontSize: 13 },
   text: { color: c.text, fontSize: 14, lineHeight: 20 },
   muted: { color: c.textSecondary, fontSize: 12 },
@@ -460,3 +480,13 @@ const useStyles = makeStyles((c) => ({
   bg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'center', padding: spacing.md },
   card: { width: '100%', maxWidth: 480, alignSelf: 'center', gap: spacing.sm },
 }));
+
+function TakeBtn({ label, onPress, secondary }: { label: string; onPress: () => void; secondary?: boolean }) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  return (
+    <Pressable onPress={onPress} style={[s.takeBtn, secondary && s.takeBtnSecondary]} accessibilityRole="button">
+      <Text style={[s.takeBtnText, secondary && { color: colors.primary }]}>{label}</Text>
+    </Pressable>
+  );
+}

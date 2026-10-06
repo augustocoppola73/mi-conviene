@@ -196,6 +196,14 @@ async function updateShop(id: string, change: (row: any) => void): Promise<any> 
   throw new Error('La spesa è stata modificata da un altro: riprova');
 }
 
+/** Spesa presa in carico da un altro: si guarda soltanto (a meno di aiutare o prenderla). */
+function guardAct(shop: any, me: string) {
+  const t = shop.taken_by;
+  if (t && t.user_id !== me && !(t.helpers || []).some((h: any) => h.user_id === me)) {
+    throw new Error(`La sta facendo ${t.name || 'un familiare'}: premi "Vi aiuto" per smarcare anche tu`);
+  }
+}
+
 async function learnFromShop(row: any) {
   const owner = row.family_id || row.user_id;
   const { data } = await sb().from('aisles').select('ranks').eq('owner_id', owner).eq('store_id', row.store_id).maybeSingle();
@@ -476,6 +484,7 @@ export const cloudApi = {
     const me = await uid();
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+      guardAct(shop, me);
       let found = false;
       for (const i of shop.items) {
         if (i.key === key) {
@@ -486,17 +495,26 @@ export const cloudApi = {
       }
       if (!found) throw new Error('Prodotto non trovato');
       // chi smarca per primo prende in carico la spesa
-      if (checked && !shop.taken_by) shop.taken_by = { user_id: me, name: display_name || null, at: nowIso() };
+      if (checked && !shop.taken_by) shop.taken_by = { user_id: me, name: display_name || null, at: nowIso(), helpers: [] };
     });
     return shopOut(row, me);
   },
 
   /** "La faccio io": chi va in negozio prende in carico la spesa (gli altri lo vedono). */
-  shopTake: async (id: string, _user_id: string, display_name?: string | null): Promise<T.Shop> => {
+  shopTake: async (id: string, _user_id: string, display_name?: string | null, mode: T.TakeMode = 'take'): Promise<T.Shop> => {
     const me = await uid();
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
-      shop.taken_by = { user_id: me, name: display_name || null, at: nowIso() };
+      const t = shop.taken_by;
+      const name = display_name || null;
+      if (mode === 'take') shop.taken_by = { user_id: me, name, at: nowIso(), helpers: [] };
+      else if (mode === 'help') {
+        if (!t) shop.taken_by = { user_id: me, name, at: nowIso(), helpers: [] };
+        else if (t.user_id !== me && !(t.helpers || []).some((h: any) => h.user_id === me)) t.helpers = [...(t.helpers || []), { user_id: me, name }];
+      } else if (t) {  // release
+        if (t.user_id === me) shop.taken_by = null;
+        else t.helpers = (t.helpers || []).filter((h: any) => h.user_id !== me);
+      }
     });
     return shopOut(row, me);
   },
@@ -506,6 +524,7 @@ export const cloudApi = {
     const book = await priceBook();
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+      guardAct(shop, me);
       const existing = shop.items.find((i: any) => i.key === item.product_id);
       if (existing) existing.quantity = pyRound(existing.quantity + item.quantity, 3);
       else shop.items.push({ ...shopItem(book, item, shop.store_id, true), checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
@@ -516,6 +535,7 @@ export const cloudApi = {
   shopPrice: async (id: string, body: { user_id: string; key: string; price: number; kind: T.PriceKind; note?: string | null; display_name?: string | null; promo_until?: string | null }): Promise<T.Shop> => {
     const me = await uid();
     const current = await shopRow(id);
+    guardAct(current, me);
     const item = current.items.find((i: any) => i.key === body.key);
     if (!item) throw new Error('Prodotto non trovato');
     if (!item.product_id.startsWith('custom:')) {
@@ -536,6 +556,7 @@ export const cloudApi = {
 
   shopFinish: async (id: string, _user_id: string) => {
     const shop = await shopRow(id);
+    guardAct(shop, await uid());
     await learnFromShop(shop).catch(() => {});
     check(await sb().from('shops').update({ status: 'done', finished_at: nowIso() }).eq('id', id));
     const items: T.ShopItem[] = shop.items;

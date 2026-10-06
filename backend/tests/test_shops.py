@@ -84,7 +84,16 @@ async def test_presa_in_carico(client):
     assert r["taken_by"]["name"] == "Laura"
     seen = (await client.get("/api/shops/active", params={"user_id": "aug"})).json()["shop"]
     assert seen["taken_by"]["user_id"] == "lau"
-    # una spunta non cambia chi l'ha presa in carico
-    await client.post(f"/api/shops/{shop['id']}/check",
-                      json={"user_id": "aug", "key": "latte", "checked": True, "display_name": "Augusto"})
-    assert (await client.get("/api/shops/active", params={"user_id": "aug"})).json()["shop"]["taken_by"]["name"] == "Laura"
+    # Augusto non può smarcare la spesa che sta facendo Laura...
+    r = await client.post(f"/api/shops/{shop['id']}/check",
+                          json={"user_id": "aug", "key": "latte", "checked": True, "display_name": "Augusto"})
+    assert r.status_code == 409 and "Laura" in r.json()["detail"]
+    # ...a meno di aiutarla (insieme in negozio)
+    r = (await client.post(f"/api/shops/{shop['id']}/take", json={"user_id": "aug", "display_name": "Augusto", "mode": "help"})).json()
+    assert r["taken_by"]["name"] == "Laura" and r["taken_by"]["helpers"][0]["name"] == "Augusto"
+    r = await client.post(f"/api/shops/{shop['id']}/check",
+                          json={"user_id": "aug", "key": "latte", "checked": True, "display_name": "Augusto"})
+    assert r.status_code == 200 and r.json()["taken_by"]["name"] == "Laura"
+    # Laura la lascia: libera per tutti
+    r = (await client.post(f"/api/shops/{shop['id']}/take", json={"user_id": "lau", "mode": "release"})).json()
+    assert r["taken_by"] is None

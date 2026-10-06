@@ -191,8 +191,14 @@ export interface Shop {
   id: string; user_id: string; display_name?: string | null; store_id: string; store_name: string; branch?: string | null;
   saving_id?: string | null; items: ShopItem[]; status: string; created_at: string; aisles: string[]; mine: boolean;
   /** chi sta facendo la spesa (l'ha presa in carico) */
-  taken_by?: { user_id: string; name: string | null; at: string } | null;
+  taken_by?: { user_id: string; name: string | null; at: string; helpers?: { user_id: string; name: string | null }[] } | null;
   progress: { checked: number; total: number; cart: number; estimated: number };
+}
+export type TakeMode = 'take' | 'help' | 'release';
+/** chi può smarcare: nessuno l'ha presa, l'hai presa tu, o aiuti chi la fa */
+export function canActOn(shop: Shop, userId: string | null): boolean {
+  const t = shop.taken_by;
+  return !t || t.user_id === userId || !!t.helpers?.some((h) => h.user_id === userId);
 }
 export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null }
 export interface FamilyMember { user_id: string; display_name: string }
@@ -276,8 +282,9 @@ export const localApi = {
   shopActive: (user_id: string) => request<{ shop: Shop | null; others?: number }>(`/shops/active?user_id=${user_id}`),
   shopCheck: (id: string, user_id: string, key: string, checked: boolean, display_name?: string | null) =>
     post<Shop>(`/shops/${id}/check`, { user_id, key, checked, display_name }),
-  shopTake: (id: string, user_id: string, display_name?: string | null) =>
-    post<Shop>(`/shops/${id}/take`, { user_id, display_name }),
+  /** take = la faccio io, help = vi aiuto (smarco anch'io), release = la lascio / smetto di aiutare */
+  shopTake: (id: string, user_id: string, display_name?: string | null, mode: TakeMode = 'take') =>
+    post<Shop>(`/shops/${id}/take`, { user_id, display_name, mode }),
   shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
   shopPrice: (id: string, body: { user_id: string; key: string; price: number; kind: PriceKind; note?: string | null; display_name?: string | null }) =>
     post<Shop>(`/shops/${id}/price`, body),
