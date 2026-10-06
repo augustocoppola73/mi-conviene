@@ -53,8 +53,12 @@ begin
   select fa.* into f from public.families fa join public.profiles p on p.family_id = fa.id where p.id = auth.uid();
   if found then return f; end if;
   loop
-    c := upper(substr(translate(encode(gen_random_bytes(8), 'base64'), '+/=O0I1', ''), 1, 6));
-    exit when length(c) = 6 and not exists (select 1 from public.families where code = c);
+    -- 6 caratteri facili da dettare (niente 0/O, 1/I); random() non dipende da estensioni
+    c := '';
+    for i in 1..6 loop
+      c := c || substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 1 + floor(random() * 32)::int, 1);
+    end loop;
+    exit when not exists (select 1 from public.families where code = c);
   end loop;
   insert into public.families (code, created_by) values (c, auth.uid()) returning * into f;
   update public.profiles set family_id = f.id, updated_at = now() where id = auth.uid();
