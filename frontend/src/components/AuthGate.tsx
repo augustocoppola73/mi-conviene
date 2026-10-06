@@ -35,6 +35,7 @@ function Login() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
+  const [withCode, setWithCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const valid = /^\S+@\S+\.\S+$/.test(email.trim());
@@ -65,12 +66,18 @@ function Login() {
           </>
         ) : (
           <>
-            <Text style={s.ok}>Controlla la posta di {email.trim()} e apri il link da questo dispositivo.</Text>
-            <Text style={s.label}>Oppure scrivi il codice dell'email</Text>
-            <TextInput value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 8))} placeholder="123456"
-              placeholderTextColor={colors.textSecondary} keyboardType="number-pad" inputMode="numeric" style={s.input} />
-            <PrimaryButton label="Entra" icon="log-in-outline" onPress={confirm} loading={busy} disabled={code.length < 6} />
-            <PrimaryButton label="Cambia email" variant="secondary" onPress={() => { setSent(false); setCode(''); }} style={{ marginTop: spacing.sm }} />
+            <Text style={s.ok}>Controlla la posta di {email.trim()} e apri il link: ti fa entrare direttamente. Se non la trovi, guarda anche nello spam.</Text>
+            {!withCode ? (
+              <PrimaryButton label="Nell'email c'è un codice" variant="secondary" onPress={() => setWithCode(true)} />
+            ) : (
+              <>
+                <Text style={s.label}>Codice dell'email</Text>
+                <TextInput value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 8))} placeholder="123456"
+                  placeholderTextColor={colors.textSecondary} keyboardType="number-pad" inputMode="numeric" style={s.input} />
+                <PrimaryButton label="Entra" icon="log-in-outline" onPress={confirm} loading={busy} disabled={code.length < 6} />
+              </>
+            )}
+            <PrimaryButton label="Cambia email" variant="secondary" onPress={() => { setSent(false); setCode(''); setWithCode(false); }} style={{ marginTop: spacing.sm }} />
           </>
         )}
         {error && <Text style={s.error}>{error}</Text>}
