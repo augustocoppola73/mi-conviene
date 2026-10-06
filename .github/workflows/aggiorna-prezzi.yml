@@ -1,0 +1,22 @@
+name: Aggiorna prezzi (Supabase)
+
+on:
+  schedule:
+    - cron: "17 4 * * *"   # ogni giorno alle 4:17 UTC (dopo l'aggiornamento MIMIT delle 8 del giorno prima)
+  workflow_dispatch: {}    # avvio a mano da GitHub → Actions
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx==0.28.1
+      - name: Carburanti, prezzi e pulizia
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python scripts/aggiorna_prezzi_supabase.py
