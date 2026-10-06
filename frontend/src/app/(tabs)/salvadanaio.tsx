@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, SavingEntry, SavingsSummary } from '@/api';
 import { PaperReceipt } from '@/components/PaperReceipt';
 import { ManualPrices } from '@/components/ManualPrices';
+import { IS_CLOUD } from '@/cloud/client';
 import { ReceiptScanner } from '@/components/ReceiptScanner';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate } from '@/format';
@@ -192,10 +193,12 @@ export default function SalvadanaioScreen() {
                         <Pressable onPress={() => remove(e.id)} hitSlop={6} accessibilityLabel="Elimina">
                           <Icon name="trash-outline" size={18} color={colors.danger} />
                         </Pressable>
-                        <Pressable onPress={() => setScanning(e)} style={[s.verifyBtn, s.scanBtn]} accessibilityLabel="Leggi lo scontrino dalla foto">
-                          <Icon name="camera-outline" size={16} color={colors.primary} />
-                          <Text style={[s.verifyText, { color: colors.primary }]}>Foto</Text>
-                        </Pressable>
+                        {!IS_CLOUD && (
+                          <Pressable onPress={() => setScanning(e)} style={[s.verifyBtn, s.scanBtn]} accessibilityLabel="Leggi lo scontrino dalla foto">
+                            <Icon name="camera-outline" size={16} color={colors.primary} />
+                            <Text style={[s.verifyText, { color: colors.primary }]}>Foto</Text>
+                          </Pressable>
+                        )}
                         <Pressable onPress={() => openVerify(e)} style={s.verifyBtn}>
                           <Icon name="receipt-outline" size={16} color={colors.primaryText} />
                           <Text style={s.verifyText}>Verifica</Text>

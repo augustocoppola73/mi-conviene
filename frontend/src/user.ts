@@ -1,6 +1,8 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { IS_CLOUD, uid } from './cloud/client';
+
 // Utente anonimo: nessun login, un UUID generato al primo avvio.
 const KEY = 'margine_user_id'; // prefisso storico: non rinominare senza migrazione
 
@@ -30,6 +32,7 @@ function uuid(): string {
 let cached: string | null = null;
 
 export async function getUserId(): Promise<string> {
+  if (IS_CLOUD) return uid(); // online: l'utente collegato
   if (cached) return cached;
   let id = await get(KEY);
   if (!id) {

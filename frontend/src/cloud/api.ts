@@ -1,0 +1,580 @@
+/**
+ * Versione online dell'app: stessa interfaccia di `api` (src/api.ts), ma il calcolo gira nel telefono
+ * (src/engine) e i dati stanno su Supabase. Nessun server nostro.
+ */
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import type * as T from '../api';
+import {
+  buildPriceBook, fuelInfo, FuelStation, HistoryShop, habitualFromHistory, lastSimilarShop, optimizeList, PriceBook,
+  RealPrice, savingValue, suggestBudget, UserPrice, verifiedFuelSaving, verifiedSaving,
+} from '../engine/core';
+import { classify } from '../engine/classify';
+import { CATEGORIES, PRODUCT_INDEX, PRODUCTS, STORE_INDEX, STORES } from '../engine/data';
+import {
+  aisleOrder, learnAisles, menuPlan, planRecipe, proposeMenu, rankByPrice, Recipe, recipeSummaryPriced,
+  shopItem, suggest, warmRecipes,
+} from '../engine/kitchen';
+import { observedRows, ObservedLine } from '../engine/observed';
+import { flyers, fuelNearby, geocode, KV, nearestPerChain, RADIUS_M, storesAround, storesFor } from '../engine/places';
+import { search } from '../engine/recipes';
+import { pyRound } from '../engine/util';
+import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
+import { check, IS_CLOUD, sb, uid } from './client';
+
+const COLLECTION = (WIKIBOOKS as { recipes: Recipe[] }).recipes;
+const LICENSE = (WIKIBOOKS as { license: string }).license;
+const BUDGET_HISTORY_LIMIT = 50;
+const nowIso = () => new Date().toISOString();
+const today = () => new Date().toISOString().slice(0, 10);
+const r2 = (x: number) => pyRound(x, 2);
+
+// le ricette della raccolta si preparano subito, a piccoli blocchi
+if (IS_CLOUD) setTimeout(() => { warmRecipes(COLLECTION).catch(() => {}); }, 1500);
+
+const kv: KV = {
+  get: (k) => AsyncStorage.getItem(k),
+  set: (k, v) => AsyncStorage.setItem(k, v),
+};
+
+/** Supabase restituisce al massimo 1000 righe per volta: si leggono a pagine. */
+async function fetchAll<R>(page: (from: number, to: number) => PromiseLike<{ data: R[] | null; error: any }>, max = 30000): Promise<R[]> {
+  const out: R[] = [];
+  for (let from = 0; from < max; from += 1000) {
+    const { data, error } = await page(from, from + 999);
+    if (error) throw new Error(error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ prezzi (cache di 10 minuti)
+let bookCache: { at: number; book: PriceBook } | null = null;
+let bookLoading: Promise<PriceBook> | null = null;
+
+async function priceBook(): Promise<PriceBook> {
+  if (bookCache && Date.now() - bookCache.at < 10 * 60 * 1000) return bookCache.book;
+  if (bookLoading) return bookLoading;
+  bookLoading = (async () => {
+    const [open, seen] = await Promise.all([
+      fetchAll<any>((a, b) => sb().from('product_prices').select('*').range(a, b)),
+      fetchAll<any>((a, b) => sb().from('user_prices')
+        .select('store_id,product_id,kind,ref_price,paid,receipt_text,note,location_name,date,promo_until,created_at')
+        .order('created_at').range(a, b)),
+    ]);
+    const openPrices: Record<string, RealPrice> = {};
+    for (const p of open) {
+      openPrices[`${p.store_id}|${p.product_id}`] = {
+        normal_price: Number(p.normal_price), promo_price: p.promo_price == null ? null : Number(p.promo_price),
+        source: p.source, confidence: p.confidence || 'yellow', observed_at: p.observed_at, location_name: p.location_name,
+        sample_product: p.sample_product, proof_url: p.proof_url,
+      };
+    }
+    const userPrices: UserPrice[] = seen.map((d) => ({ ...d, ref_price: Number(d.ref_price), paid: d.paid == null ? null : Number(d.paid) }));
+    const book = buildPriceBook(openPrices, userPrices, today());
+    bookCache = { at: Date.now(), book };
+    return book;
+  })();
+  try { return await bookLoading; } finally { bookLoading = null; }
+}
+
+async function saveObserved(lines: ObservedLine[], storeId: string, date: string, location: string | null): Promise<number> {
+  const { rows, saved } = observedRows(lines, storeId, date, location);
+  if (rows.length) {
+    check(await sb().from('user_prices').insert(rows));
+    bookCache = null; // i prezzi nuovi valgono subito
+  }
+  return saved;
+}
+
+// ------------------------------------------------------------------ carburante (cache di un'ora per zona)
+let fuelDate: { at: number; date: string | null } | null = null;
+const stationCache = new Map<string, { at: number; stations: FuelStation[] }>();
+
+async function fuelObservedAt(): Promise<string | null> {
+  if (fuelDate && Date.now() - fuelDate.at < 3600 * 1000) return fuelDate.date;
+  const { data } = await sb().from('meta').select('value').eq('key', 'prices_status').maybeSingle();
+  fuelDate = { at: Date.now(), date: (data?.value as any)?.fuel_date ?? null };
+  return fuelDate.date;
+}
+
+async function stationsNear(lat: number, lon: number): Promise<FuelStation[]> {
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const hit = stationCache.get(key);
+  if (hit && Date.now() - hit.at < 3600 * 1000) return hit.stations;
+  const stations = check(await sb().rpc('fuel_near', { p_lat: lat, p_lon: lon, p_km: 15 })) as FuelStation[];
+  stationCache.set(key, { at: Date.now(), stations });
+  return stations;
+}
+
+// ------------------------------------------------------------------ dati personali
+async function historyRows(limit: number, onlyWithCost = false): Promise<HistoryShop[]> {
+  let q = sb().from('history').select('items,store_id,total_cost,created_at').order('created_at', { ascending: false }).limit(limit);
+  if (onlyWithCost) q = q.gt('total_cost', 0);
+  return (check(await q) as any[]).map((h) => ({ ...h, total_cost: h.total_cost == null ? null : Number(h.total_cost) }));
+}
+
+const savingOut = (row: any): T.SavingEntry => ({
+  ...(row.data || {}), id: row.id, user_id: row.user_id, store_id: row.store_id, verified: row.verified, created_at: row.created_at,
+});
+
+async function savingRow(id: string): Promise<any> {
+  const row = check(await sb().from('savings').select('*').eq('id', id).maybeSingle());
+  if (!row) throw new Error('Voce non trovata');
+  return row;
+}
+
+async function myRecipes(): Promise<Recipe[]> {
+  const rows = check(await sb().from('recipes').select('*').order('updated_at', { ascending: false }).limit(500)) as any[];
+  return rows.map((r) => ({ ...r, categories: r.categories ?? null }));
+}
+
+async function findRecipe(id: string): Promise<Recipe | null> {
+  if (id.startsWith('wb:')) return COLLECTION.find((r) => r.id === id) ?? null;
+  return (check(await sb().from('recipes').select('*').eq('id', id).maybeSingle()) as Recipe | null) ?? null;
+}
+
+const cleanLines = (lines: string[]) => lines.map((l) => l.trim()).filter(Boolean);
+
+// ------------------------------------------------------------------ famiglia
+async function myProfile(): Promise<{ id: string; display_name: string | null; family_id: string | null }> {
+  const me = await uid();
+  return check(await sb().from('profiles').select('id,display_name,family_id').eq('id', me).single()) as any;
+}
+
+async function setDisplayName(name?: string | null) {
+  const n = (name || '').trim();
+  if (n) await sb().from('profiles').update({ display_name: n.slice(0, 40), updated_at: nowIso() }).eq('id', await uid());
+}
+
+/** Ricette e spesa in corso seguono la famiglia: entrando le vedono tutti, uscendo tornano solo tue. */
+async function moveMyThings(familyId: string | null) {
+  const me = await uid();
+  await sb().from('recipes').update({ family_id: familyId }).eq('user_id', me);
+  await sb().from('shops').update({ family_id: familyId }).eq('user_id', me).eq('status', 'active');
+}
+
+async function familyOut(): Promise<T.Family | Record<string, never>> {
+  const p = await myProfile();
+  if (!p.family_id) return {};
+  const fam = check(await sb().from('families').select('*').eq('id', p.family_id).maybeSingle()) as any;
+  if (!fam) return {};
+  const members = check(await sb().rpc('family_members')) as any[];
+  return { code: fam.code, created_at: fam.created_at,
+    members: members.map((m) => ({ user_id: m.user_id, display_name: m.display_name || 'Senza nome' })) };
+}
+
+// ------------------------------------------------------------------ spesa in corso
+async function shopOut(row: any, me: string): Promise<T.Shop> {
+  const owner = row.family_id || row.user_id;
+  const { data } = await sb().from('aisles').select('ranks').eq('owner_id', owner).eq('store_id', row.store_id).maybeSingle();
+  const items: T.ShopItem[] = row.items;
+  const done = items.filter((i) => i.checked);
+  return { ...row, aisles: aisleOrder(data?.ranks),
+    progress: { checked: done.length, total: items.length, cart: r2(done.reduce((s, i) => s + (i.price || 0), 0)),
+      estimated: r2(items.reduce((s, i) => s + (i.price || 0), 0)) },
+    mine: row.user_id === me };
+}
+
+async function shopRow(id: string): Promise<any> {
+  const row = check(await sb().from('shops').select('*').eq('id', id).maybeSingle());
+  if (!row) throw new Error('Spesa non trovata');
+  return row;
+}
+
+/** Modifica della spesa senza perdere le spunte degli altri: se nel frattempo è cambiata, si rilegge e si riprova. */
+async function updateShop(id: string, change: (row: any) => void): Promise<any> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const row = await shopRow(id);
+    change(row);
+    const stamp = nowIso();
+    const res = check(await sb().from('shops').update({ items: row.items, updated_at: stamp })
+      .eq('id', id).eq('updated_at', row.updated_at).select('*')) as any[];
+    if (res.length) return res[0];
+  }
+  throw new Error('La spesa è stata modificata da un altro: riprova');
+}
+
+async function learnFromShop(row: any) {
+  const owner = row.family_id || row.user_id;
+  const { data } = await sb().from('aisles').select('ranks').eq('owner_id', owner).eq('store_id', row.store_id).maybeSingle();
+  const ranks = learnAisles(row.items, data?.ranks);
+  if (ranks) await sb().from('aisles').upsert({ owner_id: owner, store_id: row.store_id, ranks, updated_at: nowIso() });
+}
+
+// ------------------------------------------------------------------ API
+export const cloudApi = {
+  bootstrap: async (): Promise<T.Bootstrap> => ({
+    categories: CATEGORIES, products: PRODUCTS,
+    stores: STORES.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, distance_km: s.distance_km })),
+  }),
+
+  optimize: async (req: T.OptimizeRequest): Promise<T.OptimizeResult> => {
+    if (req.habitual_store_id && !STORE_INDEX[req.habitual_store_id]) throw new Error('Supermercato abituale sconosciuto');
+    const hasPos = req.lat != null && req.lon != null;
+    const [book, shops, stations, date] = await Promise.all([
+      priceBook(), historyRows(BUDGET_HISTORY_LIMIT),
+      hasPos ? stationsNear(req.lat!, req.lon!).catch(() => [] as FuelStation[]) : Promise.resolve([] as FuelStation[]),
+      fuelObservedAt().catch(() => null),
+    ]);
+    let stores; let location: any;
+    if (hasPos) {
+      try {
+        [stores, location] = storesFor(nearestPerChain(await storesAround(req.lat!, req.lon!, kv), req.lat!, req.lon!));
+      } catch {
+        [stores, location] = storesFor(null, 'OpenStreetMap non raggiungibile');
+      }
+    } else {
+      [stores, location] = storesFor(null);
+    }
+    if (req.habitual_store_id && !stores.some((s) => s.id === req.habitual_store_id)) {
+      location.habitual_missing = STORE_INDEX[req.habitual_store_id].name;
+    }
+    const fuelType = req.fuel_type || 'benzina';
+    const fuel = fuelInfo(fuelType, stations, req.lat, req.lon, date);
+    const result: any = optimizeList(book, { ...req, fuel_type: fuelType }, stores, fuel, stations);
+    result.location = location;
+    const last: any = lastSimilarShop(req.items.map((i) => i.product_id), shops);
+    if (last) last.same_as_recommended = last.store_id === result.recommended.store_id;
+    result.last_similar = last;
+    return result;
+  },
+
+  offers: async (): Promise<T.Offer[]> => {
+    const book = await priceBook();
+    const out: T.Offer[] = [];
+    for (const [sid, products] of Object.entries(book.catalog)) {
+      for (const [pid, info] of Object.entries(products)) {
+        if (info.promo_price == null) continue;
+        out.push({ store_id: sid, store_name: STORE_INDEX[sid].name, product_id: pid, product_name: PRODUCT_INDEX[pid].name,
+          normal_price: info.normal_price, promo_price: info.promo_price,
+          discount_pct: pyRound((1 - info.promo_price / info.normal_price) * 100), loyalty_required: info.loyalty_required,
+          source: info.source as T.PriceSource, observed_at: info.observed_at });
+      }
+    }
+    out.sort((a, b) => Number(a.source === 'stima') - Number(b.source === 'stima') || b.discount_pct - a.discount_pct);
+    return out;
+  },
+
+  classify: async (text: string): Promise<T.ClassifyResult> => classify(text) as T.ClassifyResult,
+
+  fuelNearby: async (fuel: T.FuelType, lat?: number, lon?: number, liters = 40): Promise<T.FuelNearby> => {
+    if (lat == null || lon == null) return { fuel, median: null, liters, observed_at: null, best: null, stations: [] };
+    const [stations, date] = await Promise.all([stationsNear(lat, lon), fuelObservedAt().catch(() => null)]);
+    return fuelNearby(stations, fuelInfo(fuel, stations, lat, lon, date), lat, lon, liters, 5) as T.FuelNearby;
+  },
+
+  flyers: async (lat?: number, lon?: number): Promise<T.Flyer[]> => {
+    let all: any[] = [];
+    if (lat != null && lon != null) {
+      try { all = await storesAround(lat, lon, kv); } catch { all = []; }
+    }
+    return flyers(all, lat, lon);
+  },
+
+  storesNearby: async (lat: number, lon: number) => {
+    let near;
+    try { near = nearestPerChain(await storesAround(lat, lon, kv), lat, lon); } catch { throw new Error('OpenStreetMap non raggiungibile'); }
+    return { radius_km: RADIUS_M / 1000, stores: Object.values(near).sort((a, b) => a.distance_km - b.distance_km) as T.NearbyStore[],
+      missing_chains: STORES.filter((s) => !near[s.id]).map((s) => s.name) };
+  },
+
+  addSaving: async (body: Parameters<typeof import('../api').localApi.addSaving>[0]): Promise<T.SavingEntry> => {
+    const { user_id: _u, store_id, ...rest } = body;
+    const data = { fuel_saving: 0, ...rest, verified_amount: null, paid: null,
+      store_name: STORE_INDEX[store_id]?.name ?? store_id };
+    const row = check(await sb().from('savings').insert({ store_id, data }).select('*').single());
+    return savingOut(row);
+  },
+
+  savings: async (_userId: string): Promise<T.SavingsSummary> => {
+    const rows = check(await sb().from('savings').select('*').order('created_at', { ascending: false }).limit(500)) as any[];
+    const entries = rows.map(savingOut);
+    return {
+      entries,
+      total: r2(entries.reduce((s, e) => s + savingValue(e), 0)),
+      total_verified: r2(entries.filter((e) => e.verified).reduce((s, e) => s + (e.verified_amount || 0), 0)),
+      total_estimated: r2(entries.filter((e) => !e.verified).reduce((s, e) => s + e.amount, 0)),
+      to_verify: entries.filter((e) => !e.verified).length,
+    };
+  },
+
+  deleteSaving: async (id: string) => {
+    const rows = check(await sb().from('savings').delete().eq('id', id).select('id')) as any[];
+    if (!rows.length) throw new Error('Voce non trovata');
+    return { deleted: 1 };
+  },
+
+  scanReceipt: async (_images: string[], _saving_id?: string): Promise<T.ScanResult> => {
+    throw new Error('Nella versione online i prezzi dello scontrino si inseriscono a mano');
+  },
+
+  applyReceipt: async (body: Parameters<typeof import('../api').localApi.applyReceipt>[0]) => {
+    if (!STORE_INDEX[body.store_id]) throw new Error('Negozio sconosciuto');
+    const date = body.date && !Number.isNaN(Date.parse(body.date)) ? body.date.slice(0, 10) : today();
+    const row = body.saving_id ? await savingRow(body.saving_id).catch(() => null) : null;
+    const branch = row?.data?.snapshot?.branch?.name ?? null;
+    const saved = await saveObserved(body.lines as ObservedLine[], body.store_id, date, branch);
+    const out: { prices_saved: number; verified?: T.SavingEntry } = { prices_saved: saved };
+    if (row) {
+      const data = { ...row.data, real_receipt: { store_id: body.store_id, date, total: body.total ?? null, lines: body.lines } };
+      check(await sb().from('savings').update({ data }).eq('id', row.id));
+      if (body.total) out.verified = await cloudApi.verifySaving(row.id, body.total, body.refueled, body.fuel_price);
+    }
+    return out;
+  },
+
+  verifySaving: async (id: string, paid: number, refueled?: boolean, fuel_price?: number): Promise<T.SavingEntry> => {
+    const row = await savingRow(id);
+    const entry = { ...row.data };
+    const shop = verifiedSaving(entry, paid);
+    const fuelPart = verifiedFuelSaving(entry, refueled ?? null, fuel_price ?? null);
+    const update = { verified: true, verified_amount: r2(shop + fuelPart), verified_fuel: fuelPart, paid: r2(paid),
+      fuel_price_paid: fuel_price ?? null, refueled: refueled ?? null, verified_at: nowIso() };
+    const saved = check(await sb().from('savings').update({ verified: true, data: { ...entry, ...update } }).eq('id', id).select('*').single());
+    if (entry.history_id) {
+      const travel = (entry.estimated_total || 0) - (entry.estimated_spend || 0);
+      await sb().from('history').update({ total_cost: r2(paid + Math.max(travel, 0)) }).eq('id', entry.history_id);
+    }
+    return savingOut(saved);
+  },
+
+  unverifySaving: async (id: string) => {
+    const row = await savingRow(id);
+    check(await sb().from('savings').update({ verified: false, data: { ...row.data, verified: false, verified_amount: null, paid: null } }).eq('id', id));
+    return { ok: true };
+  },
+
+  addHistory: async (body: { user_id: string; items: T.ListItem[]; store_id?: string; total_cost?: number }) => {
+    const row = check(await sb().from('history').insert({ items: body.items, store_id: body.store_id ?? null,
+      total_cost: body.total_cost ?? null }).select('id').single()) as any;
+    return { id: row.id as string };
+  },
+
+  budgetSuggest: async (_user_id: string, items: T.ListItem[]): Promise<T.BudgetSuggestion> => {
+    const shops = await historyRows(BUDGET_HISTORY_LIMIT, true);
+    const ids = items.map((i) => i.product_id);
+    return { ...(suggestBudget(ids, shops) as any), last_similar: lastSimilarShop(ids, shops) };
+  },
+
+  habitual: async (_userId: string) => {
+    const shops = await historyRows(40);
+    return { ...(habitualFromHistory(shops) as any), based_on: shops.length };
+  },
+
+  recipes: async (q: string, _user_id?: string | null, sort: 'rilevanza' | 'prezzo' = 'rilevanza') => {
+    const limit = 40;
+    const mine = await myRecipes();
+    let found: Recipe[];
+    const book = await priceBook();
+    if (sort === 'prezzo') {
+      const pool = q ? [...search(mine, q, 10000), ...search(COLLECTION, q, 10000)] : [...mine, ...COLLECTION];
+      found = rankByPrice(book, pool, true, limit);
+    } else {
+      found = [...search(mine, q, limit), ...search(COLLECTION, q, limit)].slice(0, limit);
+    }
+    return { recipes: found.map((r) => recipeSummaryPriced(book, r)) as T.RecipeSummary[], total_collection: COLLECTION.length, license: LICENSE };
+  },
+
+  suggest: async (body: { user_id?: string | null; items: T.ListItem[]; store_id?: string; budget?: number | null; spent?: number | null; servings?: number }) => {
+    const [book, mine, shops] = await Promise.all([priceBook(), myRecipes(), historyRows(40)]);
+    return suggest(book, body, [...mine, ...COLLECTION], shops) as unknown as T.Suggestions;
+  },
+
+  recipeMenu: async (_user_id: string | null, entries: { recipe_id: string; servings: number }[]): Promise<T.MenuPlan> => {
+    const book = await priceBook();
+    const found: { recipe: Recipe; servings: number }[] = [];
+    for (const e of entries) {
+      const r = await findRecipe(e.recipe_id);
+      if (r) found.push({ recipe: r, servings: e.servings });
+    }
+    return menuPlan(book, found) as unknown as T.MenuPlan;
+  },
+
+  recipePropose: async (body: { user_id?: string | null; count: number; servings: number; budget?: number | null; store_id?: string; exclude?: string[]; items?: T.ListItem[] }) => {
+    const [book, mine, shops] = await Promise.all([priceBook(), myRecipes(), historyRows(40)]);
+    return proposeMenu(book, body, [...mine, ...COLLECTION], shops) as unknown as { recipes: T.ProposedRecipe[]; total: number; servings: number; budget: number | null };
+  },
+
+  recipe: async (id: string, _user_id?: string | null): Promise<T.Recipe> => {
+    const r = await findRecipe(id);
+    if (!r) throw new Error('Ricetta non trovata');
+    return r as T.Recipe;
+  },
+
+  recipePlan: async (body: { servings: number; recipe_id?: string; user_id?: string | null; ingredients?: string[]; recipe_servings?: number | null }): Promise<T.RecipePlan> => {
+    let lines: string[]; let base: number | null | undefined;
+    if (body.recipe_id) {
+      const r = await findRecipe(body.recipe_id);
+      if (!r) throw new Error('Ricetta non trovata');
+      lines = r.ingredients; base = r.servings;
+    } else if (body.ingredients?.length) {
+      lines = body.ingredients; base = body.recipe_servings;
+    } else throw new Error('Indica la ricetta');
+    return planRecipe(await priceBook(), lines, base, body.servings, body.recipe_id || 'inline') as unknown as T.RecipePlan;
+  },
+
+  recipeImport: async (_url: string): Promise<T.Recipe> => {
+    throw new Error('Nella versione online non si possono ancora importare ricette da un link: copia gli ingredienti in una ricetta tua');
+  },
+
+  recipeCreate: async (body: T.RecipeIn): Promise<T.Recipe> => {
+    const row = check(await sb().from('recipes').insert({
+      name: body.name, servings: body.servings, ingredients: cleanLines(body.ingredients), notes: body.notes ?? null,
+      url: body.url ?? null, source: body.source || 'mia',
+    }).select('*').single());
+    return row as T.Recipe;
+  },
+
+  recipeUpdate: async (id: string, body: T.RecipeIn): Promise<T.Recipe> => {
+    const old = await findRecipe(id);
+    if (!old) throw new Error('Ricetta non trovata');
+    const rows = check(await sb().from('recipes').update({
+      name: body.name, servings: body.servings, ingredients: cleanLines(body.ingredients), notes: body.notes ?? null,
+      url: body.url ?? null, source: body.source || old.source || 'mia', updated_at: nowIso(),
+    }).eq('id', id).select('*')) as any[];
+    if (!rows.length) throw new Error('Ricetta non trovata');
+    return rows[0];
+  },
+
+  recipeDelete: async (id: string, _user_id: string) => {
+    const rows = check(await sb().from('recipes').delete().eq('id', id).select('id')) as any[];
+    if (!rows.length) throw new Error('Ricetta non trovata');
+    return { ok: true };
+  },
+
+  geocode: async (q: string) => geocode(q),
+
+  shopCreate: async (body: { user_id: string; store_id: string; saving_id?: string; branch?: string | null; items: T.ShopItemIn[]; display_name?: string | null }): Promise<T.Shop> => {
+    if (!STORE_INDEX[body.store_id]) throw new Error('Negozio sconosciuto');
+    const me = await uid();
+    const book = await priceBook();
+    const seen = new Set<string>();
+    const items: any[] = [];
+    for (const it of body.items) {
+      if (seen.has(it.product_id)) continue;
+      seen.add(it.product_id);
+      items.push(shopItem(book, it, body.store_id));
+    }
+    const row = check(await sb().from('shops').insert({
+      display_name: body.display_name ?? null, store_id: body.store_id, store_name: STORE_INDEX[body.store_id].name,
+      branch: body.branch ?? null, saving_id: body.saving_id ?? null, items,
+    }).select('*').single());
+    return shopOut(row, me);
+  },
+
+  shopActive: async (_user_id: string): Promise<{ shop: T.Shop | null; others?: number }> => {
+    const me = await uid();
+    const shops = check(await sb().from('shops').select('*').eq('status', 'active').order('created_at', { ascending: false }).limit(5)) as any[];
+    if (!shops.length) return { shop: null };
+    const mine = shops.find((s) => s.user_id === me);
+    return { shop: await shopOut(mine ?? shops[0], me), others: shops.length - 1 };
+  },
+
+  shopCheck: async (id: string, _user_id: string, key: string, checked: boolean, display_name?: string | null): Promise<T.Shop> => {
+    const me = await uid();
+    const row = await updateShop(id, (shop) => {
+      if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+      let found = false;
+      for (const i of shop.items) {
+        if (i.key === key) {
+          Object.assign(i, { checked, checked_by: checked ? display_name || null : null, checked_by_id: checked ? me : null,
+            checked_at: checked ? nowIso() : null });
+          found = true;
+        }
+      }
+      if (!found) throw new Error('Prodotto non trovato');
+    });
+    return shopOut(row, me);
+  },
+
+  shopAdd: async (id: string, _user_id: string, item: T.ShopItemIn): Promise<T.Shop> => {
+    const me = await uid();
+    const book = await priceBook();
+    const row = await updateShop(id, (shop) => {
+      if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+      const existing = shop.items.find((i: any) => i.key === item.product_id);
+      if (existing) existing.quantity = pyRound(existing.quantity + item.quantity, 3);
+      else shop.items.push({ ...shopItem(book, item, shop.store_id, true), checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
+    });
+    return shopOut(row, me);
+  },
+
+  shopPrice: async (id: string, body: { user_id: string; key: string; price: number; kind: T.PriceKind; note?: string | null; display_name?: string | null; promo_until?: string | null }): Promise<T.Shop> => {
+    const me = await uid();
+    const current = await shopRow(id);
+    const item = current.items.find((i: any) => i.key === body.key);
+    if (!item) throw new Error('Prodotto non trovato');
+    if (!item.product_id.startsWith('custom:')) {
+      const kg = item.unit === 'kg';
+      await saveObserved([{ product_id: item.product_id, text: item.name, net_price: body.price,
+        quantity: kg ? 1 : item.quantity, weight_kg: kg ? item.quantity : null, kind: body.kind,
+        promo_until: body.promo_until ?? null, note: body.note ?? null }], current.store_id, today(), current.branch ?? null);
+    }
+    const row = await updateShop(id, (shop) => {
+      const it = shop.items.find((i: any) => i.key === body.key);
+      if (!it) throw new Error('Prodotto non trovato');
+      Object.assign(it, { seen: { price: body.price, kind: body.kind, note: body.note ?? null }, checked: true,
+        checked_at: it.checked_at || nowIso(), checked_by: body.display_name ?? null, checked_by_id: me });
+      if (body.kind !== 'variante') it.price = body.price;
+    });
+    return shopOut(row, me);
+  },
+
+  shopFinish: async (id: string, _user_id: string) => {
+    const shop = await shopRow(id);
+    await learnFromShop(shop).catch(() => {});
+    check(await sb().from('shops').update({ status: 'done', finished_at: nowIso() }).eq('id', id));
+    const items: T.ShopItem[] = shop.items;
+    return { missing: items.filter((i) => !i.checked), saving_id: shop.saving_id ?? null, store_name: shop.store_name as string,
+      cart: r2(items.filter((i) => i.checked).reduce((s, i) => s + (i.price || 0), 0)) };
+  },
+
+  shopCancel: async (id: string, _user_id: string) => {
+    const shop = await shopRow(id);
+    check(await sb().from('shops').update({ status: 'cancelled' }).eq('id', id));
+    return { items: shop.items as T.ShopItem[] };
+  },
+
+  familyCreate: async (_user_id: string, display_name: string): Promise<T.Family> => {
+    await setDisplayName(display_name);
+    const fam = check(await sb().rpc('create_family')) as any;
+    await moveMyThings(fam.id);
+    return (await familyOut()) as T.Family;
+  },
+
+  familyJoin: async (_user_id: string, display_name: string, code: string): Promise<T.Family> => {
+    await setDisplayName(display_name);
+    const { data, error } = await sb().rpc('join_family', { join_code: code });
+    if (error) throw new Error(error.message.includes('non trovato') ? 'Codice famiglia non trovato' : error.message);
+    await moveMyThings((data as any).id);
+    return (await familyOut()) as T.Family;
+  },
+
+  familyLeave: async (_user_id: string) => {
+    await moveMyThings(null);
+    check(await sb().rpc('leave_family'));
+    return { ok: true };
+  },
+
+  familyByUser: async (_userId: string) => familyOut(),
+
+  familyPushList: async (code: string, _user_id: string, items: T.ListItem[]): Promise<T.FamilyList> => {
+    const p = await myProfile();
+    if (!p.family_id) throw new Error('Non fai parte di questa famiglia');
+    const doc = { family_id: p.family_id, items, updated_by: p.id, updated_at: nowIso() };
+    check(await sb().from('family_lists').upsert(doc));
+    return { code, items, updated_by: p.id, updated_at: doc.updated_at };
+  },
+
+  familyPullList: async (code: string): Promise<T.FamilyList> => {
+    const p = await myProfile();
+    if (!p.family_id) return { code, items: [] };
+    const row = check(await sb().from('family_lists').select('*').eq('family_id', p.family_id).maybeSingle()) as any;
+    return row ? { code, items: row.items, updated_by: row.updated_by, updated_at: row.updated_at } : { code, items: [] };
+  },
+};
+
+// solo per le prove automatiche (build con EXPO_PUBLIC_E2E=1)
+if (IS_CLOUD && process.env.EXPO_PUBLIC_E2E === '1') (globalThis as any).__mc = cloudApi;

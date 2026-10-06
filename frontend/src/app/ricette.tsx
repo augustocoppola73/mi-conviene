@@ -4,6 +4,7 @@ import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Text, Text
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, MenuPlan, PlanRow, ProposedRecipe, Recipe, RecipeSummary } from '@/api';
+import { IS_CLOUD } from '@/cloud/client';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty } from '@/format';
 import { useStore } from '@/store';
@@ -172,7 +173,7 @@ function RecipeList({ userId, onOpen, onNew, onMenu }: { userId: string | null; 
 
   return (
     <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-      <Card style={{ gap: spacing.sm }}>
+      {!IS_CLOUD && <Card style={{ gap: spacing.sm }}>
         <Text style={s.cardTitle}>🔗 Da un sito di ricette</Text>
         <Text style={s.muted}>Incolla il link di una ricetta (GialloZafferano, Cookist, un blog…): leggo titolo, porzioni e ingredienti. Il procedimento lo trovi sul sito.</Text>
         <View style={s.inputRow}>
@@ -183,9 +184,9 @@ function RecipeList({ userId, onOpen, onNew, onMenu }: { userId: string | null; 
           />
         </View>
         <PrimaryButton label="Leggi la ricetta" icon="download-outline" loading={importing} disabled={link.trim().length < 9} onPress={importLink} />
-      </Card>
+      </Card>}
 
-      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: IS_CLOUD ? 0 : spacing.md }}>
         <PrimaryButton
           label="Scrivi una ricetta" icon="create-outline" variant="secondary"
           onPress={() => onNew({ name: '', servings: 4, ingredients: [] })} style={{ flex: 1 }}

@@ -4,6 +4,7 @@ import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, Family, NearbyStore } from '@/api';
+import { IS_CLOUD, sb, signOut } from '@/cloud/client';
 import { getCurrentPosition } from '@/location';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
@@ -230,6 +231,8 @@ export default function ProfiloScreen() {
           </Card>
         )}
 
+        {IS_CLOUD && <AccountCard />}
+
         <Text style={s.footer}>Mi Conviene · i prezzi sono stime, controlla sempre in negozio.</Text>
       </ScrollView>
 
@@ -293,6 +296,23 @@ const useStyles = makeStyles((c) => ({
   codeInput: { fontSize: 24, letterSpacing: 6, textAlign: 'center', fontWeight: '700' },
 }));
 
+
+function AccountCard() {
+  const { colors } = useTheme();
+  const [email, setEmail] = useState<string | null>(null);
+  useFocusEffect(useCallback(() => {
+    sb().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null)).catch(() => {});
+  }, []));
+  return (
+    <>
+      <SectionTitle>Account</SectionTitle>
+      <Card style={{ gap: spacing.sm }}>
+        {email && <Text style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>Sei entrato come {email}. I tuoi dati sono salvati online e li ritrovi su ogni dispositivo.</Text>}
+        <PrimaryButton label="Esci" icon="log-out-outline" variant="secondary" onPress={() => signOut()} />
+      </Card>
+    </>
+  );
+}
 
 function ThemePicker() {
   const current = useThemeMode();

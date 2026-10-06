@@ -1,6 +1,9 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+import { cloudApi } from './cloud/api';
+import { IS_CLOUD } from './cloud/client';
+
 // URL del backend: EXPO_PUBLIC_BACKEND_URL se impostato, altrimenti lo stesso
 // host del dev server Expo (così funziona anche da telefono in rete locale).
 function resolveBaseUrl(): string {
@@ -209,7 +212,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 const post = <T>(path: string, body: unknown) => request<T>(path, { method: 'POST', body: JSON.stringify(body) });
 
-export const api = {
+export const localApi = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
   optimize: (body: OptimizeRequest) => post<OptimizeResult>('/optimize', body),
   offers: () => request<Offer[]>('/offers'),
@@ -286,3 +289,10 @@ export const api = {
     post<FamilyList>('/family/list', { code, user_id, items }),
   familyPullList: (code: string) => request<FamilyList>(`/family/list/${code}`),
 };
+
+/** Online (Supabase + calcolo nel telefono) oppure il server locale sul PC. */
+export const api: typeof localApi = IS_CLOUD ? (cloudApi as unknown as typeof localApi) : localApi;
+
+// controllo in compilazione: la versione online ha tutte le funzioni, con gli stessi parametri
+const _sameShape: { [K in keyof typeof localApi]: (...a: Parameters<(typeof localApi)[K]>) => Promise<unknown> } = cloudApi;
+void _sameShape;
