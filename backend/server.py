@@ -1919,7 +1919,7 @@ def guard_act(shop: dict, user_id: str) -> None:
     """Spesa presa in carico da un altro: si guarda soltanto (a meno di aiutare o prenderla)."""
     t = shop.get("taken_by")
     if t and t["user_id"] != user_id and not any(h["user_id"] == user_id for h in t.get("helpers", [])):
-        raise HTTPException(409, f"La sta facendo {t.get('name') or 'un familiare'}: premi \"Vi aiuto\" per smarcare anche tu")
+        raise HTTPException(409, f"La sta facendo {t.get('name') or 'un familiare'}: premi \"Ti aiuto\" per smarcare anche tu")
 
 
 @api.post("/shops/{shop_id}/take")

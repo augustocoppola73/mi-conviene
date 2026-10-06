@@ -200,7 +200,7 @@ async function updateShop(id: string, change: (row: any) => void): Promise<any> 
 function guardAct(shop: any, me: string) {
   const t = shop.taken_by;
   if (t && t.user_id !== me && !(t.helpers || []).some((h: any) => h.user_id === me)) {
-    throw new Error(`La sta facendo ${t.name || 'un familiare'}: premi "Vi aiuto" per smarcare anche tu`);
+    throw new Error(`La sta facendo ${t.name || 'un familiare'}: premi "Ti aiuto" per smarcare anche tu`);
   }
 }
 

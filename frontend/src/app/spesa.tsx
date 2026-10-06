@@ -137,7 +137,7 @@ export default function SpesaScreen() {
 
   const toggle = (it: ShopItem) => {
     if (!shop || !userId) return;
-    if (!canAct) { globalThis.alert?.(`La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: se siete insieme in negozio premi "Vi aiuto".`); return; }
+    if (!canAct) { globalThis.alert?.(`La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: se siete insieme in negozio premi "Ti aiuto".`); return; }
     const checked = !it.checked;
     const next = {
       ...shop,
@@ -314,7 +314,7 @@ export default function SpesaScreen() {
               {!canAct && <Text style={s.muted}>Vedi le spunte in diretta. Se siete insieme in negozio, aiuta a smarcare.</Text>}
               <View style={s.takeActions}>
                 {!t && <TakeBtn label="La faccio io" onPress={() => take('take')} />}
-                {t && !canAct && <TakeBtn label="Vi aiuto" onPress={() => take('help')} />}
+                {t && !canAct && <TakeBtn label="Ti aiuto" onPress={() => take('help')} />}
                 {t && !canAct && <TakeBtn label="Prendila tu" secondary onPress={() => take('take')} />}
                 {t && t.user_id === userId && <TakeBtn label="Lasciala" secondary onPress={() => take('release')} />}
                 {helping && <TakeBtn label="Smetti di aiutare" secondary onPress={() => take('release')} />}
