@@ -7,10 +7,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { IS_CLOUD } from '@/cloud/client';
 import { AuthGate } from '@/components/AuthGate';
+import { InviteHandler } from '@/components/InviteHandler';
+import { rememberInviteFromUrl } from '@/invite';
 import { StoreProvider, useStore } from '@/store';
 import { useTheme } from '@/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+rememberInviteFromUrl(); // ?famiglia=CODICE: lo ricordo prima dell'accesso
 if (IS_CLOUD) setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 300); // la schermata di accesso deve vedersi
 
 function HideSplashWhenReady() {
@@ -30,6 +33,7 @@ export default function RootLayout() {
         <AuthGate>
           <StoreProvider>
             <HideSplashWhenReady />
+            <InviteHandler />
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
           </StoreProvider>
         </AuthGate>

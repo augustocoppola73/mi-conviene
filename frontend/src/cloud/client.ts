@@ -39,7 +39,15 @@ export async function currentSession(): Promise<Session | null> {
 
 /** Link di accesso via email (nessuna password). */
 export async function sendLoginLink(email: string): Promise<void> {
-  const redirect = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : undefined;
+  let redirect: string | undefined;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    redirect = window.location.origin;
+    // invito in famiglia in sospeso: viaggia nel link dell'email (se lo apri da un altro browser non si perde)
+    try {
+      const invite = localStorage.getItem('mc_invito_famiglia');
+      if (invite) redirect += `/?famiglia=${encodeURIComponent(invite)}`;
+    } catch { /* niente invito */ }
+  }
   const { error } = await sb().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } });
   if (error) throw new Error(error.message.includes('rate') ? 'Troppe richieste: riprova tra qualche minuto' : error.message);
 }

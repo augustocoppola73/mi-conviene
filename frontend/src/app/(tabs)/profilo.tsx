@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, Family, NearbyStore } from '@/api';
 import { IS_CLOUD, sb, signOut } from '@/cloud/client';
+import { shareInvite } from '@/invite';
 import { getCurrentPosition } from '@/location';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
@@ -67,7 +68,6 @@ export default function ProfiloScreen() {
     try { await fn(); } catch (e) { notify((e as Error).message); } finally { setBusy(false); }
   };
 
-  const name = prefs.displayName || 'Io';
 
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
@@ -79,6 +79,11 @@ export default function ProfiloScreen() {
         <TextInput
           value={prefs.displayName}
           onChangeText={(t) => setPrefs({ displayName: t })}
+          onBlur={() => {
+            // online: il nome si vede anche negli altri telefoni della famiglia
+            const n = prefs.displayName.trim();
+            if (IS_CLOUD && n && userId) sb().from('profiles').update({ display_name: n.slice(0, 40) }).eq('id', userId).then(() => {});
+          }}
           placeholder="Il tuo nome (visibile in famiglia)"
           placeholderTextColor={colors.textSecondary}
           style={s.input}
@@ -173,8 +178,17 @@ export default function ProfiloScreen() {
         <SectionTitle>Famiglia</SectionTitle>
         {family ? (
           <Card>
-            <Text style={s.help}>Condividi questo codice con chi fa la spesa con te</Text>
+            <Text style={s.help}>Invita chi fa la spesa con te: riceve un link, entra con la sua email e conferma.</Text>
             <Text style={s.code} selectable>{family.code}</Text>
+            <PrimaryButton
+              label="Invita in famiglia"
+              icon="share-social-outline"
+              onPress={async () => {
+                const r = await shareInvite(family.code, prefs.displayName);
+                if (r === 'copied') notify("Messaggio d'invito copiato: incollalo su WhatsApp, SMS o email.");
+              }}
+              style={{ marginTop: spacing.sm }}
+            />
             <View style={{ gap: 6, marginTop: spacing.md }}>
               {family.members.map((m) => (
                 <View key={m.user_id} style={s.member}>
@@ -223,7 +237,7 @@ export default function ProfiloScreen() {
                 label="Crea famiglia"
                 icon="people-outline"
                 loading={busy}
-                onPress={() => run(async () => setFamily(await api.familyCreate(userId!, name)))}
+                onPress={() => run(async () => setFamily(await api.familyCreate(userId!, prefs.displayName)))}
                 style={{ flex: 1 }}
               />
               <PrimaryButton label="Ho un codice" variant="secondary" onPress={() => setJoinOpen(true)} style={{ flex: 1 }} />
@@ -256,7 +270,7 @@ export default function ProfiloScreen() {
                 disabled={code.length !== 6}
                 loading={busy}
                 onPress={() => run(async () => {
-                  setFamily(await api.familyJoin(userId!, name, code));
+                  setFamily(await api.familyJoin(userId!, prefs.displayName, code));
                   setJoinOpen(false);
                   setCode('');
                 })}
