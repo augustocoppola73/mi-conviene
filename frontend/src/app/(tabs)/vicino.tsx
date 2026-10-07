@@ -16,6 +16,7 @@ import { useStore } from '@/store';
 import { makeStyles, radius, spacing, storeColors, useTheme } from '@/theme';
 
 const FUEL_COLOR = '#5B6470';
+const OTHER_COLOR = '#9AA096'; // insegne senza prezzi (Ekom, Despar…)
 
 interface Place { id: string; kind: 'store' | 'fuel'; chain?: string; name: string; address: string | null; lat: number; lon: number;
   distance_km: number; price?: number | null; parking?: Parking | null }
@@ -70,7 +71,7 @@ export default function VicinoScreen() {
   }, [data, show, radiusKm]);
 
   const points: MapPoint[] = places.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, kind: p.kind,
-    color: p.kind === 'fuel' ? FUEL_COLOR : storeColors[p.chain!] ?? '#999', label: p.name }));
+    color: p.kind === 'fuel' ? FUEL_COLOR : storeColors[p.chain!] ?? OTHER_COLOR, label: p.name }));
   const sel = places.find((p) => p.id === selected) ?? null;
   const nStores = places.filter((p) => p.kind === 'store').length, nFuel = places.length - nStores;
 
@@ -153,13 +154,14 @@ function PlaceRow({ p, fuelLabel }: { p: Place; fuelLabel?: string }) {
   return (
     <View style={{ gap: 2 }}>
       <View style={s.row}>
-        {p.kind === 'store' ? <StoreDot storeId={p.chain!} size={12} /> : <Text>⛽</Text>}
+        {p.kind === 'store' ? (p.chain === 'altro' ? <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: OTHER_COLOR }} /> : <StoreDot storeId={p.chain!} size={12} />) : <Text>⛽</Text>}
         <Text style={s.name} numberOfLines={1}>{p.name}</Text>
         <Text style={s.dist}>{km(p.distance_km)}</Text>
       </View>
       {!!p.address && <Text style={s.muted} numberOfLines={1}>{p.address}</Text>}
       {p.kind === 'fuel' && p.price != null && <Text style={s.price}>{fuelLabel}: {euro(p.price)}/l self</Text>}
       {p.kind === 'store' && <ParkingLine parking={p.parking} />}
+      {p.kind === 'store' && p.chain === 'altro' && <Text style={s.muted}>Prezzi di questa insegna non ancora nell'app</Text>}
     </View>
   );
 }

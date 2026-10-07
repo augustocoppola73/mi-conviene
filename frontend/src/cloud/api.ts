@@ -13,13 +13,14 @@ import { classify } from '../engine/classify';
 import { C, CATEGORIES, PRODUCT_INDEX, PRODUCTS, STORE_INDEX, STORES } from '../engine/data';
 import {
   aisleOrder, learnAisles, menuPlan, planRecipe, proposeMenu, rankByPrice, Recipe, recipeSummaryPriced,
-  shopItem, suggest, warmRecipes,
+  shopItem, suggest, primeCores,
 } from '../engine/kitchen';
 import { observedRows, ObservedLine } from '../engine/observed';
-import { flyers, fuelNearby, geocode, KV, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor } from '../engine/places';
+import { flyers, fuelNearby, geocode, KV, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor, supermarketsAround } from '../engine/places';
 import { search } from '../engine/recipes';
 import { haversineKm, pyRound } from '../engine/util';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
+import RECIPE_CORES from '../engine/data/recipe_cores.json';
 import { check, IS_CLOUD, sb, uid } from './client';
 
 const COLLECTION = (WIKIBOOKS as { recipes: Recipe[] }).recipes;
@@ -31,7 +32,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const r2 = (x: number) => pyRound(x, 2);
 
 // le ricette della raccolta si preparano subito, a piccoli blocchi
-if (IS_CLOUD) setTimeout(() => { warmRecipes(COLLECTION).catch(() => {}); }, 1500);
+primeCores(COLLECTION, RECIPE_CORES as any); // ricette già abbinate ai prodotti: niente calcoli pesanti sul telefono
 
 const kv: KV = {
   get: (k) => AsyncStorage.getItem(k),
@@ -104,7 +105,7 @@ async function fuelObservedAt(): Promise<string | null> {
 function withParking(branches: any[], parkings: OsmParking[]) {
   for (const b of branches) {
     if (!b || b.lat == null) continue;
-    if (b.chain) b.parking = parkingFor({ lat: b.lat, lon: b.lon, chain: b.chain }, parkings);
+    if (b.chain) b.parking = parkingFor({ lat: b.lat, lon: b.lon, chain: b.chain, name: b.name }, parkings);
   }
 }
 
@@ -343,7 +344,7 @@ export const cloudApi = {
 
   nearMe: async (lat: number, lon: number, fuel: T.FuelType): Promise<T.NearMe> => {
     const [osm, stations, parkings] = await Promise.all([
-      storesAround(lat, lon, kv).catch(() => { throw new Error('OpenStreetMap non raggiungibile'); }),
+      supermarketsAround(lat, lon, kv).catch(() => { throw new Error('OpenStreetMap non raggiungibile'); }),
       stationsNear(lat, lon).catch(() => [] as FuelStation[]),
       parkingsAround(lat, lon, kv).catch(() => null),
     ]);

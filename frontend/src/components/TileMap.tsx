@@ -5,7 +5,8 @@
  * Quando cambia il raggio la vista si ricentra e si adatta al raggio.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GestureResponderEvent, Image, PanResponder, Platform, Pressable, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { GestureResponderEvent, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 
 import { useTheme } from '../theme';
 import { Icon } from './ui';
@@ -14,9 +15,10 @@ export interface MapPoint { id: string; lat: number; lon: number; color: string;
 
 const TILE = 256;
 const MPP0 = 156543.03392; // metri per pixel a zoom 0 all'equatore
-const MIN_Z = 4, MAX_Z = 20;
-// tessere CARTO (dati OpenStreetMap): i server di OpenStreetMap bloccano le app, CARTO no (uso gratuito non commerciale)
-const TILE_URL = (z: number, x: number, y: number) => `https://${'abcd'[(x + y) % 4]}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
+const MIN_Z = 4, MAX_Z = 19;
+// tessere OpenStreetMap: chiedono un User-Agent che identifichi l'app. Il componente Image di React Native su Android
+// non lo manda (e OSM risponde "Access blocked"): uso expo-image, che lo passa davvero e tiene le tessere in cache.
+const TILE_URL = (z: number, x: number, y: number) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
 const TILE_HEADERS = Platform.OS === 'web' ? undefined : { 'User-Agent': 'MiConviene/1.0 (+https://mi-conviene.augustocoppola.workers.dev)' };
 
 const worldX = (lon: number, z: number) => ((lon + 180) / 360) * TILE * 2 ** z;
@@ -98,7 +100,7 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
         const left = Math.floor(W / 2 + (tx * TILE - cx) * scale), top = Math.floor(H / 2 + (ty * TILE - cy) * scale);
         const wx = ((tx % n) + n) % n;
         tiles.push(
-          <Image key={`${z}/${tx}/${ty}`} source={{ uri: TILE_URL(z, wx, ty), headers: TILE_HEADERS }}
+          <Image key={`${z}/${tx}/${ty}`} source={{ uri: TILE_URL(z, wx, ty), headers: TILE_HEADERS }} cachePolicy="disk" transition={0}
             style={{ position: 'absolute', left, top, width: Math.ceil(T) + 1, height: Math.ceil(T) + 1 }} />,
         );
       }
@@ -147,7 +149,7 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
           <MapBtn icon="locate" onPress={recenter} label="Centra su di me" />
         </View>
         <Text style={{ position: 'absolute', right: 4, bottom: 2, fontSize: 10, color: '#333', backgroundColor: 'rgba(255,255,255,0.75)', paddingHorizontal: 3 }}>
-          © OpenStreetMap © CARTO
+          © OpenStreetMap
         </Text>
       </>
     );

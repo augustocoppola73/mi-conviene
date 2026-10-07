@@ -193,10 +193,48 @@ export interface OsmParking { lat: number; lon: number; access: string | null; c
 
 export const PARKING_NEAR_M = 150;
 
-/** Solo i parcheggi a meno di 150 m dai supermercati delle catene (query leggera). */
+/** Solo i parcheggi a meno di 150 m dai supermercati (query leggera). */
 export function parkingQuery(lat: number, lon: number, radiusM: number): string {
-  return `[out:json][timeout:25];nwr["shop"="supermarket"]["brand"~"${BRANDS}",i](around:${radiusM},${lat},${lon})->.s;` +
+  return `[out:json][timeout:25];nwr["shop"="supermarket"](around:${radiusM},${lat},${lon})->.s;` +
     `nwr["amenity"="parking"](around.s:${PARKING_NEAR_M});out center tags;`;
+}
+
+// ------------------------------------------------------------------ tutti i supermercati (Vicino a me)
+/** Anche le insegne di cui non abbiamo ancora i prezzi (Ekom, Despar, Sigma, Crai…): chain = "altro". */
+export function allSupermarketsQuery(lat: number, lon: number, radiusM: number): string {
+  return `[out:json][timeout:25];nwr["shop"="supermarket"](around:${radiusM},${lat},${lon});out center tags;`;
+}
+export function parseAllSupermarkets(elements: any[]): (OsmStore & { brand: string | null })[] {
+  const out: (OsmStore & { brand: string | null })[] = [];
+  for (const e of elements) {
+    const tags = e.tags || {};
+    const lat = e.lat ?? e.center?.lat, lon = e.lon ?? e.center?.lon;
+    if (tags.amenity || lat == null || lon == null) continue; // la query chiede solo supermercati
+    const street = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ').trim();
+    out.push({
+      chain: chainOf({ osm_brand: tags.brand, osm_name: tags.name }) ?? 'altro',
+      name: tags.name || tags.brand || 'Supermercato', brand: tags.brand || null,
+      address: [street, tags['addr:city']].filter(Boolean).join(', ') || null,
+      lat: Number(lat), lon: Number(lon), osm_id: `${e.type}/${e.id}`,
+      opening_hours: tags.opening_hours ?? null, website: tags.website || tags['contact:website'] || null,
+    });
+  }
+  return out;
+}
+export async function supermarketsAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch) {
+  const key = `mc_osm_all_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
+  try {
+    const hit = JSON.parse((await kv.get(key)) || 'null');
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.stores as ReturnType<typeof parseAllSupermarkets>;
+  } catch { /* cache rovinata: si rifà */ }
+  const r = await fetchFn(OVERPASS_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
+    body: 'data=' + encodeURIComponent(allSupermarketsQuery(lat, lon, RADIUS_M)),
+  });
+  if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
+  const stores = parseAllSupermarkets((await r.json()).elements || []);
+  try { await kv.set(key, JSON.stringify({ at: Date.now(), stores })); } catch { /* pazienza */ }
+  return stores;
 }
 
 export function parseParkings(elements: any[]): OsmParking[] {
@@ -213,13 +251,16 @@ export function parseParkings(elements: any[]): OsmParking[] {
 }
 
 /** Il parcheggio migliore vicino al negozio: prima quello dei clienti (o della stessa catena), poi uno pubblico. */
-export function parkingFor(store: { lat: number; lon: number; chain: string }, parkings: OsmParking[]): Parking {
+export function parkingFor(store: { lat: number; lon: number; chain: string; name?: string }, parkings: OsmParking[]): Parking {
+  const own = (store.name || '').toLowerCase().split(/\s+/)[0];
   let best: { p: OsmParking; rank: number; d: number } | null = null;
   for (const p of parkings) {
     const d = haversineKm(store.lat, store.lon, p.lat, p.lon) * 1000;
     if (d > PARKING_NEAR_M) continue;
     if (p.capacity != null && p.capacity < 5) continue; // 2-4 posti: di solito stalli per disabili o di servizio
-    const sameChain = chainOf({ osm_brand: p.operator, osm_name: p.name }) === store.chain;
+    const sameChain = store.chain !== 'altro'
+      ? chainOf({ osm_brand: p.operator, osm_name: p.name }) === store.chain
+      : own.length >= 3 && `${p.name ?? ''} ${p.operator ?? ''}`.toLowerCase().includes(own);
     const access = (p.access || '').toLowerCase();
     let rank: number;
     if (sameChain || access === 'customers' || access === 'permissive') rank = 2;
@@ -234,7 +275,7 @@ export function parkingFor(store: { lat: number; lon: number; chain: string }, p
 
 /** Parcheggi vicino ai supermercati della zona, con cache di 7 giorni come i negozi. */
 export async function parkingsAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch): Promise<OsmParking[]> {
-  const key = `mc_osm_park_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
+  const key = `mc_osm_park2_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
   try {
     const hit = JSON.parse((await kv.get(key)) || 'null');
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.parkings;

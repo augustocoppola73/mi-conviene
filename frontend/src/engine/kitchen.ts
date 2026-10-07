@@ -23,17 +23,30 @@ export function recipeSummary(r: Recipe) {
 }
 
 const CORES = new Map<string, Core>();
+const coreKey = (r: Recipe) => `${r.id}|${r.servings}|${(r.ingredients || []).join('\u0001')}`;
+const coreOf = (base: number, rows: PlanRow[]): Core => ({ servings: base, rows, needs: rows.filter((x) => x.product_id && !x.pantry),
+  unknown: rows.filter((x) => !x.product_id && !x.pantry).map((x) => x.name) });
+
 export function recipeCore(r: Recipe): Core {
-  const key = `${r.id}|${r.servings}|${(r.ingredients || []).join('\u0001')}`;
+  const key = coreKey(r);
   let core = CORES.get(key);
   if (!core) {
     const base = r.servings || 4;
-    const rows = plan(r.ingredients || [], base, base, PRODUCT_INDEX);
-    core = { servings: base, rows, needs: rows.filter((x) => x.product_id && !x.pantry),
-      unknown: rows.filter((x) => !x.product_id && !x.pantry).map((x) => x.name) };
+    core = coreOf(base, plan(r.ingredients || [], base, base, PRODUCT_INDEX));
     CORES.set(key, core);
   }
   return core;
+}
+
+/** Le ricette della raccolta abbinate ai prodotti già "in fabbrica" (scripts/recipe_cores.ts): abbinarle sul telefono
+ *  bloccava l'app per secondi dopo l'avvio. Righe con prodotti che non esistono più vengono ricalcolate al bisogno. */
+export function primeCores(all: Recipe[], rowsById: Record<string, Partial<PlanRow>[]>) {
+  for (const r of all) {
+    const rows = rowsById[r.id]?.map((x) => ({ amount: null, kind: null, measure: null, from: null, product_id: null, product_name: null,
+      pantry: false, approx: false, ...x })) as PlanRow[] | undefined;
+    if (!rows || rows.some((x) => x.product_id && !PRODUCT_INDEX[x.product_id])) continue;
+    CORES.set(coreKey(r), coreOf(r.servings || 4, rows));
+  }
 }
 
 function rowCost(book: PriceBook, storeId: string, pid: string, qty: number): number | null {
