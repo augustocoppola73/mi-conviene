@@ -409,3 +409,23 @@ def test_fuel_stop_lists_alternatives_on_the_way():
     assert best["brand"] == "Europam"
     alt = best["alternatives"]
     assert [a["brand"] for a in alt] == ["Eni"] and alt[0]["extra_cost"] == 0.32
+
+
+async def test_abituale_lontano_da_casa(client, monkeypatch):
+    """Conad abituale vicino a casa: in un'altra zona il Conad più vicino è un altro negozio e non vale come abituale."""
+    near = {s["id"]: {"chain": s["id"], "name": f"{s['name']} centro", "address": "via X", "lat": 43.55, "lon": 10.31,
+                      "osm_id": f"node/{i}", "opening_hours": None, "distance_km": 0.5 + i / 10}
+            for i, s in enumerate(server.STORES)}
+
+    async def fake_nearest(lat, lon):
+        return near
+    monkeypatch.setattr(server.locator, "nearest", fake_nearest)
+    monkeypatch.setattr(server, "maybe_recenter_prices", lambda *a: None)
+    body = {"user_id": "u", "items": [{"product_id": "latte", "quantity": 1}], "transport": "car",
+            "habitual_store_id": "conad", "min_savings_threshold": 3, "lat": 43.55, "lon": 10.31}
+    # punto vendita abituale a Stagno (lontano ~7 km): non è quello qui
+    far = (await client.post("/api/optimize", json={**body, "habitual_branch": {"lat": 43.6, "lon": 10.39, "name": "Conad Stagno"}})).json()
+    assert "Conad" in far["location"]["habitual_far"] and far["savings"]["reference"]["type"] != "habitual"
+    # stesso punto vendita: vale come abituale
+    same = (await client.post("/api/optimize", json={**body, "habitual_branch": {"lat": 43.5502, "lon": 10.3101}})).json()
+    assert "habitual_far" not in same["location"]

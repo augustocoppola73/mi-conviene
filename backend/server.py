@@ -74,6 +74,7 @@ PRICES_REFRESH_HOURS = float(os.environ.get("PRICES_REFRESH_HOURS", "12"))
 
 prices = PriceService(PRICE_LAT, PRICE_LON, PRICE_RADIUS_KM)
 locator = StoreLocator(int(float(os.environ.get("STORES_RADIUS_KM", "6")) * 1000))
+HABITUAL_SAME_STORE_KM = 1.0  # entro 1 km è lo stesso punto vendita abituale
 PRICE_RECENTER_KM = 15  # oltre questa distanza dalla zona prezzi, la si sposta sull'utente
 _recenter_task: Optional[asyncio.Task] = None
 log = logging.getLogger("mi_conviene")
@@ -325,6 +326,8 @@ class OptimizeRequest(BaseModel):
     budget: Optional[float] = None
     transport: Transport = "car"
     habitual_store_id: Optional[str] = None
+    # il punto vendita preciso dell'abituale: se qui la stessa catena è un altro negozio, non vale come abituale
+    habitual_branch: Optional[dict] = None
     min_savings_threshold: float = 3.0
     fuel_type: Literal["benzina", "gasolio", "gpl", "metano"] = "benzina"
     # posizione dell'utente: se c'è si usano i punti vendita reali più vicini
@@ -957,6 +960,12 @@ async def optimize(req: OptimizeRequest):
     stores, location = await stores_for(req.lat, req.lon)
     if req.habitual_store_id and not any(s["id"] == req.habitual_store_id for s in stores):
         location["habitual_missing"] = STORE_INDEX[req.habitual_store_id]["name"]
+    hb = req.habitual_branch or {}
+    here = next((s for s in stores if s["id"] == req.habitual_store_id), None)
+    if hb.get("lat") is not None and here and here.get("branch") and \
+            haversine_km(hb["lat"], hb["lon"], here["branch"]["lat"], here["branch"]["lon"]) > HABITUAL_SAME_STORE_KM:
+        location["habitual_far"] = STORE_INDEX[req.habitual_store_id]["name"] + (f" ({hb['name']})" if hb.get("name") else "")
+        req = req.model_copy(update={"habitual_store_id": None})
     result = optimize_list(req, stores)
     result["location"] = location
     shops = await db.history.find({"user_id": req.user_id}, NO_ID).sort("created_at", -1).to_list(BUDGET_HISTORY_LIMIT)

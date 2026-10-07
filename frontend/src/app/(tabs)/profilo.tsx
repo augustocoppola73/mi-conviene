@@ -153,17 +153,29 @@ export default function ProfiloScreen() {
 
         <SectionTitle>Supermercato abituale</SectionTitle>
         <View style={s.wrap}>
-          <Chip label="Nessuno" selected={!prefs.habitualStoreId} onPress={() => setPrefs({ habitualStoreId: null })} />
+          <Chip label="Nessuno" selected={!prefs.habitualStoreId} onPress={() => setPrefs({ habitualStoreId: null, habitualBranch: null })} />
           {catalog?.stores.map((st) => (
             <Chip
               key={st.id}
               label={habitualLabel(st.id, st.name)}
               leading={<StoreDot storeId={st.id} size={14} />}
               selected={prefs.habitualStoreId === st.id}
-              onPress={() => setPrefs({ habitualStoreId: st.id })}
+              onPress={() => {
+                // il punto vendita preciso: quello di questa catena più vicino alla posizione impostata
+                const n = loc ? nearby?.find((x) => x.chain === st.id) : undefined;
+                setPrefs({ habitualStoreId: st.id,
+                  habitualBranch: n ? { name: n.name, address: n.address, lat: n.lat, lon: n.lon } : null });
+              }}
             />
           ))}
         </View>
+        {prefs.habitualStoreId && (
+          <Text style={s.help}>
+            {prefs.habitualBranch
+              ? `Il tuo punto vendita: ${prefs.habitualBranch.name}${prefs.habitualBranch.address ? `, ${prefs.habitualBranch.address}` : ''}. Quando sei lontano da qui, l'app ti consiglia il negozio migliore della zona dove ti trovi.`
+              : 'Imposta la tua posizione di casa qui sopra e tocca di nuovo il supermercato: così fisso il punto vendita preciso (non tutta la catena).'}
+          </Text>
+        )}
 
         <SectionTitle>Soglia minima di convenienza</SectionTitle>
         <Text style={s.help}>

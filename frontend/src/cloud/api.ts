@@ -18,13 +18,14 @@ import {
 import { observedRows, ObservedLine } from '../engine/observed';
 import { flyers, fuelNearby, geocode, KV, nearestPerChain, RADIUS_M, storesAround, storesFor } from '../engine/places';
 import { search } from '../engine/recipes';
-import { pyRound } from '../engine/util';
+import { haversineKm, pyRound } from '../engine/util';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
 import { check, IS_CLOUD, sb, uid } from './client';
 
 const COLLECTION = (WIKIBOOKS as { recipes: Recipe[] }).recipes;
 const LICENSE = (WIKIBOOKS as { license: string }).license;
 const BUDGET_HISTORY_LIMIT = 50;
+const HABITUAL_SAME_STORE_KM = 1.0;   // entro 1 km è lo stesso punto vendita
 const nowIso = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 const r2 = (x: number) => pyRound(x, 2);
@@ -272,9 +273,17 @@ export const cloudApi = {
     if (req.habitual_store_id && !stores.some((s) => s.id === req.habitual_store_id)) {
       location.habitual_missing = STORE_INDEX[req.habitual_store_id].name;
     }
+    // l'abituale è un punto vendita preciso: se qui la stessa catena è un altro negozio, non vale come abituale
+    let habitualId = req.habitual_store_id ?? null;
+    const hb = req.habitual_branch;
+    const here = habitualId ? stores.find((s) => s.id === habitualId) : undefined;
+    if (hb && here?.branch && haversineKm(hb.lat, hb.lon, here.branch.lat, here.branch.lon) > HABITUAL_SAME_STORE_KM) {
+      location.habitual_far = `${STORE_INDEX[habitualId!].name}${hb.name ? ` (${hb.name})` : ''}`;
+      habitualId = null;
+    }
     const fuelType = req.fuel_type || 'benzina';
     const fuel = fuelInfo(fuelType, stations, req.lat, req.lon, date);
-    const result: any = optimizeList(book, { ...req, fuel_type: fuelType }, stores, fuel, stations);
+    const result: any = optimizeList(book, { ...req, habitual_store_id: habitualId, fuel_type: fuelType }, stores, fuel, stations);
     result.location = location;
     const last: any = lastSimilarShop(req.items.map((i) => i.product_id), shops);
     if (last) last.same_as_recommended = last.store_id === result.recommended.store_id;

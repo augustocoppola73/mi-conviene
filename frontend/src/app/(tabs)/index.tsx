@@ -145,6 +145,7 @@ export default function ListaScreen() {
         budget: prefs.budget,
         transport: prefs.transport,
         habitual_store_id: prefs.habitualStoreId,
+        habitual_branch: prefs.habitualBranch,
         min_savings_threshold: prefs.minSavingsThreshold,
         fuel_type: prefs.fuelType,
         ...(prefs.location ? { lat: prefs.location.lat, lon: prefs.location.lon } : {}),
@@ -435,7 +436,7 @@ export default function ListaScreen() {
               label={st.name}
               leading={<StoreDot storeId={st.id} size={14} />}
               selected={prefs.habitualStoreId === st.id}
-              onPress={() => setPrefs({ habitualStoreId: prefs.habitualStoreId === st.id ? null : st.id })}
+              onPress={() => setPrefs({ habitualStoreId: prefs.habitualStoreId === st.id ? null : st.id, habitualBranch: null })}
             />
           ))}
         </View>

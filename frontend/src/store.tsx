@@ -12,6 +12,8 @@ const PREFS_KEY = 'margine_prefs';
 export interface Prefs {
   transport: Transport;
   habitualStoreId: string | null;
+  /** il punto vendita preciso dell'abituale (non tutta la catena): vale solo quando sei lì vicino */
+  habitualBranch: { name: string; address: string | null; lat: number; lon: number } | null;
   budget: number | null;
   minSavingsThreshold: number;
   displayName: string;
@@ -26,6 +28,7 @@ export interface Prefs {
 const DEFAULT_PREFS: Prefs = {
   transport: 'car',
   habitualStoreId: null,
+  habitualBranch: null,
   budget: null, // nessun limite finché non lo scegli (o accetti quello suggerito)
   minSavingsThreshold: 3,
   displayName: '',

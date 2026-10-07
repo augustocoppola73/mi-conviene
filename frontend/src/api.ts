@@ -86,6 +86,8 @@ export interface Branch {
 export interface NearbyStore extends Branch { chain: string; distance_km: number }
 export interface LocationInfo {
   mode: 'reale' | 'esempio'; missing_chains: string[]; radius_km?: number; error?: string; habitual_missing?: string;
+  /** sei lontano dal tuo punto vendita abituale: qui la stessa catena è un altro negozio */
+  habitual_far?: string;
 }
 export interface FuelStop {
   station_id: string; brand: string; address: string; city: string; lat: number; lon: number; price: number;
@@ -121,6 +123,8 @@ export interface FuelInfo {
 export interface OptimizeRequest {
   user_id: string; items: ListItem[]; budget?: number | null; transport: Transport;
   habitual_store_id?: string | null; min_savings_threshold: number; fuel_type?: FuelType;
+  /** dov'è il punto vendita abituale: se il negozio di quella catena qui vicino è un altro, non vale come abituale */
+  habitual_branch?: { lat: number; lon: number; name?: string | null } | null;
   lat?: number; lon?: number; refuel?: boolean; refuel_liters?: number | null;
 }
 

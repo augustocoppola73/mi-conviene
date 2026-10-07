@@ -28,6 +28,7 @@ export default function RisultatiScreen() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [askBranchDone, setAskBranchDone] = useState(false);
 
   // ogni nuova ricerca è una nuova spesa da confermare
   useEffect(() => {
@@ -70,7 +71,7 @@ export default function RisultatiScreen() {
   const refLabel = refRow ? `rispetto a ${refRow.store_name}` : savings.reference.label;
 
   const openConfirm = () => {
-    const habitualHere = ranked.some((r) => r.store_id === prefs.habitualStoreId) ? prefs.habitualStoreId : null;
+    const habitualHere = !location.habitual_far && ranked.some((r) => r.store_id === prefs.habitualStoreId) ? prefs.habitualStoreId : null;
     setRefStore(habitualHere && habitualHere !== recommended.store_id ? habitualHere : habitualHere ? recommended.store_id : null);
     setRememberHabitual(false);
     setAskOpen(true);
@@ -80,7 +81,10 @@ export default function RisultatiScreen() {
     if (!userId) return;
     setSaving(true);
     try {
-      if (rememberHabitual && refStore) setPrefs({ habitualStoreId: refStore });
+      if (rememberHabitual && refStore) {
+        const b = ranked.find((r) => r.store_id === refStore)?.branch;
+        setPrefs({ habitualStoreId: refStore, habitualBranch: b ? { name: b.name, address: b.address, lat: b.lat, lon: b.lon } : null });
+      }
       const h = await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: recommended.total_cost });
       const amount = addToPiggyBank ? Math.round((shopSaving + fuelSaving) * 100) / 100 : 0;
       // la voce va comunque nel Salvadanaio (anche a zero) per poterla verificare con lo scontrino vero
@@ -306,6 +310,26 @@ export default function RisultatiScreen() {
             </Card>
           ))}
         </View>
+        {prefs.habitualStoreId && !prefs.habitualBranch && !askBranchDone && (() => {
+          const row = ranked.find((r) => r.store_id === prefs.habitualStoreId);
+          const b = row?.branch;
+          if (!b) return null;
+          return (
+            <Card style={{ gap: spacing.sm, marginTop: spacing.md }}>
+              <Text style={s.missing}>Il tuo {row!.store_name} abituale è quello di {b.address || b.name}?</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <PrimaryButton label="Sì, è questo" onPress={() => { setPrefs({ habitualBranch: { name: b.name, address: b.address, lat: b.lat, lon: b.lon } }); setAskBranchDone(true); }} style={{ flex: 1 }} />
+                <PrimaryButton label="No, è un altro" variant="secondary" onPress={() => setAskBranchDone(true)} style={{ flex: 1 }} />
+              </View>
+              <Text style={s.missing}>Così, quando sei lontano da casa, ti consiglio il negozio migliore della zona dove ti trovi.</Text>
+            </Card>
+          );
+        })()}
+        {location.habitual_far && (
+          <Text style={s.missing}>
+            📍 Sei lontano dal tuo {location.habitual_far}: qui ti consiglio il negozio più conveniente della zona, senza preferire la catena abituale.
+          </Text>
+        )}
         {location.mode === 'reale' && (location.missing_chains.length > 0 || location.habitual_missing) && (
           <Text style={s.missing}>
             {location.missing_chains.length > 0
@@ -329,7 +353,7 @@ export default function RisultatiScreen() {
                 <Pressable key={r.store_id} onPress={() => setRefStore(r.store_id)} style={[s.refChip, refStore === r.store_id && s.refChipOn]}>
                   <StoreDot storeId={r.store_id} size={12} />
                   <Text style={[s.refText, refStore === r.store_id && s.refTextOn]}>
-                    {r.store_name}{r.store_id === prefs.habitualStoreId ? ' (abituale)' : ''}
+                    {r.store_name}{r.store_id === prefs.habitualStoreId && !location.habitual_far ? ' (abituale)' : ''}
                   </Text>
                 </Pressable>
               ))}
