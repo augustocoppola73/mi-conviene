@@ -144,7 +144,7 @@ export default function ListaScreen() {
         items,
         budget: prefs.budget,
         transport: prefs.transport,
-        habitual_store_id: prefs.habitualStoreId,
+        habitual_store_id: prefs.habitualBranch ? prefs.habitualStoreId : null,
         habitual_branch: prefs.habitualBranch,
         min_savings_threshold: prefs.minSavingsThreshold,
         fuel_type: prefs.fuelType,
@@ -428,18 +428,6 @@ export default function ListaScreen() {
           </View>
         )}
 
-        <SectionTitle>Dove vai di solito?</SectionTitle>
-        <View style={s.wrap}>
-          {catalog.stores.map((st) => (
-            <Chip
-              key={st.id}
-              label={st.name}
-              leading={<StoreDot storeId={st.id} size={14} />}
-              selected={prefs.habitualStoreId === st.id}
-              onPress={() => setPrefs({ habitualStoreId: prefs.habitualStoreId === st.id ? null : st.id, habitualBranch: null })}
-            />
-          ))}
-        </View>
       </ScrollView>
 
       {items.length > 0 && (

@@ -52,12 +52,14 @@ export default function ProfiloScreen() {
     setNearbyError(null);
     api.storesNearby(loc.lat, loc.lon).then((r) => setNearby(r.stores)).catch((e: Error) => setNearbyError(e.message));
   }, [loc]));
-  // distanza reale del punto vendita più vicino (se c'è la posizione); mai le distanze di esempio
-  const habitualLabel = (id: string, name: string) => {
-    if (!loc || !nearby) return name;
-    const n = nearby.find((x) => x.chain === id);
-    return n ? `${name} · ${km(n.distance_km)}` : `${name} · non vicino`;
+  // il punto vendita abituale è quello preciso scelto qui (stessa posizione entro ~100 m)
+  const isHabitual = (n: NearbyStore) => {
+    const b = prefs.habitualBranch;
+    return !!b && prefs.habitualStoreId === n.chain && Math.abs(b.lat - n.lat) < 0.001 && Math.abs(b.lon - n.lon) < 0.0013;
   };
+  const pickHabitual = (n: NearbyStore) => setPrefs(isHabitual(n)
+    ? { habitualStoreId: null, habitualBranch: null }
+    : { habitualStoreId: n.chain, habitualBranch: { name: n.name, address: n.address, lat: n.lat, lon: n.lon } });
   const locate = async () => {
     setLocating(true);
     try { setPrefs({ location: await getCurrentPosition() }); } catch (e) { notify((e as Error).message); } finally { setLocating(false); }
@@ -127,17 +129,18 @@ export default function ProfiloScreen() {
         <SectionTitle>Posizione</SectionTitle>
         {loc ? (
           <Card>
-            <Text style={s.help}>Punti vendita più vicini a te (OpenStreetMap), uno per catena:</Text>
+            <Text style={s.help}>Punti vendita più vicini a te, uno per catena. Tocca la ⭐ del tuo supermercato abituale:</Text>
             {nearbyError && <Text style={[s.help, { color: colors.danger }]}>{nearbyError}</Text>}
             {!nearby && !nearbyError && <Text style={s.help}>Cerco i negozi vicini…</Text>}
             {nearby?.map((n) => (
-              <View key={n.osm_id} style={s.member}>
+              <Pressable key={n.osm_id} onPress={() => pickHabitual(n)} style={[s.member, s.storeRow]}>
+                <Icon name={isHabitual(n) ? 'star' : 'star-outline'} size={18} color={isHabitual(n) ? colors.primary : colors.textSecondary} />
                 <StoreDot storeId={n.chain} size={12} />
-                <Text style={[s.memberName, { flex: 1 }]} numberOfLines={1}>
+                <Text style={[s.memberName, { flex: 1 }, isHabitual(n) && { fontWeight: '700' }]} numberOfLines={1}>
                   {n.name}{n.address ? ` · ${n.address}` : ''}
                 </Text>
                 <Text style={s.help}>{km(n.distance_km)}</Text>
-              </View>
+              </Pressable>
             ))}
             <View style={s.familyActions}>
               <PrimaryButton label="Aggiorna" icon="locate-outline" variant="secondary" loading={locating} onPress={locate} style={{ flex: 1 }} />
@@ -152,30 +155,25 @@ export default function ProfiloScreen() {
         )}
 
         <SectionTitle>Supermercato abituale</SectionTitle>
-        <View style={s.wrap}>
-          <Chip label="Nessuno" selected={!prefs.habitualStoreId} onPress={() => setPrefs({ habitualStoreId: null, habitualBranch: null })} />
-          {catalog?.stores.map((st) => (
-            <Chip
-              key={st.id}
-              label={habitualLabel(st.id, st.name)}
-              leading={<StoreDot storeId={st.id} size={14} />}
-              selected={prefs.habitualStoreId === st.id}
-              onPress={() => {
-                // il punto vendita preciso: quello di questa catena più vicino alla posizione impostata
-                const n = loc ? nearby?.find((x) => x.chain === st.id) : undefined;
-                setPrefs({ habitualStoreId: st.id,
-                  habitualBranch: n ? { name: n.name, address: n.address, lat: n.lat, lon: n.lon } : null });
-              }}
-            />
-          ))}
-        </View>
-        {prefs.habitualStoreId && (
-          <Text style={s.help}>
-            {prefs.habitualBranch
-              ? `Il tuo punto vendita: ${prefs.habitualBranch.name}${prefs.habitualBranch.address ? `, ${prefs.habitualBranch.address}` : ''}. Quando sei lontano da qui, l'app ti consiglia il negozio migliore della zona dove ti trovi.`
-              : 'Imposta la tua posizione di casa qui sopra e tocca di nuovo il supermercato: così fisso il punto vendita preciso (non tutta la catena).'}
-          </Text>
-        )}
+        <Card>
+          {prefs.habitualBranch ? (
+            <>
+              <View style={s.member}>
+                <Icon name="star" size={18} color={colors.primary} />
+                {prefs.habitualStoreId && <StoreDot storeId={prefs.habitualStoreId} size={12} />}
+                <Text style={[s.memberName, { flex: 1, fontWeight: '700' }]} numberOfLines={2}>
+                  {prefs.habitualBranch.name}{prefs.habitualBranch.address ? ` · ${prefs.habitualBranch.address}` : ''}
+                </Text>
+              </View>
+              <Text style={s.help}>È il tuo negozio di zona. Quando sei lontano da qui, l'app ti consiglia il più conveniente dove ti trovi.</Text>
+              <PrimaryButton label="Nessun abituale" variant="secondary" onPress={() => setPrefs({ habitualStoreId: null, habitualBranch: null })} style={{ marginTop: spacing.sm }} />
+            </>
+          ) : (
+            <Text style={s.help}>
+              {loc ? 'Nessuno. Sceglilo toccando la ⭐ nella lista dei negozi qui sopra.' : 'Nessuno. Attiva la posizione qui sopra (meglio da casa) e scegli il tuo negozio dalla lista.'}
+            </Text>
+          )}
+        </Card>
 
         <SectionTitle>Soglia minima di convenienza</SectionTitle>
         <Text style={s.help}>
@@ -313,6 +311,7 @@ const useStyles = makeStyles((c) => ({
   code: { color: c.primary, fontSize: 34, fontWeight: '800', letterSpacing: 6, textAlign: 'center' },
   member: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   memberName: { color: c.text, fontSize: 15 },
+  storeRow: { paddingVertical: 6 },
   familyActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   leave: { color: c.danger, fontSize: 14, fontWeight: '600' },
   footer: { color: c.textSecondary, fontSize: 12, textAlign: 'center', marginTop: spacing.xxl },
