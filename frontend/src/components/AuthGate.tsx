@@ -120,7 +120,7 @@ function LoginForm() {
   return (
     <SafeAreaView style={s.screen}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.wrap}>
-        <View style={s.logo}><Icon name="cart" size={36} color={colors.primaryText} /></View>
+        <View style={s.logo}><Icon name="pricetag" size={36} color={colors.primaryText} /></View>
         <Text style={s.title}>Mi Conviene</Text>
         <Text style={s.sub}>Dove fare la spesa spendendo meno, viaggio compreso.</Text>
         {!sent ? (
