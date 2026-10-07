@@ -6,6 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { IS_CLOUD, joinFamilyWithEmail, redeemDeviceCode, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
 import { pendingInvite } from '../invite';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+
+// nell'app Android il link dell'email aprirebbe il browser: si entra con i codici
+const NATIVE = Platform.OS !== 'web';
 import { Icon, PrimaryButton } from './ui';
 
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -85,7 +88,7 @@ function LoginForm() {
   const [code, setCode] = useState('');
   const [withCode, setWithCode] = useState(false);
   const [busy, setBusy] = useState<false | 'email' | 'google' | 'guest' | 'link'>(false);
-  const [linking, setLinking] = useState(false);
+  const [linking, setLinking] = useState(NATIVE);
   const [linkCode, setLinkCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const valid = /^\S+@\S+\.\S+$/.test(email.trim());
@@ -122,13 +125,13 @@ function LoginForm() {
         <Text style={s.sub}>Dove fare la spesa spendendo meno, viaggio compreso.</Text>
         {!sent ? (
           <>
-            <PrimaryButton label="Continua con Google" icon="logo-google" variant="secondary" onPress={google} loading={busy === 'google'} />
-            <View style={s.orRow}><View style={s.line} /><Text style={s.or}>oppure con la tua email</Text><View style={s.line} /></View>
+            {!NATIVE && <PrimaryButton label="Continua con Google" icon="logo-google" variant="secondary" onPress={google} loading={busy === 'google'} />}
+            {!NATIVE && <View style={s.orRow}><View style={s.line} /><Text style={s.or}>oppure con la tua email</Text><View style={s.line} /></View>}
             <Text style={s.label}>La tua email</Text>
             <TextInput value={email} onChangeText={setEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
               autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email" style={s.input}
               onSubmitEditing={() => valid && send()} />
-            <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />
+            {!NATIVE && <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />}
             <PrimaryButton label="Inizia senza account" icon="arrow-forward-outline" variant="secondary" onPress={guest} loading={busy === 'guest'} style={{ marginTop: spacing.sm }} />
             {!linking ? (
               <PrimaryButton label="Ho un codice" icon="key-outline" variant="secondary" onPress={() => setLinking(true)} style={{ marginTop: spacing.sm }} />
@@ -146,7 +149,9 @@ function LoginForm() {
                 <Text style={s.note}>Codice famiglia: lo trovi in Profilo → Famiglia sul telefono di chi è già dentro. Codice di collegamento: Profilo → Account → "Collega un altro telefono".</Text>
               </View>
             )}
-            <Text style={s.note}>Niente password. Con Google o con l'email ritrovi i tuoi dati su ogni dispositivo; senza account restano su questo telefono (puoi salvarli dopo con Google).</Text>
+            <Text style={s.note}>{NATIVE
+              ? 'Niente password: scrivi la tua email e il codice famiglia, oppure il codice di collegamento di un telefono dove sei già dentro.'
+              : "Niente password. Con Google o con l'email ritrovi i tuoi dati su ogni dispositivo; senza account restano su questo telefono (puoi salvarli dopo con Google)."}</Text>
           </>
         ) : (
           <>

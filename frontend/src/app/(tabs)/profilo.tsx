@@ -364,7 +364,7 @@ function AccountCard() {
               autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email"
               style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16 }} />
             <PrimaryButton label="Aggiungi la mia email" icon="mail-outline" onPress={addEmail} loading={busy} disabled={!/^\S+@\S+\.\S+$/.test(newEmail.trim())} />
-            <PrimaryButton label="Salva con Google" icon="logo-google" variant="secondary" onPress={save} loading={busy} />
+            {Platform.OS === 'web' && <PrimaryButton label="Salva con Google" icon="logo-google" variant="secondary" onPress={save} loading={busy} />}
           </>
         ) : user?.email ? (
           <>
