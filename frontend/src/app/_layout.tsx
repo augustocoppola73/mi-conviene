@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { IS_CLOUD } from '@/cloud/client';
+import { AppUpdates } from '@/components/AppUpdates';
 import { AuthGate } from '@/components/AuthGate';
 import { InviteHandler } from '@/components/InviteHandler';
 import { rememberInviteFromUrl } from '@/invite';
@@ -30,6 +31,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
       <SafeAreaProvider>
         <StatusBar style={isDark ? 'light' : 'dark'} />
+        <AppUpdates />
         <AuthGate>
           <StoreProvider>
             <HideSplashWhenReady />

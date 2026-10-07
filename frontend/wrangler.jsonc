@@ -1,10 +1,15 @@
-// Pubblicazione su Cloudflare (Workers con file statici): l'app web esportata da Expo.
-// Build: npx expo export -p web  →  cartella dist
+// Pubblicazione su Cloudflare (Worker + file statici).
+// Build (impostata su Cloudflare): npx expo export -p web  →  cartella dist
+// Poi `wrangler deploy` esegue "build" qui sotto: prepara gli aggiornamenti dell'app Android in dist/ota.
 {
   "name": "mi-conviene",
   "compatibility_date": "2026-09-01",
+  "main": "worker/index.js",
+  "build": { "command": "node scripts/ota-export.mjs" },
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   }
 }

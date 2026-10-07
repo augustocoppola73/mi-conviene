@@ -45,3 +45,6 @@ example
 # build Android/iOS generate da expo prebuild
 /android
 /ios
+
+# aggiornamenti app Android (generati)
+/dist-ota
