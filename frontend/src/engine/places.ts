@@ -12,6 +12,11 @@ export const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 export const RADIUS_M = 6000;
 const BRANDS = 'Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin';
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
+/** Overpass e Nominatim rifiutano (406) le app senza un User-Agent riconoscibile; il browser invece lo mette da sé
+ *  e non lascia cambiarlo, quindi lo aggiungiamo solo nell'app Android/iOS. */
+const IS_NATIVE = typeof navigator !== 'undefined' && (navigator as any).product === 'ReactNative';
+const APP_HEADERS: Record<string, string> = IS_NATIVE
+  ? { 'User-Agent': 'MiConviene/1.0 (Android; +https://mi-conviene.augustocoppola.workers.dev)' } : {};
 
 const CHAIN_PATTERNS: [string, RegExp][] = [
   ['esselunga', pyRe('\\besselunga\\b', 'i')],
@@ -159,7 +164,7 @@ export async function storesAround(lat: number, lon: number, kv: KV = memKV, fet
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.stores;
   } catch { /* cache rovinata: si rifà */ }
   const r = await fetchFn(OVERPASS_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
     body: 'data=' + encodeURIComponent(overpassQuery(lat, lon, RADIUS_M)),
   });
   if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
@@ -170,7 +175,7 @@ export async function storesAround(lat: number, lon: number, kv: KV = memKV, fet
 
 export async function geocode(q: string, fetchFn: typeof fetch = fetch) {
   const params = new URLSearchParams({ q, format: 'json', limit: '5', countrycodes: 'it', 'accept-language': 'it' });
-  const r = await fetchFn(`${NOMINATIM_URL}?${params}`);
+  const r = await fetchFn(`${NOMINATIM_URL}?${params}`, { headers: APP_HEADERS });
   if (!r.ok) throw new Error('Ricerca indirizzi non disponibile in questo momento');
   const data = await r.json();
   return data.map((x: any) => ({ lat: pyRound(Number(x.lat), 4), lon: pyRound(Number(x.lon), 4), label: x.display_name || '' }));
