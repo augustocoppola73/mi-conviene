@@ -12,6 +12,7 @@ export const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 export const RADIUS_M = 6000;
 const BRANDS = 'Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin|Aldi|MD|Penny|Ekom|Dpiù|Dpiu|Tuodì|Tuodi|Prix';
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
+const BRANDS_TAG = [...BRANDS].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
 /** Overpass e Nominatim rifiutano (406) le app senza un User-Agent riconoscibile; il browser invece lo mette da sé
  *  e non lascia cambiarlo, quindi lo aggiungiamo solo nell'app Android/iOS. */
 const IS_NATIVE = typeof navigator !== 'undefined' && (navigator as any).product === 'ReactNative';
@@ -165,7 +166,8 @@ const memKV: KV = { get: async (k) => memory.get(k) ?? null, set: async (k, v) =
 
 /** Negozi delle catene nel raggio, con cache di 7 giorni per zona (~1 km). */
 export async function storesAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch): Promise<OsmStore[]> {
-  const key = `mc_osm_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
+  // la chiave cambia quando cambiano le insegne cercate: niente risultati vecchi senza le catene nuove
+  const key = `mc_osm_${BRANDS_TAG}_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
   try {
     const hit = JSON.parse((await kv.get(key)) || 'null');
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.stores;
