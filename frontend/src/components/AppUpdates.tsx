@@ -14,7 +14,7 @@ import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { Icon } from './ui';
 
 const SITE = 'https://mi-conviene.augustocoppola.workers.dev';
-const CHECK_EVERY_MS = 30 * 60 * 1000;
+const CHECK_EVERY_MS = 2 * 60 * 1000; // al massimo un controllo ogni 2 minuti (apertura o ritorno nell'app)
 
 interface LatestApk { versionCode: number; versionName: string; url: string; notes?: string }
 
