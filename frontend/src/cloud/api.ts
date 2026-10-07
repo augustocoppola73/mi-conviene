@@ -10,7 +10,7 @@ import {
   RealPrice, savingValue, suggestBudget, UserPrice, verifiedFuelSaving, verifiedSaving,
 } from '../engine/core';
 import { classify } from '../engine/classify';
-import { CATEGORIES, PRODUCT_INDEX, PRODUCTS, STORE_INDEX, STORES } from '../engine/data';
+import { C, CATEGORIES, PRODUCT_INDEX, PRODUCTS, STORE_INDEX, STORES } from '../engine/data';
 import {
   aisleOrder, learnAisles, menuPlan, planRecipe, proposeMenu, rankByPrice, Recipe, recipeSummaryPriced,
   shopItem, suggest, warmRecipes,
@@ -321,6 +321,20 @@ export const cloudApi = {
       try { all = await storesAround(lat, lon, kv); } catch { all = []; }
     }
     return flyers(all, lat, lon);
+  },
+
+  nearMe: async (lat: number, lon: number, fuel: T.FuelType): Promise<T.NearMe> => {
+    const [osm, stations] = await Promise.all([
+      storesAround(lat, lon, kv).catch(() => { throw new Error('OpenStreetMap non raggiungibile'); }),
+      stationsNear(lat, lon).catch(() => [] as FuelStation[]),
+    ]);
+    const km = (la: number, lo: number) => pyRound(Math.max(haversineKm(lat, lon, la, lo) * C.road_factor, 0.1), 1);
+    const stores = osm.map((s) => ({ ...s, distance_km: km(s.lat, s.lon) }))
+      .filter((s) => s.distance_km <= RADIUS_M / 1000).sort((a, b) => a.distance_km - b.distance_km);
+    const fuelStations = stations.map((s) => ({ id: s.id, brand: s.brand, name: s.name ?? s.brand, address: s.address, city: s.city,
+      lat: s.lat, lon: s.lon, price: s.prices[fuel]?.self ?? null, distance_km: km(s.lat, s.lon) }))
+      .filter((s) => s.distance_km <= RADIUS_M / 1000).sort((a, b) => a.distance_km - b.distance_km);
+    return { radius_km: RADIUS_M / 1000, stores: stores as T.NearbyStore[], stations: fuelStations, fuel };
   },
 
   storesNearby: async (lat: number, lon: number) => {

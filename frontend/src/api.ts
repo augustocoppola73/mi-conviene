@@ -84,6 +84,14 @@ export interface Branch {
   name: string; address: string | null; lat: number; lon: number; osm_id: string; opening_hours: string | null;
 }
 export interface NearbyStore extends Branch { chain: string; distance_km: number }
+/** "Vicino a me": tutti i punti vendita delle catene e i distributori intorno a un punto */
+export interface NearMe {
+  radius_km: number;
+  stores: NearbyStore[];
+  stations: { id: string; brand: string; name: string; address: string; city: string; lat: number; lon: number;
+    price: number | null; distance_km: number }[];
+  fuel: FuelType;
+}
 export interface LocationInfo {
   mode: 'reale' | 'esempio'; missing_chains: string[]; radius_km?: number; error?: string; habitual_missing?: string;
   /** sei lontano dal tuo punto vendita abituale: qui la stessa catena è un altro negozio */
@@ -237,6 +245,12 @@ export const localApi = {
     request<FuelNearby>(`/fuel/nearby?fuel=${fuel}&liters=${liters}` + (lat != null && lon != null ? `&lat=${lat}&lon=${lon}` : '')),
   flyers: (lat?: number, lon?: number) =>
     request<Flyer[]>(lat != null && lon != null ? `/flyers?lat=${lat}&lon=${lon}` : '/flyers'),
+  /** versione locale: il server Python dà solo il più vicino per catena e i distributori migliori */
+  nearMe: async (lat: number, lon: number, fuel: FuelType): Promise<NearMe> => {
+    const [st, fu] = await Promise.all([localApi.storesNearby(lat, lon), localApi.fuelNearby(fuel, lat, lon)]);
+    return { radius_km: st.radius_km, stores: st.stores, fuel,
+      stations: fu.stations.map((s) => ({ id: s.id, brand: s.brand, name: s.name, address: s.address, city: s.city, lat: s.lat, lon: s.lon, price: s.price, distance_km: s.distance_km })) };
+  },
   storesNearby: (lat: number, lon: number) =>
     request<{ radius_km: number; stores: NearbyStore[]; missing_chains: string[] }>(`/stores/nearby?lat=${lat}&lon=${lon}`),
 

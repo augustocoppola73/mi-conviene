@@ -7,7 +7,7 @@ type IconName = keyof typeof Ionicons.glyphMap;
 
 const TABS: { name: string; title: string; icon: IconName; iconActive: IconName }[] = [
   { name: 'index', title: 'Lista', icon: 'list-outline', iconActive: 'list' },
-  { name: 'risultati', title: 'Risultati', icon: 'trophy-outline', iconActive: 'trophy' },
+  { name: 'vicino', title: 'Vicino a me', icon: 'map-outline', iconActive: 'map' },
   { name: 'salvadanaio', title: 'Salvadanaio', icon: 'wallet-outline', iconActive: 'wallet' },
   { name: 'profilo', title: 'Profilo', icon: 'person-outline', iconActive: 'person' },
 ];
@@ -36,6 +36,8 @@ export default function TabsLayout() {
           }}
         />
       ))}
+      {/* i Risultati si aprono dalla Lista ("Trova la spesa migliore" o "Ultimo risultato"), non dal menu */}
+      <Tabs.Screen name="risultati" options={{ href: null, title: 'Risultati' }} />
     </Tabs>
   );
 }

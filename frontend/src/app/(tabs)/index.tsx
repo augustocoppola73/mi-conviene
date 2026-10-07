@@ -40,7 +40,7 @@ export default function ListaScreen() {
   const insets = useSafeAreaInsets();
   const {
     catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, clearItems,
-    prefs, setPrefs, userId, setLastResult,
+    prefs, setPrefs, userId, setLastResult, lastResult,
   } = useStore();
 
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -187,6 +187,16 @@ export default function ListaScreen() {
         <Text style={s.kicker}>Mi Conviene · Ciao{prefs.displayName.trim() ? ` ${prefs.displayName.trim()}` : ''} 👋</Text>
         <Text style={s.title}>Cosa devi comprare?</Text>
         <ActiveShopBanner />
+        {lastResult && (
+          <Pressable onPress={() => router.push('/risultati')} style={({ pressed }) => [s.lastResult, pressed && { opacity: 0.7 }]}>
+            <Icon name="trophy-outline" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.lastResultTitle}>Ultimo risultato: {lastResult.recommended.store_name}</Text>
+              <Text style={s.lastResultMeta}>{euro(lastResult.recommended.total_cost)} · tocca per riaprirlo</Text>
+            </View>
+            <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
+          </Pressable>
+        )}
         <View style={{ marginTop: spacing.md }}>
           <ProductSearch
             products={catalog.products}
@@ -525,6 +535,10 @@ const useStyles = makeStyles((c) => ({
   },
   catEmoji: { fontSize: 32 },
   catName: { color: c.text, fontSize: 12, fontWeight: '500' },
+  lastResult: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md, padding: spacing.md,
+    borderRadius: radius.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  lastResultTitle: { fontSize: 15, fontWeight: '700', color: c.text },
+  lastResultMeta: { fontSize: 13, color: c.textSecondary, marginTop: 2 },
   habitualBtn: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'flex-start',
     marginTop: spacing.lg, paddingVertical: spacing.sm, paddingHorizontal: spacing.md,

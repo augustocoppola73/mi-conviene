@@ -9,6 +9,7 @@ import { PaperReceipt } from '@/components/PaperReceipt';
 import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, km } from '@/format';
 import { useStore } from '@/store';
+import { openNavigation } from '@/navigate';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 function shortDate(iso: string | null) {
@@ -131,9 +132,13 @@ export default function RisultatiScreen() {
         </View>
 
         {recommended.branch && (
-          <Text style={s.branch}>
-            {recommended.branch.name}{recommended.branch.address ? ` · ${recommended.branch.address}` : ''}
-          </Text>
+          <>
+            <Text style={s.branch}>
+              {recommended.branch.name}{recommended.branch.address ? ` · ${recommended.branch.address}` : ''}
+            </Text>
+            <PrimaryButton label="Portami lì" icon="navigate" variant="secondary" style={{ marginTop: spacing.sm, alignSelf: 'flex-start' }}
+              onPress={() => openNavigation(recommended.branch!.lat, recommended.branch!.lon, recommended.branch!.name)} />
+          </>
         )}
         {location.mode === 'esempio' && (
           <View style={s.locNote}>
@@ -292,7 +297,13 @@ export default function RisultatiScreen() {
                 <Text style={s.altName}>{r.store_name}</Text>
                 <Text style={s.altTotal}>{euro(r.total_cost)}</Text>
               </View>
-              {r.branch && <Text style={s.altMeta}>{r.branch.name}{r.branch.address ? ` · ${r.branch.address}` : ''}</Text>}
+              {r.branch && (
+                <Pressable onPress={() => openNavigation(r.branch!.lat, r.branch!.lon, r.branch!.name)} hitSlop={4} style={s.altNav}>
+                  <Text style={[s.altMeta, { flex: 1 }]}>{r.branch.name}{r.branch.address ? ` · ${r.branch.address}` : ''}</Text>
+                  <Icon name="navigate" size={14} color={colors.primary} />
+                  <Text style={s.altNavText}>Portami lì</Text>
+                </Pressable>
+              )}
               <Text style={s.altMeta}>
                 spesa {euro(r.receipt.total)} · carburante {euro(r.travel.fuel_cost)} · {km(r.travel.distance_km)} · {r.travel.time_min} min
               </Text>
@@ -455,6 +466,8 @@ const useStyles = makeStyles((c) => ({
   savingBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: spacing.md },
   savingText: { flex: 1, color: c.textSecondary, fontSize: 13, fontWeight: '600' },
   branch: { color: c.textSecondary, fontSize: 13, marginTop: 2 },
+  altNav: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  altNavText: { color: c.primary, fontSize: 13, fontWeight: '600' },
   locNote: { flexDirection: 'row', gap: 6, alignItems: 'flex-start', marginTop: spacing.sm },
   locNoteText: { flex: 1, color: c.warning, fontSize: 12, lineHeight: 17 },
   missing: { color: c.textSecondary, fontSize: 12, marginTop: spacing.md, lineHeight: 17 },

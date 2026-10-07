@@ -9,6 +9,7 @@ import { makeStyles, radius, spacing, useTheme } from '../theme';
 
 // nell'app Android il link dell'email aprirebbe il browser: si entra con i codici
 const NATIVE = Platform.OS !== 'web';
+import { BootLoader } from './BootLoader';
 import { Icon, PrimaryButton } from './ui';
 
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -66,12 +67,7 @@ function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
 }
 
 function Loading() {
-  const { colors } = useTheme();
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
-      <ActivityIndicator color={colors.primary} />
-    </View>
-  );
+  return <BootLoader text="Controllo l'accesso…" />;
 }
 
 function Login() {
