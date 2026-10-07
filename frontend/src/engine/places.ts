@@ -180,3 +180,80 @@ export async function geocode(q: string, fetchFn: typeof fetch = fetch) {
   const data = await r.json();
   return data.map((x: any) => ({ lat: pyRound(Number(x.lat), 4), lon: pyRound(Number(x.lon), 4), label: x.display_name || '' }));
 }
+
+// ------------------------------------------------------------------ parcheggi (OpenStreetMap)
+/** Parcheggio di un punto vendita: dai dati OSM vicini al negozio (non c'è una fonte affidabile sulla "difficoltà"). */
+export interface Parking {
+  /** clienti = del supermercato o riservato ai clienti; pubblico = parcheggio aperto a tutti a due passi; nessuno = niente di segnato */
+  kind: 'clienti' | 'pubblico' | 'nessuno';
+  capacity: number | null; fee: boolean | null; covered: boolean;
+}
+export interface OsmParking { lat: number; lon: number; access: string | null; capacity: number | null; fee: boolean | null;
+  name: string | null; operator: string | null; type: string | null }
+
+export const PARKING_NEAR_M = 150;
+
+/** Solo i parcheggi a meno di 150 m dai supermercati delle catene (query leggera). */
+export function parkingQuery(lat: number, lon: number, radiusM: number): string {
+  return `[out:json][timeout:25];nwr["shop"="supermarket"]["brand"~"${BRANDS}",i](around:${radiusM},${lat},${lon})->.s;` +
+    `nwr["amenity"="parking"](around.s:${PARKING_NEAR_M});out center tags;`;
+}
+
+export function parseParkings(elements: any[]): OsmParking[] {
+  const out: OsmParking[] = [];
+  for (const e of elements) {
+    const t = e.tags || {};
+    const lat = e.lat ?? e.center?.lat, lon = e.lon ?? e.center?.lon;
+    if (t.amenity !== 'parking' || lat == null || lon == null) continue;
+    const cap = parseInt(t.capacity, 10);
+    out.push({ lat: Number(lat), lon: Number(lon), access: t.access ?? null, capacity: Number.isFinite(cap) && cap > 0 ? cap : null,
+      fee: t.fee === 'yes' ? true : t.fee === 'no' ? false : null, name: t.name ?? null, operator: t.operator ?? null, type: t.parking ?? null });
+  }
+  return out;
+}
+
+/** Il parcheggio migliore vicino al negozio: prima quello dei clienti (o della stessa catena), poi uno pubblico. */
+export function parkingFor(store: { lat: number; lon: number; chain: string }, parkings: OsmParking[]): Parking {
+  let best: { p: OsmParking; rank: number; d: number } | null = null;
+  for (const p of parkings) {
+    const d = haversineKm(store.lat, store.lon, p.lat, p.lon) * 1000;
+    if (d > PARKING_NEAR_M) continue;
+    if (p.capacity != null && p.capacity < 5) continue; // 2-4 posti: di solito stalli per disabili o di servizio
+    const sameChain = chainOf({ osm_brand: p.operator, osm_name: p.name }) === store.chain;
+    const access = (p.access || '').toLowerCase();
+    let rank: number;
+    if (sameChain || access === 'customers' || access === 'permissive') rank = 2;
+    else if (access === 'private' || access === 'no' || access === 'delivery') continue;
+    else rank = 1;
+    if (!best || rank > best.rank || (rank === best.rank && d < best.d)) best = { p, rank, d };
+  }
+  if (!best) return { kind: 'nessuno', capacity: null, fee: null, covered: false };
+  const covered = best.p.type === 'underground' || best.p.type === 'multi-storey';
+  return { kind: best.rank === 2 ? 'clienti' : 'pubblico', capacity: best.p.capacity, fee: best.p.fee, covered };
+}
+
+/** Parcheggi vicino ai supermercati della zona, con cache di 7 giorni come i negozi. */
+export async function parkingsAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch): Promise<OsmParking[]> {
+  const key = `mc_osm_park_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
+  try {
+    const hit = JSON.parse((await kv.get(key)) || 'null');
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.parkings;
+  } catch { /* cache rovinata: si rifà */ }
+  const r = await fetchFn(OVERPASS_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
+    body: 'data=' + encodeURIComponent(parkingQuery(lat, lon, RADIUS_M)),
+  });
+  if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
+  const parkings = parseParkings((await r.json()).elements || []);
+  try { await kv.set(key, JSON.stringify({ at: Date.now(), parkings })); } catch { /* pazienza */ }
+  return parkings;
+}
+
+/** Testo breve per l'interfaccia. */
+export function parkingLabel(p: Parking | null | undefined): string | null {
+  if (!p) return null;
+  if (p.kind === 'nessuno') return 'Nessun parcheggio segnato sulla mappa';
+  const extra = [p.capacity ? `${p.capacity} posti` : null, p.covered ? 'coperto' : null, p.fee ? 'a pagamento' : p.fee === false ? 'gratuito' : null]
+    .filter(Boolean).join(', ');
+  return `${p.kind === 'clienti' ? 'Parcheggio clienti' : 'Parcheggio pubblico vicino'}${extra ? ` (${extra})` : ''}`;
+}

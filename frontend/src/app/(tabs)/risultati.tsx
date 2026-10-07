@@ -10,6 +10,7 @@ import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@
 import { euro, km } from '@/format';
 import { useStore } from '@/store';
 import { openNavigation } from '@/navigate';
+import { ParkingLine } from '@/components/ParkingLine';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 function shortDate(iso: string | null) {
@@ -55,6 +56,15 @@ export default function RisultatiScreen() {
   const { recommended, ranked, reasoning, budget_status, fuel, price_coverage, savings, last_similar, location } = lastResult;
   const lastToday = last_similar ? ranked.find((r) => r.store_id === last_similar.store_id) : undefined;
   const others = ranked.filter((r) => r.store_id !== recommended.store_id);
+  // parcheggio: se il consigliato non ha il parcheggio clienti e un'alternativa quasi uguale sì, lo segnalo (scegli tu)
+  const recPark = recommended.branch?.parking;
+  const parkAlt = recPark && recPark.kind !== 'clienti'
+    ? others.find((r) => r.branch?.parking?.kind === 'clienti' && r.total_cost - recommended.total_cost <= Math.max(3, prefs.minSavingsThreshold))
+    : undefined;
+  const parkingHint = parkAlt
+    ? `${parkAlt.store_name} costa ${euro(parkAlt.total_cost - recommended.total_cost)} in più ma ha il parcheggio clienti; ` +
+      `${recommended.store_name} ${recPark!.kind === 'pubblico' ? 'ha solo un parcheggio pubblico vicino' : 'non ha parcheggi segnati sulla mappa'}. Scegli tu.`
+    : null;
 
   // Il risparmio lo calcola il backend contro un riferimento oggettivo (abituale o
   // spesa tipica in zona). Il budget non entra mai nel conto.
@@ -136,9 +146,15 @@ export default function RisultatiScreen() {
             <Text style={s.branch}>
               {recommended.branch.name}{recommended.branch.address ? ` · ${recommended.branch.address}` : ''}
             </Text>
+            <ParkingLine parking={recommended.branch.parking} />
             <PrimaryButton label="Portami lì" icon="navigate" variant="secondary" style={{ marginTop: spacing.sm, alignSelf: 'flex-start' }}
               onPress={() => openNavigation(recommended.branch!.lat, recommended.branch!.lon, recommended.branch!.name)} />
           </>
+        )}
+        {parkingHint && (
+          <View style={s.locNote}>
+            <Text style={s.locNoteText}>🅿️ {parkingHint}</Text>
+          </View>
         )}
         {location.mode === 'esempio' && (
           <View style={s.locNote}>
@@ -304,6 +320,7 @@ export default function RisultatiScreen() {
                   <Text style={s.altNavText}>Portami lì</Text>
                 </Pressable>
               )}
+              {r.branch && <ParkingLine parking={r.branch.parking} size={12} />}
               <Text style={s.altMeta}>
                 spesa {euro(r.receipt.total)} · carburante {euro(r.travel.fuel_cost)} · {km(r.travel.distance_km)} · {r.travel.time_min} min
               </Text>

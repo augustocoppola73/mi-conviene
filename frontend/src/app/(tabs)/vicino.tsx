@@ -4,7 +4,8 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, NearMe } from '@/api';
+import { api, NearMe, Parking } from '@/api';
+import { ParkingLine } from '@/components/ParkingLine';
 import { Slider } from '@/components/Slider';
 import { MapPoint, TileMap } from '@/components/TileMap';
 import { Card, Chip, Icon, PrimaryButton, StoreDot } from '@/components/ui';
@@ -17,7 +18,7 @@ import { makeStyles, radius, spacing, storeColors, useTheme } from '@/theme';
 const FUEL_COLOR = '#5B6470';
 
 interface Place { id: string; kind: 'store' | 'fuel'; chain?: string; name: string; address: string | null; lat: number; lon: number;
-  distance_km: number; price?: number | null }
+  distance_km: number; price?: number | null; parking?: Parking | null }
 
 export default function VicinoScreen() {
   const s = useStyles();
@@ -62,7 +63,7 @@ export default function VicinoScreen() {
   const places: Place[] = useMemo(() => {
     if (!data) return [];
     const st: Place[] = show.store ? data.stores.map((x) => ({ id: `s-${x.osm_id}`, kind: 'store' as const, chain: x.chain, name: x.name,
-      address: x.address, lat: x.lat, lon: x.lon, distance_km: x.distance_km })) : [];
+      address: x.address, lat: x.lat, lon: x.lon, distance_km: x.distance_km, parking: x.parking })) : [];
     const fu: Place[] = show.fuel ? data.stations.map((x) => ({ id: `f-${x.id}`, kind: 'fuel' as const, name: x.name || x.brand,
       address: [x.address, x.city].filter(Boolean).join(', ') || null, lat: x.lat, lon: x.lon, distance_km: x.distance_km, price: x.price })) : [];
     return [...st, ...fu].filter((p) => p.distance_km <= radiusKm).sort((a, b) => a.distance_km - b.distance_km);
@@ -158,6 +159,7 @@ function PlaceRow({ p, fuelLabel }: { p: Place; fuelLabel?: string }) {
       </View>
       {!!p.address && <Text style={s.muted} numberOfLines={1}>{p.address}</Text>}
       {p.kind === 'fuel' && p.price != null && <Text style={s.price}>{fuelLabel}: {euro(p.price)}/l self</Text>}
+      {p.kind === 'store' && <ParkingLine parking={p.parking} />}
     </View>
   );
 }

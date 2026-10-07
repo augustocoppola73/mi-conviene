@@ -80,8 +80,11 @@ export interface Flyer {
   store_id: string; store_name: string; url: string; store_page: boolean;
   branch_name: string | null; address: string | null; distance_km: number | null; nearest_km: number | null;
 }
+export interface Parking { kind: 'clienti' | 'pubblico' | 'nessuno'; capacity: number | null; fee: boolean | null; covered: boolean }
 export interface Branch {
   name: string; address: string | null; lat: number; lon: number; osm_id: string; opening_hours: string | null;
+  /** dai dati di OpenStreetMap (solo versione online); assente = non verificato */
+  parking?: Parking | null;
 }
 export interface NearbyStore extends Branch { chain: string; distance_km: number }
 /** "Vicino a me": tutti i punti vendita delle catene e i distributori intorno a un punto */

@@ -14,9 +14,9 @@ export interface MapPoint { id: string; lat: number; lon: number; color: string;
 
 const TILE = 256;
 const MPP0 = 156543.03392; // metri per pixel a zoom 0 all'equatore
-const MIN_Z = 4, MAX_Z = 19;
-const TILE_URL = (z: number, x: number, y: number) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
-// OpenStreetMap chiede di farsi riconoscere; il browser lo fa da sé
+const MIN_Z = 4, MAX_Z = 20;
+// tessere CARTO (dati OpenStreetMap): i server di OpenStreetMap bloccano le app, CARTO no (uso gratuito non commerciale)
+const TILE_URL = (z: number, x: number, y: number) => `https://${'abcd'[(x + y) % 4]}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
 const TILE_HEADERS = Platform.OS === 'web' ? undefined : { 'User-Agent': 'MiConviene/1.0 (+https://mi-conviene.augustocoppola.workers.dev)' };
 
 const worldX = (lon: number, z: number) => ((lon + 180) / 360) * TILE * 2 ** z;
@@ -147,7 +147,7 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
           <MapBtn icon="locate" onPress={recenter} label="Centra su di me" />
         </View>
         <Text style={{ position: 'absolute', right: 4, bottom: 2, fontSize: 10, color: '#333', backgroundColor: 'rgba(255,255,255,0.75)', paddingHorizontal: 3 }}>
-          © OpenStreetMap
+          © OpenStreetMap © CARTO
         </Text>
       </>
     );

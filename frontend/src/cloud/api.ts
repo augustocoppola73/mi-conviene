@@ -16,7 +16,7 @@ import {
   shopItem, suggest, warmRecipes,
 } from '../engine/kitchen';
 import { observedRows, ObservedLine } from '../engine/observed';
-import { flyers, fuelNearby, geocode, KV, nearestPerChain, RADIUS_M, storesAround, storesFor } from '../engine/places';
+import { flyers, fuelNearby, geocode, KV, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor } from '../engine/places';
 import { search } from '../engine/recipes';
 import { haversineKm, pyRound } from '../engine/util';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
@@ -98,6 +98,14 @@ async function fuelObservedAt(): Promise<string | null> {
   const { data } = await sb().from('meta').select('value').eq('key', 'prices_status').maybeSingle();
   fuelDate = { at: Date.now(), date: (data?.value as any)?.fuel_date ?? null };
   return fuelDate.date;
+}
+
+/** Aggiunge il parcheggio (dati OSM) a ogni punto vendita che ha catena e coordinate. */
+function withParking(branches: any[], parkings: OsmParking[]) {
+  for (const b of branches) {
+    if (!b || b.lat == null) continue;
+    if (b.chain) b.parking = parkingFor({ lat: b.lat, lon: b.lon, chain: b.chain }, parkings);
+  }
 }
 
 async function stationsNear(lat: number, lon: number): Promise<FuelStation[]> {
@@ -247,18 +255,25 @@ async function finalizeSaving(shop: any) {
 
 // ------------------------------------------------------------------ API
 export const cloudApi = {
-  bootstrap: async (): Promise<T.Bootstrap> => ({
-    categories: CATEGORIES, products: PRODUCTS,
-    stores: STORES.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, distance_km: s.distance_km })),
-  }),
+  /** All'avvio: il catalogo è già nell'app, i prezzi no. Li scarico qui, così la schermata di caricamento resta
+   *  finché non sono pronti (offerte e "Trova la spesa migliore" poi sono immediati). Se la rete non va, si entra lo stesso. */
+  bootstrap: async (): Promise<T.Bootstrap> => {
+    // rete bloccata: dopo 20 s si entra comunque e i prezzi continuano ad arrivare in sottofondo
+    await Promise.race([priceBook().catch(() => null), new Promise((r) => setTimeout(r, 20000))]);
+    return {
+      categories: CATEGORIES, products: PRODUCTS,
+      stores: STORES.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, distance_km: s.distance_km })),
+    };
+  },
 
   optimize: async (req: T.OptimizeRequest): Promise<T.OptimizeResult> => {
     if (req.habitual_store_id && !STORE_INDEX[req.habitual_store_id]) throw new Error('Supermercato abituale sconosciuto');
     const hasPos = req.lat != null && req.lon != null;
-    const [book, shops, stations, date] = await Promise.all([
+    const [book, shops, stations, date, parkings] = await Promise.all([
       priceBook(), historyRows(BUDGET_HISTORY_LIMIT),
       hasPos ? stationsNear(req.lat!, req.lon!).catch(() => [] as FuelStation[]) : Promise.resolve([] as FuelStation[]),
       fuelObservedAt().catch(() => null),
+      hasPos ? parkingsAround(req.lat!, req.lon!, kv).catch(() => null) : Promise.resolve(null),
     ]);
     let stores; let location: any;
     if (hasPos) {
@@ -285,6 +300,9 @@ export const cloudApi = {
     const fuel = fuelInfo(fuelType, stations, req.lat, req.lon, date);
     const result: any = optimizeList(book, { ...req, habitual_store_id: habitualId, fuel_type: fuelType }, stores, fuel, stations);
     result.location = location;
+    if (parkings) {
+      for (const r of result.ranked) if (r.branch) r.branch.parking = parkingFor({ lat: r.branch.lat, lon: r.branch.lon, chain: r.store_id }, parkings);
+    }
     const last: any = lastSimilarShop(req.items.map((i) => i.product_id), shops);
     if (last) last.same_as_recommended = last.store_id === result.recommended.store_id;
     result.last_similar = last;
@@ -324,13 +342,15 @@ export const cloudApi = {
   },
 
   nearMe: async (lat: number, lon: number, fuel: T.FuelType): Promise<T.NearMe> => {
-    const [osm, stations] = await Promise.all([
+    const [osm, stations, parkings] = await Promise.all([
       storesAround(lat, lon, kv).catch(() => { throw new Error('OpenStreetMap non raggiungibile'); }),
       stationsNear(lat, lon).catch(() => [] as FuelStation[]),
+      parkingsAround(lat, lon, kv).catch(() => null),
     ]);
     const km = (la: number, lo: number) => pyRound(Math.max(haversineKm(lat, lon, la, lo) * C.road_factor, 0.1), 1);
     const stores = osm.map((s) => ({ ...s, distance_km: km(s.lat, s.lon) }))
       .filter((s) => s.distance_km <= RADIUS_M / 1000).sort((a, b) => a.distance_km - b.distance_km);
+    if (parkings) withParking(stores, parkings);
     const fuelStations = stations.map((s) => ({ id: s.id, brand: s.brand, name: s.name ?? s.brand, address: s.address, city: s.city,
       lat: s.lat, lon: s.lon, price: s.prices[fuel]?.self ?? null, distance_km: km(s.lat, s.lon) }))
       .filter((s) => s.distance_km <= RADIUS_M / 1000).sort((a, b) => a.distance_km - b.distance_km);
