@@ -32,6 +32,7 @@ export default function VicinoScreen() {
   const [show, setShow] = useState({ store: true, fuel: true });
   const [selected, setSelectedId] = useState<string | null>(null);
   const scroll = useRef<ScrollView>(null);
+  const [mapTouch, setMapTouch] = useState(false); // dito sulla mappa: la pagina non scorre
   // scelto dalla lista: torno su, dove ci sono la mappa e "Portami lì"
   const setSelected = (id: string | null) => { setSelectedId(id); if (id) scroll.current?.scrollTo({ y: 0, animated: true }); };
 
@@ -74,7 +75,7 @@ export default function VicinoScreen() {
 
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
-      <ScrollView ref={scroll} contentContainerStyle={s.content}>
+      <ScrollView ref={scroll} contentContainerStyle={s.content} scrollEnabled={!mapTouch}>
         <Text style={s.kicker}>Mi Conviene</Text>
         <Text style={s.title}>Vicino a me</Text>
 
@@ -93,7 +94,7 @@ export default function VicinoScreen() {
           <>
             {!pos.live && <Text style={[s.muted, { marginTop: spacing.sm }]}>📍 Uso la posizione salvata nel Profilo (GPS non disponibile).</Text>}
             <View style={{ marginTop: spacing.md }}>
-              <TileMap center={pos} radiusKm={radiusKm} points={points} selectedId={selected} onSelect={setSelected} height={330} />
+              <TileMap center={pos} radiusKm={radiusKm} points={points} selectedId={selected} onSelect={setSelected} onInteraction={setMapTouch} height={360} />
               {!data && !error && (
                 <View style={s.mapOverlay}><ActivityIndicator color={colors.primary} /><Text style={s.muted}>Cerco i negozi…</Text></View>
               )}
