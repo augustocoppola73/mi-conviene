@@ -76,6 +76,13 @@ export const storeColors: Record<string, string> = {
   carrefour: '#F28C1A',
   pam: '#9C1C3B',
   eurospin: '#1B2F7E',
+  aldi: '#00A0E0',
+  md: '#6A2C91',
+  penny: '#D81E5B',
+  ekom: '#00843D',
+  dpiu: '#8B5E34',
+  tuodi: '#0B8A8F',
+  prix: '#9E9D24',
 };
 
 export function useTheme() {

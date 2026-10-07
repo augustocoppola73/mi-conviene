@@ -170,6 +170,16 @@ STORES = [
     {"id": "carrefour", "name": "Carrefour", "lat": 45.4640, "lng": 9.1900, "distance_km": 1.1, "price_level": 1.07},
     {"id": "pam", "name": "PAM", "lat": 45.4760, "lng": 9.2100, "distance_km": 1.0, "price_level": 1.04},
     {"id": "eurospin", "name": "Eurospin", "lat": 45.5050, "lng": 9.2150, "distance_km": 4.2, "price_level": 0.86},
+    # Altri discount (ottobre 2026). Livello prezzi stimato: Aldi ~ Eurospin (Altroconsumo 2025, prodotti più economici:
+    # Eurospin 100, Aldi 101), MD ~ Lidl +4% (Altroconsumo 2024: Lidl 100, MD 104); Penny, Ekom, Dpiù, Tuodì, Prix senza
+    # dati pubblici recenti: livello medio dei discount. Sono STIME finché non arrivano prezzi veri (scontrini, Open Prices).
+    {"id": "aldi", "name": "Aldi", "lat": 45.4890, "lng": 9.2400, "distance_km": 3.0, "price_level": 0.87},
+    {"id": "md", "name": "MD", "lat": 45.4600, "lng": 9.2300, "distance_km": 2.6, "price_level": 0.90},
+    {"id": "penny", "name": "Penny", "lat": 45.4720, "lng": 9.2450, "distance_km": 2.2, "price_level": 0.91},
+    {"id": "ekom", "name": "Ekom", "lat": 45.4810, "lng": 9.2500, "distance_km": 2.9, "price_level": 0.90},
+    {"id": "dpiu", "name": "Dpiù", "lat": 45.4660, "lng": 9.1980, "distance_km": 3.3, "price_level": 0.90},
+    {"id": "tuodi", "name": "Tuodì", "lat": 45.4580, "lng": 9.2100, "distance_km": 3.1, "price_level": 0.90},
+    {"id": "prix", "name": "Prix", "lat": 45.4930, "lng": 9.1950, "distance_km": 3.4, "price_level": 0.88},
 ]
 STORE_INDEX = {s["id"]: s for s in STORES}
 
@@ -843,10 +853,25 @@ CHAIN_FLYERS = {
     "carrefour": "https://www.carrefour.it/volantino",
     "pam": "https://www.pampanorama.it/volantini",
     "eurospin": "https://www.eurospin.it/volantino/",
+    "aldi": "https://www.aldi.it/",
+    "md": "https://www.mdspa.it/volantino/",
+    "penny": "https://www.penny.it/offerte",
+    "ekom": "https://www.ekomdiscount.it/",
+    "dpiu": "https://www.dpiu.it/",
+    "tuodi": "https://www.tuodi.it/",
+    "prix": "https://www.prixquality.com/",
 }
 OFFICIAL_DOMAINS = {"esselunga": ("esselunga.it",), "conad": ("conad.it",), "coop": ("coop",), "lidl": ("lidl.it",),
                     "carrefour": ("carrefour.it",), "pam": ("pampanorama.it", "e-pam.it"),
-                    "eurospin": ("eurospin.it",)}
+                    "eurospin": ("eurospin.it",),
+                    "aldi": ("aldi.it",),
+                    "md": ("mdspa.it",),
+                    "penny": ("penny.it",),
+                    "ekom": ("ekomdiscount.it",),
+                    "dpiu": ("dpiu.it",),
+                    "tuodi": ("tuodi.it",),
+                    "prix": ("prixquality",),
+                    }
 
 
 def flyer_url(chain: str, website: Optional[str]) -> tuple[str, bool]:

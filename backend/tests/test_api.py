@@ -19,7 +19,7 @@ LIST = [{"product_id": "pasta", "quantity": 2}, {"product_id": "olio_evo", "quan
 async def test_health_and_bootstrap(client):
     assert (await client.get("/api/")).json()["status"] == "ok"
     b = (await client.get("/api/bootstrap")).json()
-    assert len(b["categories"]) == len(server.CATEGORIES) >= 18 and len(b["products"]) == len(server.PRODUCTS) >= 250 and len(b["stores"]) == len(server.STORES) == 7
+    assert len(b["categories"]) == len(server.CATEGORIES) >= 18 and len(b["products"]) == len(server.PRODUCTS) >= 250 and len(b["stores"]) == len(server.STORES) == 14
 
 
 def test_catalog_consistency():

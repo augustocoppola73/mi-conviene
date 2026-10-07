@@ -12,7 +12,8 @@ FRONT = Path(os.environ.get("ENGINE_DIR", ROOT / "frontend" / "src" / "engine"))
 G = json.loads((FRONT / "__golden__" / "core_golden.json").read_text(encoding="utf-8"))
 rnd = random.Random(3)
 names = ["Conad City", "CONAD", "Ipercoop", "Coop Alleanza 3.0", "Lidl", "Carrefour Express", "Pam Local", "Panorama",
-         "Euro Spin", "Eurospin", "Esselunga", "Despar", "Pampero", "Coopera", "Lidl Italia", "incoop", "Novacoop", "Superconad"]
+         "Euro Spin", "Eurospin", "Esselunga", "Despar", "Pampero", "Coopera", "Lidl Italia", "incoop", "Novacoop", "Superconad",
+         "Penny", "PENNY Market", "MD", "Md Discount", "Aldi", "Ekom", "Dpiù", "D più", "Tuodì", "Prix Quality", "Gualdi", "Simdmart"]
 elements = []
 for i in range(120):
     n = rnd.choice(names)

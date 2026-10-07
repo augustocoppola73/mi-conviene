@@ -10,7 +10,7 @@ import { haversineKm, pyRe, pyRound } from './util';
 export const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 export const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 export const RADIUS_M = 6000;
-const BRANDS = 'Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin';
+const BRANDS = 'Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin|Aldi|MD|Penny|Ekom|Dpiù|Dpiu|Tuodì|Tuodi|Prix';
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
 /** Overpass e Nominatim rifiutano (406) le app senza un User-Agent riconoscibile; il browser invece lo mette da sé
  *  e non lascia cambiarlo, quindi lo aggiungiamo solo nell'app Android/iOS. */
@@ -26,6 +26,13 @@ const CHAIN_PATTERNS: [string, RegExp][] = [
   ['carrefour', pyRe('\\bcarrefour\\b', 'i')],
   ['pam', pyRe('\\b(pam|pam local|pam panorama|panorama)\\b', 'i')],
   ['eurospin', pyRe('\\beuro\\s?spin\\b', 'i')],
+  ['aldi', pyRe('\\baldi\\b', 'i')],
+  ['md', pyRe('\\bmd\\b', 'i')],
+  ['penny', pyRe('\\bpenny\\b', 'i')],
+  ['ekom', pyRe('\\bekom\\b', 'i')],
+  ['dpiu', pyRe('\\bd\\s?pi[uù]\\b', 'i')],
+  ['tuodi', pyRe('\\btuod[iì]\\b', 'i')],
+  ['prix', pyRe('\\bprix\\b', 'i')],
 ];
 
 export function chainOf(loc: { osm_brand?: string | null; osm_name?: string | null } | null): string | null {

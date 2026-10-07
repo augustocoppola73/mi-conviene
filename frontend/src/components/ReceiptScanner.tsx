@@ -8,9 +8,9 @@ import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { PriceKindPicker } from './PriceKindPicker';
 import { Card, Icon, PrimaryButton, StoreDot } from './ui';
 
-const CHAINS = ['esselunga', 'conad', 'coop', 'lidl', 'carrefour', 'pam', 'eurospin'];
+const CHAINS = ['esselunga', 'conad', 'coop', 'lidl', 'carrefour', 'pam', 'eurospin', 'aldi', 'md', 'penny', 'ekom', 'dpiu', 'tuodi', 'prix'];
 const CHAIN_NAME: Record<string, string> = {
-  esselunga: 'Esselunga', conad: 'Conad', coop: 'Coop', lidl: 'Lidl', carrefour: 'Carrefour', pam: 'PAM', eurospin: 'Eurospin',
+  esselunga: 'Esselunga', conad: 'Conad', coop: 'Coop', lidl: 'Lidl', carrefour: 'Carrefour', pam: 'PAM', eurospin: 'Eurospin', aldi: 'Aldi', md: 'MD', penny: 'Penny', ekom: 'Ekom', dpiu: 'Dpiù', tuodi: 'Tuodì', prix: 'Prix',
 };
 
 /**

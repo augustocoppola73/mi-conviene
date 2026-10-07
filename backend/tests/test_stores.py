@@ -63,14 +63,14 @@ async def test_optimize_with_location(client, fake_osm):
     r = (await client.post("/api/optimize", json=body)).json()
     assert {x["store_id"] for x in r["ranked"]} == {"esselunga", "conad", "carrefour"}
     assert r["location"]["mode"] == "reale"
-    assert set(r["location"]["missing_chains"]) == {"Coop", "Lidl", "PAM", "Eurospin"}
+    assert set(r["location"]["missing_chains"]) == {"Coop", "Lidl", "PAM", "Eurospin", "Aldi", "MD", "Penny", "Ekom", "Dpiù", "Tuodì", "Prix"}
     assert r["location"]["habitual_missing"] == "Lidl"
     assert all(x["branch"]["name"] for x in r["ranked"])
 
 
 async def test_optimize_without_location_uses_examples(client):
     r = (await client.post("/api/optimize", json={"user_id": "u", "items": [{"product_id": "pasta", "quantity": 1}]})).json()
-    assert r["location"]["mode"] == "esempio" and len(r["ranked"]) == 7
+    assert r["location"]["mode"] == "esempio" and len(r["ranked"]) == 14
 
 
 async def test_optimize_osm_down_falls_back(client, monkeypatch):
@@ -90,7 +90,7 @@ async def test_stores_nearby(client, fake_osm):
 
 async def test_flyers_without_location(client):
     f = (await client.get("/api/flyers")).json()
-    assert len(f) == 7 and all(x["url"].startswith("https://") and not x["store_page"] for x in f)
+    assert len(f) == 14 and all(x["url"].startswith("https://") and not x["store_page"] for x in f)
 
 
 async def test_flyers_near_me_use_store_pages(client, fake_osm):

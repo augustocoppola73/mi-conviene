@@ -24,7 +24,7 @@ USER_AGENT = "MiConviene/0.1 (https://github.com/augustocoppola73/mi-conviene)"
 ROAD_FACTOR = 1.3  # strada reale ≈ 1,3 volte la linea d'aria in città
 CACHE_TTL_S = 7 * 24 * 3600
 CACHE_FILE = Path(os.environ.get("STORES_CACHE", Path(__file__).resolve().parent / "data" / "stores_cache.json"))
-BRANDS = "Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin"
+BRANDS = "Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin|Aldi|MD|Penny|Ekom|Dpiù|Dpiu|Tuodì|Tuodi|Prix"
 
 
 def overpass_query(lat: float, lon: float, radius_m: int, include_convenience: bool = False) -> str:
