@@ -6,10 +6,19 @@
 const NO_UPDATE = (extra = {}) =>
   new Response(null, { status: 204, headers: { 'expo-protocol-version': '1', 'expo-sfv-version': '0', 'cache-control': 'private, max-age=0', ...extra } });
 
+// OTA_MODE (wrangler.jsonc): "on" = aggiornamenti attivi, "rollback" = tutti tornano al codice dentro l'APK
+function rollBack() {
+  const b = 'mc-ota-boundary';
+  const body = `--${b}\r\ncontent-disposition: form-data; name="directive"\r\ncontent-type: application/json\r\n\r\n` +
+    JSON.stringify({ type: 'rollBackToEmbedded', parameters: { commitTime: new Date().toISOString() } }) + `\r\n--${b}--\r\n`;
+  return new Response(body, { headers: { 'content-type': `multipart/mixed; boundary=${b}`, 'expo-protocol-version': '1', 'expo-sfv-version': '0', 'cache-control': 'private, max-age=0' } });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/api/ota/manifest') {
+      if (env.OTA_MODE === 'rollback') return rollBack();
       const platform = request.headers.get('expo-platform') || url.searchParams.get('platform');
       const runtime = request.headers.get('expo-runtime-version') || url.searchParams.get('runtime-version');
       if (platform !== 'android') return NO_UPDATE();

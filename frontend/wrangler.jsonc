@@ -5,6 +5,7 @@
   "name": "mi-conviene",
   "compatibility_date": "2026-09-01",
   "main": "worker/index.js",
+  "vars": { "OTA_MODE": "rollback" },
   "build": { "command": "node scripts/ota-export.mjs" },
   "assets": {
     "directory": "./dist",
