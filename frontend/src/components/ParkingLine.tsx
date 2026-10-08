@@ -1,4 +1,4 @@
-/** Riga "🅿️ Parcheggio clienti (120 posti, gratuito)" sotto un supermercato. Senza dati non mostra nulla. */
+/** Riga "🅿️ Parcheggio privato del negozio (120 posti, gratuito)" sotto un supermercato. Senza dati non mostra nulla. */
 import { Text } from 'react-native';
 
 import { Parking } from '../api';

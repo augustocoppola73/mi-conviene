@@ -125,9 +125,6 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
         {tiles}
         <View pointerEvents="none" style={{ position: 'absolute', left: me.x - rPx, top: me.y - rPx, width: rPx * 2, height: rPx * 2,
           borderRadius: rPx, borderWidth: 2, borderColor: colors.primary, backgroundColor: 'rgba(79,107,74,0.08)' }} />
-        {/* collegamenti dalla tua posizione ai negozi trovati (con pochi negozi tutti, altrimenti solo quello scelto) */}
-        {visible.filter((p) => visible.length <= 15 || p.id === selectedId).map((p) => <Line key={`l-${p.id}`} x1={me.x} y1={me.y} x2={p.x} y2={p.y}
-          color={p.id === selectedId ? colors.primary : p.color} strong={p.id === selectedId} />)}
         {onScreen.map((p) => (
           <Pressable key={p.id} onPress={() => onSelect?.(p.id === selectedId ? null : p.id)} hitSlop={8}
             style={{ position: 'absolute', left: p.x - D / 2, top: p.y - D / 2, width: D, height: D, borderRadius: p.kind === 'fuel' ? 5 : D / 2,
@@ -178,16 +175,5 @@ function MapBtn({ icon, onPress, label }: { icon: 'add' | 'remove' | 'locate'; o
         borderWidth: 1, borderColor: colors.border, opacity: pressed ? 0.7 : 1 })}>
       <Icon name={icon} size={20} color={colors.text} />
     </Pressable>
-  );
-}
-
-function Line({ x1, y1, x2, y2, color, strong }: { x1: number; y1: number; x2: number; y2: number; color: string; strong?: boolean }) {
-  const len = Math.hypot(x2 - x1, y2 - y1);
-  if (len < 12) return null;
-  const angle = Math.atan2(y2 - y1, x2 - x1);
-  const h = strong ? 3 : 2;
-  return (
-    <View pointerEvents="none" style={{ position: 'absolute', left: (x1 + x2) / 2 - len / 2, top: (y1 + y2) / 2 - h / 2, width: len, height: h,
-      backgroundColor: color, opacity: strong ? 0.95 : 0.45, borderRadius: h, transform: [{ rotate: `${angle}rad` }] }} />
   );
 }

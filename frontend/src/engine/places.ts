@@ -166,6 +166,31 @@ export interface KV { get(key: string): Promise<string | null>; set(key: string,
 const memory = new Map<string, string>();
 const memKV: KV = { get: async (k) => memory.get(k) ?? null, set: async (k, v) => { memory.set(k, v); } };
 
+/**
+ * Chiamata a Overpass con due nuovi tentativi (2 s e 5 s dopo) quando il server è occupato (429/5xx).
+ * Una risposta "200" con un errore dentro (es. "Query timed out") conta come fallita: niente risultati vuoti in cache.
+ */
+async function overpassElements(query: string, fetchFn: typeof fetch): Promise<any[]> {
+  let last: Error = new Error('OpenStreetMap non raggiungibile');
+  for (const wait of [0, 2000, 5000]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try {
+      const r = await fetchFn(OVERPASS_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
+        body: 'data=' + encodeURIComponent(query),
+      });
+      if (r.ok) {
+        const j = await r.json();
+        if (typeof j.remark === 'string' && /error|timed out/i.test(j.remark)) { last = new Error(`OpenStreetMap: ${j.remark}`); continue; }
+        return j.elements || [];
+      }
+      last = new Error(`OpenStreetMap ${r.status}`);
+      if (r.status !== 429 && r.status < 500) break;
+    } catch (e) { last = e as Error; }
+  }
+  throw last;
+}
+
 /** Negozi delle catene nel raggio, con cache di 7 giorni per zona (~1 km). */
 export async function storesAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch): Promise<OsmStore[]> {
   // la chiave cambia quando cambiano le insegne cercate: niente risultati vecchi senza le catene nuove
@@ -174,12 +199,7 @@ export async function storesAround(lat: number, lon: number, kv: KV = memKV, fet
     const hit = JSON.parse((await kv.get(key)) || 'null');
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.stores;
   } catch { /* cache rovinata: si rifà */ }
-  const r = await fetchFn(OVERPASS_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
-    body: 'data=' + encodeURIComponent(overpassQuery(lat, lon, RADIUS_M)),
-  });
-  if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
-  const stores = parseElements((await r.json()).elements || []);
+  const stores = parseElements(await overpassElements(overpassQuery(lat, lon, RADIUS_M), fetchFn));
   try { await kv.set(key, JSON.stringify({ at: Date.now(), stores })); } catch { /* pazienza */ }
   return stores;
 }
@@ -239,12 +259,7 @@ export async function supermarketsAround(lat: number, lon: number, kv: KV = memK
     const hit = JSON.parse((await kv.get(key)) || 'null');
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.stores as ReturnType<typeof parseAllSupermarkets>;
   } catch { /* cache rovinata: si rifà */ }
-  const r = await fetchFn(OVERPASS_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
-    body: 'data=' + encodeURIComponent(allSupermarketsQuery(lat, lon, radiusM)),
-  });
-  if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
-  const stores = parseAllSupermarkets((await r.json()).elements || []);
+  const stores = parseAllSupermarkets(await overpassElements(allSupermarketsQuery(lat, lon, radiusM), fetchFn));
   try { await kv.set(key, JSON.stringify({ at: Date.now(), stores })); } catch { /* pazienza */ }
   return stores;
 }
@@ -292,12 +307,7 @@ export async function parkingsAround(lat: number, lon: number, kv: KV = memKV, f
     const hit = JSON.parse((await kv.get(key)) || 'null');
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.parkings;
   } catch { /* cache rovinata: si rifà */ }
-  const r = await fetchFn(OVERPASS_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
-    body: 'data=' + encodeURIComponent(parkingQuery(lat, lon, radiusM)),
-  });
-  if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
-  const parkings = parseParkings((await r.json()).elements || []);
+  const parkings = parseParkings(await overpassElements(parkingQuery(lat, lon, radiusM), fetchFn));
   try { await kv.set(key, JSON.stringify({ at: Date.now(), parkings })); } catch { /* pazienza */ }
   return parkings;
 }
@@ -308,5 +318,5 @@ export function parkingLabel(p: Parking | null | undefined): string | null {
   if (p.kind === 'nessuno') return 'Nessun parcheggio segnato sulla mappa';
   const extra = [p.capacity ? `${p.capacity} posti` : null, p.covered ? 'coperto' : null, p.fee ? 'a pagamento' : p.fee === false ? 'gratuito' : null]
     .filter(Boolean).join(', ');
-  return `${p.kind === 'clienti' ? 'Parcheggio clienti' : 'Parcheggio pubblico vicino'}${extra ? ` (${extra})` : ''}`;
+  return `${p.kind === 'clienti' ? 'Parcheggio privato del negozio' : 'Niente parcheggio privato · pubblico vicino'}${extra ? ` (${extra})` : ''}`;
 }

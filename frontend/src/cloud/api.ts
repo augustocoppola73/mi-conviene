@@ -358,7 +358,7 @@ export const cloudApi = {
     const fuelStations = stations.map((s) => ({ id: s.id, brand: s.brand, name: s.name ?? s.brand, address: s.address, city: s.city,
       lat: s.lat, lon: s.lon, price: s.prices[fuel]?.self ?? null, distance_km: km(s.lat, s.lon) }))
       .filter((s) => s.distance_km <= zoneKm).sort((a, b) => a.distance_km - b.distance_km);
-    return { radius_km: zoneKm, stores: stores as T.NearbyStore[], stations: fuelStations, fuel };
+    return { radius_km: zoneKm, stores: stores as T.NearbyStore[], stations: fuelStations, fuel, parking_missing: !parkings };
   },
 
   storesNearby: async (lat: number, lon: number) => {

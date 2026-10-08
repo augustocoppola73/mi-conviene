@@ -94,6 +94,8 @@ export interface NearMe {
   stations: { id: string; brand: string; name: string; address: string; city: string; lat: number; lon: number;
     price: number | null; distance_km: number }[];
   fuel: FuelType;
+  /** OpenStreetMap non ha risposto per i parcheggi: l'app riprova dopo un po' */
+  parking_missing?: boolean;
 }
 export interface LocationInfo {
   mode: 'reale' | 'esempio'; missing_chains: string[]; radius_km?: number; error?: string; habitual_missing?: string;

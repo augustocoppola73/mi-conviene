@@ -61,7 +61,16 @@ export default function VicinoScreen() {
   const load = useCallback(async (p: { lat: number; lon: number }, rKm: number) => {
     if (loading.current) return;
     loading.current = true; setLoadingZone(true); setError(null);
-    try { setData(await api.nearMe(p.lat, p.lon, prefs.fuelType, rKm)); setAnchor({ lat: p.lat, lon: p.lon }); }
+    try {
+      const next = await api.nearMe(p.lat, p.lon, prefs.fuelType, rKm);
+      // OpenStreetMap non ha dato i parcheggi questa volta: tengo quelli che sapevo già per gli stessi negozi
+      setData((prev) => {
+        if (!next.parking_missing || !prev) return next;
+        const known = new Map(prev.stores.filter((x) => x.parking).map((x) => [x.osm_id, x.parking]));
+        return { ...next, stores: next.stores.map((x) => (x.parking || !known.has(x.osm_id) ? x : { ...x, parking: known.get(x.osm_id) })) };
+      });
+      setAnchor({ lat: p.lat, lon: p.lon });
+    }
     catch (e) { setError((e as Error).message); }
     finally { loading.current = false; setLoadingZone(false); }
   }, [prefs.fuelType]);
@@ -106,6 +115,15 @@ export default function VicinoScreen() {
     const sub = AppState.addEventListener('change', (st) => (st === 'active' ? start() : halt()));
     return () => { cancelled = true; halt(); sub.remove(); };
   }, [live, setPrefs]));
+
+  // OpenStreetMap non ha dato i parcheggi (server occupato): riprovo dopo un po', al massimo 3 volte
+  const parkTries = useRef(0);
+  useEffect(() => {
+    if (!data?.parking_missing || !anchor || parkTries.current >= 3) return;
+    const t = setTimeout(() => { parkTries.current += 1; load(anchor, radiusKm); }, 15000);
+    return () => clearTimeout(t);
+  }, [data, anchor, radiusKm, load]);
+  useEffect(() => { if (data && !data.parking_missing) parkTries.current = 0; }, [data]);
 
   // dati da riscaricare? se il raggio esce dalla zona scaricata, o ti sei spostato troppo dal punto di partenza
   useEffect(() => {
@@ -184,6 +202,9 @@ export default function VicinoScreen() {
               </Text>
             )}
             {loadingZone && data && <Text style={[s.muted, { marginTop: 4 }]}>Cerco i negozi nel nuovo raggio…</Text>}
+            {data?.parking_missing && !loadingZone && (
+              <Text style={[s.muted, { marginTop: 4 }]}>🅿️ Info sui parcheggi non disponibili ora (OpenStreetMap occupato): riprovo tra poco.</Text>
+            )}
 
             <View style={[s.row, { marginTop: spacing.sm, flexWrap: 'wrap' }]}>
               <Chip label={`Supermercati${data ? ` (${nStores})` : ''}`} icon="cart-outline" selected={show.store}
