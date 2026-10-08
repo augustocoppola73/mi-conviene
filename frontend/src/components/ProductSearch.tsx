@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
-import { api, Category, ClassifyResult, Product } from '../api';
-import { formatQty } from '../format';
+import { api, Category, ClassifyResult, ListItem, Product } from '../api';
+import { formatQty, qtyStep } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { QtyStepper } from './QtyStepper';
 import { Icon } from './ui';
 
 export const norm = (t: string) =>
@@ -12,13 +13,16 @@ export const norm = (t: string) =>
 /**
  * Cerca nel catalogo mentre scrivi. Se il prodotto non c'è, lo aggiungi come nuovo:
  * la categoria la propone il backend (parole chiave + somiglianza, niente AI), come Bring.
+ * Tocco su un risultato: lo aggiunge, oppure lo toglie se è già in lista. Appena aggiunto compare una barra
+ * con la quantità da regolare e "Annulla".
  */
-export function ProductSearch({ products, categories, onAddProduct, onAddCustom, inList }: {
+export function ProductSearch({ products, categories, onToggleProduct, onAddCustom, itemFor, onUpdateQty }: {
   products: Product[];
   categories: Category[];
-  onAddProduct: (id: string) => void;
+  onToggleProduct: (id: string) => void;
   onAddCustom: (name: string, categoryId: string) => void;
-  inList: (id: string) => boolean;
+  itemFor: (id: string) => ListItem | undefined;
+  onUpdateQty?: (id: string, q: number) => void; // senza: niente barra quantità (spesa in negozio)
 }) {
   const s = useStyles();
   const { colors } = useTheme();
@@ -26,6 +30,14 @@ export function ProductSearch({ products, categories, onAddProduct, onAddCustom,
   const [cls, setCls] = useState<ClassifyResult | null>(null);
   const [catPick, setCatPick] = useState<string | null>(null); // categoria scelta a mano per il prodotto nuovo
   const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  // l'ultimo prodotto aggiunto: barra con quantità e Annulla
+  const [last, setLast] = useState<{ id: string; name: string; unit: string; step: number } | null>(null);
+  const lastItem = last ? itemFor(last.id) : undefined;
+  useEffect(() => {
+    if (!last) return;
+    const t = setTimeout(() => setLast(null), 12000);
+    return () => clearTimeout(t);
+  }, [last, lastItem?.quantity]);
 
   const matches = useMemo(() => {
     const nq = norm(q);
@@ -59,11 +71,17 @@ export function ProductSearch({ products, categories, onAddProduct, onAddCustom,
   const newCat = catPick ?? cls?.category_id ?? 'altro';
 
   const addNew = () => {
-    onAddCustom(q.trim(), newCat);
+    const name = q.trim();
+    onAddCustom(name, newCat);
+    const id = 'custom:' + name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    setLast({ id, name, unit: 'pz', step: 1 });
     setQ('');
   };
-  const add = (id: string) => {
-    onAddProduct(id);
+  const tap = (p: Product) => {
+    const was = !!itemFor(p.id);
+    onToggleProduct(p.id);
+    if (was) { if (last?.id === p.id) setLast(null); if (onUpdateQty) return; } // toccato di nuovo: tolto, la ricerca resta aperta
+    setLast({ id: p.id, name: p.name, unit: p.unit, step: qtyStep(p.default_qty, p.unit) });
     setQ('');
   };
 
@@ -78,7 +96,7 @@ export function ProductSearch({ products, categories, onAddProduct, onAddCustom,
           placeholderTextColor={colors.textSecondary}
           style={s.input}
           returnKeyType="done"
-          onSubmitEditing={() => (matches[0] && norm(matches[0].name).startsWith(norm(q)) ? add(matches[0].id) : q.trim().length >= 2 && addNew())}
+          onSubmitEditing={() => (matches[0] && norm(matches[0].name).startsWith(norm(q)) ? (!itemFor(matches[0].id) && tap(matches[0])) : q.trim().length >= 2 && addNew())}
           accessibilityLabel="Cerca un prodotto"
         />
         {q.length > 0 && (
@@ -88,16 +106,33 @@ export function ProductSearch({ products, categories, onAddProduct, onAddCustom,
         )}
       </View>
 
+      {last && lastItem && onUpdateQty && q.trim().length < 2 && (
+        <View style={s.lastBar}>
+          <Icon name="checkmark-circle" size={20} color={colors.primary} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={s.name} numberOfLines={1}>{last.name}</Text>
+            <Text style={s.meta}>Aggiunto alla lista</Text>
+          </View>
+          <QtyStepper compact quantity={lastItem.quantity} unit={last.unit} step={last.step} onChange={(n) => onUpdateQty(last.id, n)} />
+          <Pressable onPress={() => { onUpdateQty(last.id, 0); setLast(null); }} hitSlop={8} accessibilityLabel="Annulla">
+            <Text style={s.undo}>Annulla</Text>
+          </Pressable>
+        </View>
+      )}
+
       {q.trim().length >= 2 && (
         <View style={s.results}>
           {[...matches, ...extra.map((x) => products.find((p) => p.id === x.product_id)!).filter(Boolean)].map((p) => (
-            <Pressable key={p.id} onPress={() => add(p.id)} style={s.row}>
+            <Pressable key={p.id} onPress={() => tap(p)} style={s.row}
+              accessibilityHint={itemFor(p.id) ? (onUpdateQty ? 'Già in lista: tocca per toglierlo' : 'Già nella spesa') : 'Tocca per aggiungerlo'}>
               <Text style={s.emoji}>{catById.get(p.category_id)?.emoji}</Text>
               <View style={{ flex: 1 }}>
                 <Text style={s.name}>{p.name}</Text>
-                <Text style={s.meta}>{catById.get(p.category_id)?.name} · {formatQty(p.default_qty, p.unit)}</Text>
+                <Text style={s.meta}>
+                  {catById.get(p.category_id)?.name} · {!itemFor(p.id) ? formatQty(p.default_qty, p.unit) : onUpdateQty ? `in lista: ${formatQty(itemFor(p.id)!.quantity, p.unit)} · tocca per togliere` : 'già nella spesa'}
+                </Text>
               </View>
-              <Icon name={inList(p.id) ? 'checkmark-circle' : 'add-circle'} size={24} color={colors.primary} />
+              <Icon name={itemFor(p.id) ? 'checkmark-circle' : 'add-circle-outline'} size={24} color={colors.primary} />
             </Pressable>
           ))}
 
@@ -147,4 +182,9 @@ const useStyles = makeStyles((c) => ({
   catOn: { backgroundColor: c.primary, borderColor: c.primary },
   catText: { color: c.text, fontSize: 12 },
   catTextOn: { color: c.primaryText },
+  lastBar: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 8,
+    borderRadius: radius.lg, backgroundColor: c.primarySoft,
+  },
+  undo: { color: c.primary, fontWeight: '700', fontSize: 14 },
 }));

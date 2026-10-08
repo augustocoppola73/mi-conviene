@@ -21,6 +21,7 @@ import { FuelCard } from '@/components/FuelCard';
 import { HabitualPicker } from '@/components/HabitualPicker';
 import { HScroll } from '@/components/HScroll';
 import { ProductSearch } from '@/components/ProductSearch';
+import { QtyStepper } from '@/components/QtyStepper';
 import { ShoppingList } from '@/components/ShoppingList';
 import { SmartSuggestions } from '@/components/SmartSuggestions';
 import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
@@ -40,7 +41,7 @@ export default function ListaScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const {
-    catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, clearItems,
+    catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems,
     prefs, setPrefs, userId, setLastResult, lastResult,
   } = useStore();
 
@@ -177,9 +178,10 @@ export default function ListaScreen() {
           <ProductSearch
             products={catalog.products}
             categories={catalog.categories}
-            onAddProduct={(id) => addItem(id)}
+            onToggleProduct={toggleItem}
             onAddCustom={(name, cat) => addCustom(name, cat)}
-            inList={(id) => items.some((i) => i.product_id === id)}
+            itemFor={(id) => items.find((i) => i.product_id === id)}
+            onUpdateQty={updateQty}
           />
         </View>
 
@@ -207,12 +209,17 @@ export default function ListaScreen() {
                         {o.source === 'stima' ? 'stima' : '✓ prezzo reale'}
                       </Text>
                     </View>
-                    <Pressable
-                      accessibilityLabel={`Aggiungi ${o.product_name}`}
-                      onPress={() => addItem(o.product_id)}
-                      style={s.addBtn}>
-                      <Icon name="add" size={20} color={colors.textSecondary} />
-                    </Pressable>
+                    {(() => {
+                      const on = items.some((i) => i.product_id === o.product_id);
+                      return (
+                        <Pressable
+                          accessibilityLabel={on ? `Togli ${o.product_name}` : `Aggiungi ${o.product_name}`}
+                          onPress={() => toggleItem(o.product_id)}
+                          style={[s.addBtn, on && { backgroundColor: colors.primary }]}>
+                          <Icon name={on ? 'checkmark' : 'add'} size={20} color={on ? colors.primaryText : colors.textSecondary} />
+                        </Pressable>
+                      );
+                    })()}
                   </View>
                 </View>
               ))}
@@ -397,18 +404,22 @@ export default function ListaScreen() {
             renderItem={({ item: p }) => {
               const inList = items.find((i) => i.product_id === p.id);
               return (
-                <Pressable onPress={() => addItem(p.id)} style={s.sheetRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.itemName}>{p.name}</Text>
-                    <Text style={s.muted}>
-                      {formatQty(p.default_qty, p.unit)}
-                      {inList ? ` · in lista: ${formatQty(inList.quantity, p.unit)}` : ''}
-                    </Text>
-                  </View>
-                  <View style={[s.addBtn, inList && { backgroundColor: colors.primary }]}>
-                    <Icon name={inList ? 'checkmark' : 'add'} color={inList ? colors.primaryText : colors.textSecondary} />
-                  </View>
-                </Pressable>
+                <View style={s.sheetRow}>
+                  <Pressable onPress={() => toggleItem(p.id)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+                    accessibilityHint={inList ? 'In lista: tocca per toglierlo' : 'Tocca per aggiungerlo'}>
+                    <View style={[s.addBtn, inList && { backgroundColor: colors.primary }]}>
+                      <Icon name={inList ? 'checkmark' : 'add'} color={inList ? colors.primaryText : colors.textSecondary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.itemName}>{p.name}</Text>
+                      <Text style={s.muted}>{inList ? 'in lista · tocca per togliere' : formatQty(p.default_qty, p.unit)}</Text>
+                    </View>
+                  </Pressable>
+                  {inList && (
+                    <QtyStepper compact quantity={inList.quantity} unit={p.unit} step={qtyStep(p.default_qty, p.unit)}
+                      onChange={(n) => updateQty(p.id, n)} />
+                  )}
+                </View>
               );
             }}
           />

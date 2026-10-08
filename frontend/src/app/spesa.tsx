@@ -366,9 +366,9 @@ export default function SpesaScreen() {
             <ProductSearch
               products={catalog?.products ?? []}
               categories={catalog?.categories ?? []}
-              onAddProduct={(id) => addInStore(id)}
+              onToggleProduct={(id) => { if (!shop.items.some((x) => x.key === id)) addInStore(id); }}
               onAddCustom={(n, cat) => addInStore('custom:' + n.toLowerCase().replace(/[^a-z0-9]+/g, '-'), n, cat)}
-              inList={(id) => shop.items.some((x) => x.key === id)}
+              itemFor={(id) => (shop.items.some((x) => x.key === id) ? { product_id: id, quantity: 0 } : undefined)}
             />
             <Pressable onPress={() => setAdding(false)} style={{ alignSelf: 'center', padding: spacing.sm }}><Text style={s.muted}>Chiudi</Text></Pressable>
           </View>

@@ -56,6 +56,7 @@ interface StoreValue {
   addItem: (productId: string, quantity?: number) => void;
   addCustom: (name: string, categoryId: string, quantity?: number, unit?: string) => void;
   removeItem: (productId: string) => void;
+  toggleItem: (productId: string) => void;
   updateQty: (productId: string, quantity: number) => void;
   setItems: (items: ListItem[]) => void;
   clearItems: () => void;
@@ -144,10 +145,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const id = 'custom:' + clean.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     setItemsState((prev) =>
       prev.some((i) => i.product_id === id)
-        ? prev.map((i) => (i.product_id === id ? { ...i, quantity: round(i.quantity + quantity) } : i))
+        ? prev // già in lista: la quantità si cambia dalla lista, niente aggiunte silenziose
         : [...prev, { product_id: id, quantity, name: clean, category_id: categoryId, unit }],
     );
   }, []);
+
+  // tocco su un prodotto (ricerca, categorie, offerte): se non c'è lo aggiunge, se c'è già lo toglie
+  const toggleItem = useCallback(
+    (productId: string) => {
+      setItemsState((prev) =>
+        prev.some((i) => i.product_id === productId)
+          ? prev.filter((i) => i.product_id !== productId)
+          : [...prev, { product_id: productId, quantity: productIndex.get(productId)?.default_qty ?? 1 }]);
+    },
+    [productIndex],
+  );
 
   const removeItem = useCallback((productId: string) => {
     setItemsState((prev) => prev.filter((i) => i.product_id !== productId));
@@ -174,6 +186,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addItem,
     addCustom,
     removeItem,
+    toggleItem,
     updateQty,
     setItems: setItemsState,
     clearItems: () => setItemsState([]),
