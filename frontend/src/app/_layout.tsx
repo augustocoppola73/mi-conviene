@@ -42,7 +42,6 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
       <SafeAreaProvider>
         <StatusBar style={isDark ? 'light' : 'dark'} />
-        <AppUpdates />
         <AuthGate>
           <StoreProvider>
             <HideSplashWhenReady />
@@ -54,6 +53,8 @@ export default function RootLayout() {
             </ReadyGate>
           </StoreProvider>
         </AuthGate>
+        {/* dopo il resto: la riga "Novità pronte" sta sopra le schermate */}
+        <AppUpdates />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

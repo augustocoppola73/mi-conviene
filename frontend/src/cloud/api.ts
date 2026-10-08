@@ -172,7 +172,7 @@ async function familyOut(): Promise<T.Family | Record<string, never>> {
   if (!fam) return {};
   const members = check(await sb().rpc('family_members')) as any[];
   return { code: fam.code, created_at: fam.created_at,
-    members: members.map((m) => ({ user_id: m.user_id, display_name: m.display_name || 'Senza nome' })) };
+    members: members.map((m) => ({ user_id: m.user_id, display_name: m.display_name || 'Senza nome', notifications: m.notifications ?? null })) };
 }
 
 // ------------------------------------------------------------------ spesa in corso

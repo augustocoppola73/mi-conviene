@@ -49,3 +49,19 @@ export function pendingInvite(): string | null {
 export function clearInvite(): void {
   try { if (Platform.OS === 'web') localStorage.removeItem(KEY); } catch { /* pazienza */ }
 }
+
+/** Promemoria a un familiare che non riceve le notifiche (WhatsApp, SMS… dal menu Condividi). */
+export async function shareNotifyReminder(name: string): Promise<'shared' | 'copied' | 'cancelled'> {
+  const message = `Ciao ${name}! Per ricevere gli avvisi della spesa di famiglia apri Mi Conviene sul telefono, ` +
+    `vai in Profilo › Notifiche e tocca «Prova le notifiche» (poi consenti le notifiche).\n` +
+    `Se non hai ancora l'app: https://raw.githubusercontent.com/augustocoppola73/mi-conviene/apk/MiConviene.apk`;
+  if (Platform.OS === 'web') {
+    const nav = globalThis.navigator as any;
+    if (nav?.share) {
+      try { await nav.share({ title: 'Mi Conviene', text: message }); return 'shared'; } catch { return 'cancelled'; }
+    }
+    try { await nav?.clipboard?.writeText(message); return 'copied'; } catch { return 'cancelled'; }
+  }
+  const r = await Share.share({ message });
+  return r.action === Share.dismissedAction ? 'cancelled' : 'shared';
+}

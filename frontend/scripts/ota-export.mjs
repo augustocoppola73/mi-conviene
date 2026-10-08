@@ -36,16 +36,18 @@ const TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'i
 fs.rmSync(DEST, { recursive: true, force: true });
 fs.mkdirSync(path.join(DEST, 'assets'), { recursive: true });
 
-function publish(rel, ext, contentType) {
+// storeExt: estensione del file su Cloudflare. Il bundle si salva come .js così Cloudflare lo comprime
+// (gzip/brotli: ~5,5 MB → ~1,3 MB); l'app lo riceve già decompresso e l'hash resta quello del file vero.
+function publish(rel, ext, contentType, storeExt = ext) {
   const buf = fs.readFileSync(path.join(OUT, rel));
   const key = crypto.createHash('md5').update(buf).digest('hex');
   const hash = crypto.createHash('sha256').update(buf).digest('base64url');
-  const file = `${key}.${ext}`;
+  const file = `${key}.${storeExt}`;
   fs.writeFileSync(path.join(DEST, 'assets', file), buf);
   return { hash, key, contentType, fileExtension: `.${ext}`, url: `${SITE}/ota/android/assets/${file}` };
 }
 
-const launchAsset = publish(meta.bundle, 'bundle', 'application/javascript');
+const launchAsset = publish(meta.bundle, 'bundle', 'application/javascript', 'js');
 const assets = meta.assets.map((a) => publish(a.path, a.ext, TYPES[a.ext] || 'application/octet-stream'));
 
 // id dell'aggiornamento: deriva dal contenuto, così lo stesso codice non viene riscaricato

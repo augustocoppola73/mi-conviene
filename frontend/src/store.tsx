@@ -25,6 +25,8 @@ export interface Prefs {
   refuelLiters: number | null;
   /** menu in preparazione (ricette scelte, con le persone) */
   menu: MenuEntry[];
+  /** Vicino a me: solo le insegne con prezzi nell'app */
+  nearOnlyPriced: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -40,6 +42,7 @@ const DEFAULT_PREFS: Prefs = {
   refuel: false,
   refuelLiters: null,
   menu: [],
+  nearOnlyPriced: false,
 };
 
 interface StoreValue {

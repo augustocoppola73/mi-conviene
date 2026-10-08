@@ -220,7 +220,7 @@ export function canActOn(shop: Shop, userId: string | null): boolean {
   return !t || t.user_id === userId || !!t.helpers?.some((h) => h.user_id === userId);
 }
 export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null }
-export interface FamilyMember { user_id: string; display_name: string }
+export interface FamilyMember { user_id: string; display_name: string; /** riceve le notifiche (solo versione online) */ notifications?: boolean | null }
 export interface Family { code: string; created_at: string; members: FamilyMember[] }
 export interface FamilyList { code: string; items: ListItem[]; updated_by?: string; updated_at?: string }
 

@@ -124,13 +124,13 @@ export default function VicinoScreen() {
     if (!data || !pos) return [];
     // distanze sempre da dove sei adesso (i dati possono essere stati scaricati un po' più in là)
     const dist = (la: number, lo: number) => pyRound(Math.max(haversineKm(pos.lat, pos.lon, la, lo) * C.road_factor, 0.1), 1);
-    const st: Place[] = show.store ? data.stores.map((x) => ({ id: `s-${x.osm_id}`, kind: 'store' as const, chain: x.chain, name: x.name,
+    const st: Place[] = show.store ? data.stores.filter((x) => !prefs.nearOnlyPriced || x.chain !== 'altro').map((x) => ({ id: `s-${x.osm_id}`, kind: 'store' as const, chain: x.chain, name: x.name,
       address: x.address, lat: x.lat, lon: x.lon, distance_km: dist(x.lat, x.lon), parking: x.parking,
       logo: CHAIN_DOMAINS[x.chain] ?? siteDomain(x.website) })) : [];
     const fu: Place[] = show.fuel ? data.stations.map((x) => ({ id: `f-${x.id}`, kind: 'fuel' as const, name: x.name || x.brand,
       address: [x.address, x.city].filter(Boolean).join(', ') || null, lat: x.lat, lon: x.lon, distance_km: dist(x.lat, x.lon), price: x.price, logo: fuelDomain(x.brand) })) : [];
     return [...st, ...fu].filter((p) => p.distance_km <= radiusKm).sort((a, b) => a.distance_km - b.distance_km);
-  }, [data, show, radiusKm, pos]);
+  }, [data, show, radiusKm, pos, prefs.nearOnlyPriced]);
 
   const points: MapPoint[] = places.slice(0, MAX_MAP).map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, kind: p.kind,
     color: p.kind === 'fuel' ? FUEL_COLOR : storeColors[p.chain!] ?? OTHER_COLOR, label: p.name, logo: p.logo }));
@@ -190,6 +190,8 @@ export default function VicinoScreen() {
                 onPress={() => setShow({ ...show, store: !show.store })} />
               <Chip label={`Distributori${data ? ` (${nFuel})` : ''}`} icon="speedometer-outline" selected={show.fuel}
                 onPress={() => setShow({ ...show, fuel: !show.fuel })} />
+              <Chip label="Solo con prezzi" icon="pricetag-outline" selected={prefs.nearOnlyPriced}
+                onPress={() => setPrefs({ nearOnlyPriced: !prefs.nearOnlyPriced })} />
             </View>
 
             {error && <Text style={[s.muted, { color: colors.danger, marginTop: spacing.sm }]}>{error}</Text>}

@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, Family, NearbyStore } from '@/api';
 import { attachEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
-import { shareInvite } from '@/invite';
+import { shareInvite, shareNotifyReminder } from '@/invite';
 import { LocationControl } from '@/components/LocationControl';
 import { NotifySettings } from '@/components/NotifySettings';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
@@ -193,10 +193,32 @@ export default function ProfiloScreen() {
               {family.members.map((m) => (
                 <View key={m.user_id} style={s.member}>
                   <Icon name="person-circle-outline" size={22} color={colors.primary} />
-                  <Text style={s.memberName}>{m.display_name}{m.user_id === userId ? ' (tu)' : ''}</Text>
+                  <Text style={[s.memberName, { flex: 1 }]}>{m.display_name}{m.user_id === userId ? ' (tu)' : ''}</Text>
+                  {m.notifications != null && (
+                    <View style={s.member} accessibilityLabel={m.notifications ? 'Riceve le notifiche' : 'Non riceve le notifiche'}>
+                      <Icon name={m.notifications ? 'notifications' : 'notifications-off-outline'} size={16}
+                        color={m.notifications ? colors.primary : colors.textSecondary} />
+                      <Text style={s.notifyState}>{m.notifications ? 'notifiche attive' : 'notifiche non attive'}</Text>
+                    </View>
+                  )}
                 </View>
               ))}
             </View>
+            {family.members.filter((m) => m.notifications === false).map((m) => m.user_id === userId ? (
+              <Text key={m.user_id} style={[s.help, { marginTop: spacing.sm }]}>
+                🔕 Su questo account non arrivano gli avvisi della famiglia: usa l'app sul telefono e tocca «Prova le notifiche» qui sopra.
+              </Text>
+            ) : (
+              <View key={m.user_id} style={s.reminder}>
+                <Text style={[s.help, { flex: 1 }]}>🔕 {m.display_name} non riceve gli avvisi: deve attivarli dal suo Profilo.</Text>
+                <Pressable onPress={async () => {
+                  const r = await shareNotifyReminder(m.display_name);
+                  if (r === 'copied') notify('Promemoria copiato: incollalo su WhatsApp o SMS.');
+                }} hitSlop={6} accessibilityRole="button">
+                  <Text style={s.reminderBtn}>Invia il promemoria</Text>
+                </Pressable>
+              </View>
+            ))}
             <View style={s.familyActions}>
               <PrimaryButton
                 label="Invia lista"
@@ -301,6 +323,10 @@ const useStyles = makeStyles((c) => ({
   code: { color: c.primary, fontSize: 34, fontWeight: '800', letterSpacing: 6, textAlign: 'center' },
   member: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   memberName: { color: c.text, fontSize: 15 },
+  notifyState: { color: c.textSecondary, fontSize: 12 },
+  reminder: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, padding: spacing.sm,
+    borderRadius: radius.md, backgroundColor: c.surfaceMuted },
+  reminderBtn: { color: c.primary, fontWeight: '700', fontSize: 14 },
   storeRow: { paddingVertical: 6 },
   familyActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   leave: { color: c.danger, fontSize: 14, fontWeight: '600' },
