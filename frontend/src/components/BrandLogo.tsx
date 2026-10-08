@@ -9,29 +9,33 @@ import { View } from 'react-native';
 
 import { storeColors } from '../theme';
 
-export const CHAIN_DOMAINS: Record<string, string> = {
-  conad: 'conad.it', esselunga: 'esselunga.it', coop: 'coop.it', lidl: 'lidl.it', carrefour: 'carrefour.it',
-  pam: 'pampanorama.it', eurospin: 'eurospin.it', aldi: 'aldi.it', md: 'mdspa.it', penny: 'penny.it',
-  ekom: 'ekomdiscount.it', dpiu: 'dpiu.it', tuodi: 'tuodi.it', prix: 'prixquality.com',
-};
+const SITE = 'https://mi-conviene.augustocoppola.workers.dev';
+// loghi già copiati sul nostro sito (public/logos): si caricano sempre, anche dove il servizio di Google non risponde
+const LOCAL = new Set(['conad', 'esselunga', 'coop', 'lidl', 'carrefour', 'pam', 'eurospin', 'aldi', 'md', 'penny', 'ekom', 'prix',
+  'eni', 'esso', 'ip', 'q8', 'tamoil', 'total']);
+
+/** Logo di ogni catena dell'app (dpiu e tuodi non ne hanno uno disponibile: quadratino colorato). */
+export const CHAIN_DOMAINS: Record<string, string> = Object.fromEntries(
+  ['conad', 'esselunga', 'coop', 'lidl', 'carrefour', 'pam', 'eurospin', 'aldi', 'md', 'penny', 'ekom', 'prix'].map((c) => [c, c]));
 
 const FUEL_BRANDS: [RegExp, string][] = [
-  [/\b(eni|agip|enilive)\b/i, 'enilive.it'],
-  [/\bq8\b|kuwait/i, 'q8.it'],
-  [/\b(ip|api)\b/i, 'gruppoapi.com'],
-  [/\besso\b/i, 'esso.it'],
-  [/\btamoil\b/i, 'tamoil.it'],
-  [/\btotal/i, 'totalenergies.it'],
+  [/\b(eni|agip|enilive)\b/i, 'eni'],
+  [/\bq8\b|kuwait/i, 'q8'],
+  [/\b(ip|api)\b/i, 'ip'],
+  [/\besso\b/i, 'esso'],
+  [/\btamoil\b/i, 'tamoil'],
+  [/\btotal/i, 'total'],
   [/\brepsol\b/i, 'repsol.it'],
   [/\bshell\b/i, 'shell.it'],
   [/\b(costantin|costan)/i, 'costantin.it'],
   [/\bbeyfin\b/i, 'beyfin.it'],
   [/\b(retitalia|europam)\b/i, 'europam.it'],
 ];
-/** Dominio del marchio di un distributore (dal nome che usa il MIMIT), oppure null per le "pompe bianche". */
+/** Logo del marchio di un distributore (dal nome che usa il MIMIT), oppure null per le "pompe bianche". */
 export const fuelDomain = (brand?: string | null) => (brand ? FUEL_BRANDS.find(([re]) => re.test(brand))?.[1] ?? null : null);
 
-const logoUrl = (domain: string) => `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+/** domain: una chiave dei loghi nostri (es. "conad") oppure il dominio di un sito (logo dal servizio di Google). */
+const logoUrl = (domain: string) => LOCAL.has(domain) ? `${SITE}/logos/${domain}.png` : `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
 
 export function BrandLogo({ domain, color = '#999', size = 16, round = false }: { domain?: string | null; color?: string; size?: number; round?: boolean }) {
   const [failed, setFailed] = useState(false);

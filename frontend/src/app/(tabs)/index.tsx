@@ -25,7 +25,8 @@ import { ShoppingList } from '@/components/ShoppingList';
 import { SmartSuggestions } from '@/components/SmartSuggestions';
 import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
-import { getCurrentPosition } from '@/location';
+import { quietPosition } from '@/location';
+import { LocationControl } from '@/components/LocationControl';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -104,41 +105,16 @@ export default function ListaScreen() {
     }
   }, [userId]);
 
-  const [locating, setLocating] = useState(false);
-  const [addr, setAddr] = useState('');
-  const [addrOpen, setAddrOpen] = useState(false);
-  const [addrResults, setAddrResults] = useState<{ lat: number; lon: number; label: string }[] | null>(null);
-  const useMyLocation = async () => {
-    setLocating(true);
-    try {
-      setPrefs({ location: await getCurrentPosition() });
-      setAddrOpen(false);
-    } catch (e) {
-      // dal browser del telefono senza https il GPS non è disponibile: si scrive l'indirizzo
-      setAddrOpen(true);
-      notify('Posizione', `${(e as Error).message}\nPuoi scrivere il tuo indirizzo o la città qui sotto.`);
-    } finally {
-      setLocating(false);
-    }
-  };
-  const searchAddr = async () => {
-    if (addr.trim().length < 3) return;
-    setLocating(true);
-    try {
-      const r = await api.geocode(addr.trim());
-      setAddrResults(r);
-      if (!r.length) notify('Indirizzo', 'Non trovo questo indirizzo: prova con via, numero e città.');
-    } catch (e) {
-      notify('Indirizzo', (e as Error).message);
-    } finally {
-      setLocating(false);
-    }
-  };
-
   const findBest = async () => {
     if (!userId || !items.length) return;
     setLoading(true);
     try {
+      // posizione automatica: prima di confrontare la rinfresco (se non arriva in fretta, uso l'ultima)
+      let loc = prefs.location;
+      if (prefs.locationMode === 'gps') {
+        const fresh = await quietPosition(4000);
+        if (fresh) { loc = fresh; setPrefs({ location: fresh }); }
+      }
       const r = await api.optimize({
         user_id: userId,
         items,
@@ -148,7 +124,7 @@ export default function ListaScreen() {
         habitual_branch: prefs.habitualBranch,
         min_savings_threshold: prefs.minSavingsThreshold,
         fuel_type: prefs.fuelType,
-        ...(prefs.location ? { lat: prefs.location.lat, lon: prefs.location.lon } : {}),
+        ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
         refuel: prefs.transport === 'car' && prefs.refuel,
         refuel_liters: prefs.refuelLiters,
       });
@@ -399,44 +375,7 @@ export default function ListaScreen() {
         )}
 
         <SectionTitle>Dove sei?</SectionTitle>
-        {prefs.location ? (
-          <View style={s.locRow}>
-            <Icon name="location" size={18} color={colors.primary} />
-            <Text style={s.locText}>Confronto i punti vendita veri più vicini a te</Text>
-            <Pressable onPress={useMyLocation} hitSlop={8} disabled={locating}>
-              <Text style={s.suggestUse}>{locating ? '…' : 'Aggiorna'}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable style={s.locCard} onPress={useMyLocation} disabled={locating}>
-            {locating ? <ActivityIndicator color={colors.primary} /> : <Icon name="location-outline" size={22} color={colors.primary} />}
-            <View style={{ flex: 1 }}>
-              <Text style={s.itemName}>Usa la mia posizione</Text>
-              <Text style={s.muted}>Così confronto i supermercati veri vicino a te, con le distanze reali. Senza, uso distanze di esempio.</Text>
-            </View>
-          </Pressable>
-        )}
-        <Pressable onPress={() => setAddrOpen(!addrOpen)} hitSlop={6} style={{ marginTop: spacing.xs }}>
-          <Text style={s.suggestUse}>{addrOpen ? 'Chiudi' : 'Oppure scrivi indirizzo o città'}</Text>
-        </Pressable>
-        {addrOpen && (
-          <View style={{ gap: spacing.xs, marginTop: spacing.xs }}>
-            <View style={s.budgetBox}>
-              <TextInput
-                value={addr} onChangeText={setAddr} placeholder="Es. Via Roma 10, Livorno" placeholderTextColor={colors.textSecondary}
-                style={[s.budgetInput, { fontSize: 15 }]} onSubmitEditing={searchAddr} returnKeyType="search"
-              />
-              <Pressable onPress={searchAddr} hitSlop={6}><Icon name="search" size={20} color={colors.primary} /></Pressable>
-            </View>
-            {addrResults?.map((r) => (
-              <Pressable key={`${r.lat},${r.lon}`} style={s.locRow}
-                onPress={() => { setPrefs({ location: { lat: r.lat, lon: r.lon, updatedAt: new Date().toISOString() } }); setAddrOpen(false); setAddrResults(null); }}>
-                <Icon name="location-outline" size={16} color={colors.primary} />
-                <Text style={[s.muted, { flex: 1 }]} numberOfLines={2}>{r.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+        <LocationControl />
 
       </ScrollView>
 

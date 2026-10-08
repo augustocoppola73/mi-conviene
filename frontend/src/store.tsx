@@ -19,6 +19,8 @@ export interface Prefs {
   displayName: string;
   fuelType: FuelType;
   location: GeoPoint | null;
+  /** gps = la posizione si aggiorna da sola; address = indirizzo scritto a mano; null = posizione non usata */
+  locationMode: 'gps' | 'address' | null;
   refuel: boolean;
   refuelLiters: number | null;
   /** menu in preparazione (ricette scelte, con le persone) */
@@ -34,6 +36,7 @@ const DEFAULT_PREFS: Prefs = {
   displayName: '',
   fuelType: 'benzina',
   location: null,
+  locationMode: null,
   refuel: false,
   refuelLiters: null,
   menu: [],
@@ -80,7 +83,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           getUserId(),
         ]);
         if (list) setItemsState(JSON.parse(list));
-        if (p) setPrefsState({ ...DEFAULT_PREFS, ...JSON.parse(p) });
+        if (p) {
+          const saved = { ...DEFAULT_PREFS, ...JSON.parse(p) } as Prefs;
+          // prima la posizione si aggiornava a mano: chi l'aveva attivata passa a quella automatica
+          if (saved.location && saved.locationMode == null) saved.locationMode = saved.location.label ? 'address' : 'gps';
+          setPrefsState(saved);
+        }
         setUserId(uid);
       } catch {
         // dati corrotti: si riparte dai default

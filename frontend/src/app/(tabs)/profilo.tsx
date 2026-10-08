@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, Family, NearbyStore } from '@/api';
 import { attachEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
 import { shareInvite } from '@/invite';
-import { getCurrentPosition } from '@/location';
+import { LocationControl } from '@/components/LocationControl';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
 import { useStore } from '@/store';
@@ -45,7 +45,6 @@ export default function ProfiloScreen() {
 
   const [nearby, setNearby] = useState<NearbyStore[] | null>(null);
   const [nearbyError, setNearbyError] = useState<string | null>(null);
-  const [locating, setLocating] = useState(false);
   const loc = prefs.location;
   useFocusEffect(useCallback(() => {
     if (!loc) { setNearby(null); return; }
@@ -60,10 +59,6 @@ export default function ProfiloScreen() {
   const pickHabitual = (n: NearbyStore) => setPrefs(isHabitual(n)
     ? { habitualStoreId: null, habitualBranch: null }
     : { habitualStoreId: n.chain, habitualBranch: { name: n.name, address: n.address, lat: n.lat, lon: n.lon } });
-  const locate = async () => {
-    setLocating(true);
-    try { setPrefs({ location: await getCurrentPosition() }); } catch (e) { notify((e as Error).message); } finally { setLocating(false); }
-  };
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -127,8 +122,9 @@ export default function ProfiloScreen() {
         )}
 
         <SectionTitle>Posizione</SectionTitle>
-        {loc ? (
-          <Card>
+        <LocationControl />
+        {loc && (
+          <Card style={{ marginTop: spacing.sm }}>
             <Text style={s.help}>Punti vendita più vicini a te, uno per catena. Tocca la ⭐ del tuo supermercato abituale:</Text>
             {nearbyError && <Text style={[s.help, { color: colors.danger }]}>{nearbyError}</Text>}
             {!nearby && !nearbyError && <Text style={s.help}>Cerco i negozi vicini…</Text>}
@@ -142,15 +138,6 @@ export default function ProfiloScreen() {
                 <Text style={s.help}>{km(n.distance_km)}</Text>
               </Pressable>
             ))}
-            <View style={s.familyActions}>
-              <PrimaryButton label="Aggiorna" icon="locate-outline" variant="secondary" loading={locating} onPress={locate} style={{ flex: 1 }} />
-              <PrimaryButton label="Disattiva" variant="secondary" onPress={() => setPrefs({ location: null })} style={{ flex: 1 }} />
-            </View>
-          </Card>
-        ) : (
-          <Card>
-            <Text style={s.help}>Senza posizione uso distanze di esempio (zona Milano). Con la posizione confronto i negozi veri vicino a te.</Text>
-            <PrimaryButton label="Usa la mia posizione" icon="location-outline" loading={locating} onPress={locate} style={{ marginTop: spacing.sm }} />
           </Card>
         )}
 

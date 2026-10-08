@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { IS_CLOUD } from '@/cloud/client';
 import { AppUpdates } from '@/components/AppUpdates';
+import { AutoLocation } from '@/components/AutoLocation';
 import { AuthGate } from '@/components/AuthGate';
 import { BootLoader } from '@/components/BootLoader';
 import { InviteHandler } from '@/components/InviteHandler';
@@ -46,6 +47,7 @@ export default function RootLayout() {
             <HideSplashWhenReady />
             <ReadyGate>
               <InviteHandler />
+              <AutoLocation />
               <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
             </ReadyGate>
           </StoreProvider>
