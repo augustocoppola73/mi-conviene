@@ -21,3 +21,6 @@ Thumbs.db
 
 # cache prezzi reali scaricati
 backend/data/
+
+# file temporanei della CLI di Supabase
+supabase/.temp/
