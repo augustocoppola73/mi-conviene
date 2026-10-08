@@ -249,7 +249,7 @@ export const localApi = {
   flyers: (lat?: number, lon?: number) =>
     request<Flyer[]>(lat != null && lon != null ? `/flyers?lat=${lat}&lon=${lon}` : '/flyers'),
   /** versione locale: il server Python dà solo il più vicino per catena e i distributori migliori */
-  nearMe: async (lat: number, lon: number, fuel: FuelType): Promise<NearMe> => {
+  nearMe: async (lat: number, lon: number, fuel: FuelType, _radiusKm?: number): Promise<NearMe> => {
     const [st, fu] = await Promise.all([localApi.storesNearby(lat, lon), localApi.fuelNearby(fuel, lat, lon)]);
     return { radius_km: st.radius_km, stores: st.stores, fuel,
       stations: fu.stations.map((s) => ({ id: s.id, brand: s.brand, name: s.name, address: s.address, city: s.city, lat: s.lat, lon: s.lon, price: s.price, distance_km: s.distance_km })) };

@@ -34,3 +34,28 @@ export function metersBetween(a: { lat: number; lon: number }, b: { lat: number;
   const k = 111_320;
   return Math.hypot((a.lat - b.lat) * k, (a.lon - b.lon) * k * Math.cos((a.lat * Math.PI) / 180));
 }
+
+/**
+ * Segue la posizione mentre ti sposti (Vicino a me): al massimo ogni ~10 secondi e solo se ti sei mosso di almeno
+ * 25 m, così da fermo il GPS non lavora per niente. Senza permesso non fa nulla. Restituisce la funzione per smettere.
+ */
+export async function watchPosition(onPos: (p: GeoPoint) => void, everyMs = 10_000, minMoveM = 25): Promise<() => void> {
+  try {
+    const perm = await Location.getForegroundPermissionsAsync();
+    if (perm.status !== 'granted') return () => {};
+    let last: { p: GeoPoint; t: number } | null = null;
+    const sub = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, timeInterval: everyMs, distanceInterval: minMoveM },
+      (pos) => {
+        // il browser non rispetta tempo e distanza minimi: li filtro anche qui
+        const p = { lat: round(pos.coords.latitude), lon: round(pos.coords.longitude), updatedAt: new Date().toISOString() };
+        if (last && (Date.now() - last.t < everyMs * 0.9 || metersBetween(last.p, p) < minMoveM)) return;
+        last = { p, t: Date.now() };
+        onPos(p);
+      },
+    );
+    return () => sub.remove();
+  } catch {
+    return () => {};
+  }
+}

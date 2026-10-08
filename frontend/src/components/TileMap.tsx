@@ -50,8 +50,12 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
     return clampZ(Math.log2((MPP0 * cos * Math.min(w || 360, H)) / (radiusKm * 1000 * 2 * 1.15)));
   };
   const [view, setView] = useState<View3>({ lat: center.lat, lon: center.lon, z: fitZ(W) });
-  // nuovo raggio o nuova posizione: ricentro e adatto lo zoom
-  useEffect(() => { setView({ lat: center.lat, lon: center.lon, z: fitZ(W) }); }, [center.lat, center.lon, radiusKm, W]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "ti seguo": finché non sposti la mappa a mano, la mappa segue la tua posizione
+  const follow = useRef(true);
+  // nuovo raggio: ricentro e adatto lo zoom
+  useEffect(() => { follow.current = true; setView({ lat: center.lat, lon: center.lon, z: fitZ(W) }); }, [radiusKm, W]); // eslint-disable-line react-hooks/exhaustive-deps
+  // nuova posizione: la seguo senza cambiare lo zoom (se non hai spostato la mappa)
+  useEffect(() => { if (follow.current) setView((v) => ({ ...v, lat: center.lat, lon: center.lon })); }, [center.lat, center.lon]);
 
   // gesti: un dito sposta, due dita zoomano (e spostano)
   const g = useRef({ start: view, d0: 0, mx0: 0, my0: 0, view });
@@ -62,7 +66,7 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
     onMoveShouldSetPanResponder: (e, s) => touches(e).length >= 2 || Math.abs(s.dx) + Math.abs(s.dy) > 4,
     onMoveShouldSetPanResponderCapture: (e, s) => touches(e).length >= 2 || Math.abs(s.dx) + Math.abs(s.dy) > 4,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { g.current.start = g.current.view; g.current.d0 = 0; },
+    onPanResponderGrant: () => { follow.current = false; g.current.start = g.current.view; g.current.d0 = 0; },
     onPanResponderMove: (e, s) => {
       const t = touches(e);
       const st = g.current.start;
@@ -83,7 +87,7 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
   }), []);
 
   const zoomBy = (dz: number) => setView((v) => ({ ...v, z: clampZ(v.z + dz) }));
-  const recenter = () => setView({ lat: center.lat, lon: center.lon, z: fitZ(W) });
+  const recenter = () => { follow.current = true; setView({ lat: center.lat, lon: center.lon, z: fitZ(W) }); };
 
   let body = null;
   if (W > 0) {

@@ -10,6 +10,8 @@ import { haversineKm, pyRe, pyRound } from './util';
 export const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 export const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 export const RADIUS_M = 6000;
+/** Vicino a me: raggio massimo del cursore (oltre i 6 km si scarica una zona più grande). */
+export const NEAR_ME_MAX_KM = 20;
 const BRANDS = 'Esselunga|Conad|Coop|Ipercoop|Lidl|Carrefour|Pam|Panorama|Eurospin|Aldi|MD|Penny|Ekom|Dpiù|Dpiu|Tuodì|Tuodi|Prix';
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
 const BRANDS_TAG = [...BRANDS].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
@@ -203,15 +205,16 @@ export interface OsmParking { lat: number; lon: number; access: string | null; c
 export const PARKING_NEAR_M = 150;
 
 /** Solo i parcheggi a meno di 150 m dai supermercati (query leggera). */
+const overpassTimeout = (radiusM: number) => (radiusM > RADIUS_M ? 60 : 25);
 export function parkingQuery(lat: number, lon: number, radiusM: number): string {
-  return `[out:json][timeout:25];nwr["shop"="supermarket"](around:${radiusM},${lat},${lon})->.s;` +
+  return `[out:json][timeout:${overpassTimeout(radiusM)}];nwr["shop"="supermarket"](around:${radiusM},${lat},${lon})->.s;` +
     `nwr["amenity"="parking"](around.s:${PARKING_NEAR_M});out center tags;`;
 }
 
 // ------------------------------------------------------------------ tutti i supermercati (Vicino a me)
 /** Anche le insegne di cui non abbiamo ancora i prezzi (Ekom, Despar, Sigma, Crai…): chain = "altro". */
 export function allSupermarketsQuery(lat: number, lon: number, radiusM: number): string {
-  return `[out:json][timeout:25];nwr["shop"="supermarket"](around:${radiusM},${lat},${lon});out center tags;`;
+  return `[out:json][timeout:${overpassTimeout(radiusM)}];nwr["shop"="supermarket"](around:${radiusM},${lat},${lon});out center tags;`;
 }
 export function parseAllSupermarkets(elements: any[]): (OsmStore & { brand: string | null })[] {
   const out: (OsmStore & { brand: string | null })[] = [];
@@ -230,15 +233,15 @@ export function parseAllSupermarkets(elements: any[]): (OsmStore & { brand: stri
   }
   return out;
 }
-export async function supermarketsAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch) {
-  const key = `mc_osm_all_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
+export async function supermarketsAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch, radiusM = RADIUS_M) {
+  const key = `mc_osm_all_${radiusM === RADIUS_M ? '' : `${radiusM}_`}${pyRound(lat, 2)},${pyRound(lon, 2)}`;
   try {
     const hit = JSON.parse((await kv.get(key)) || 'null');
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.stores as ReturnType<typeof parseAllSupermarkets>;
   } catch { /* cache rovinata: si rifà */ }
   const r = await fetchFn(OVERPASS_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
-    body: 'data=' + encodeURIComponent(allSupermarketsQuery(lat, lon, RADIUS_M)),
+    body: 'data=' + encodeURIComponent(allSupermarketsQuery(lat, lon, radiusM)),
   });
   if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
   const stores = parseAllSupermarkets((await r.json()).elements || []);
@@ -283,15 +286,15 @@ export function parkingFor(store: { lat: number; lon: number; chain: string; nam
 }
 
 /** Parcheggi vicino ai supermercati della zona, con cache di 7 giorni come i negozi. */
-export async function parkingsAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch): Promise<OsmParking[]> {
-  const key = `mc_osm_park2_${pyRound(lat, 2)},${pyRound(lon, 2)}`;
+export async function parkingsAround(lat: number, lon: number, kv: KV = memKV, fetchFn: typeof fetch = fetch, radiusM = RADIUS_M): Promise<OsmParking[]> {
+  const key = `mc_osm_park2_${radiusM === RADIUS_M ? '' : `${radiusM}_`}${pyRound(lat, 2)},${pyRound(lon, 2)}`;
   try {
     const hit = JSON.parse((await kv.get(key)) || 'null');
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.parkings;
   } catch { /* cache rovinata: si rifà */ }
   const r = await fetchFn(OVERPASS_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...APP_HEADERS },
-    body: 'data=' + encodeURIComponent(parkingQuery(lat, lon, RADIUS_M)),
+    body: 'data=' + encodeURIComponent(parkingQuery(lat, lon, radiusM)),
   });
   if (!r.ok) throw new Error(`OpenStreetMap ${r.status}`);
   const parkings = parseParkings((await r.json()).elements || []);

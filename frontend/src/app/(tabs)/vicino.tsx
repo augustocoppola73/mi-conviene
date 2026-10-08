@@ -1,7 +1,7 @@
 /** Vicino a me: supermercati e distributori intorno a dove sei, su una mappa, con il raggio regolabile e "Portami lì". */
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, NearMe, Parking } from '@/api';
@@ -11,13 +11,22 @@ import { Slider } from '@/components/Slider';
 import { MapPoint, TileMap } from '@/components/TileMap';
 import { Card, Chip, Icon, PrimaryButton, StoreDot } from '@/components/ui';
 import { euro, km } from '@/format';
-import { getCurrentPosition } from '@/location';
+import { IS_CLOUD } from '@/cloud/client';
+import { C } from '@/engine/data';
+import { haversineKm, pyRound } from '@/engine/util';
+import { getCurrentPosition, metersBetween, watchPosition } from '@/location';
 import { openNavigation } from '@/navigate';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, storeColors, useTheme } from '@/theme';
 
 const FUEL_COLOR = '#5B6470';
 const OTHER_COLOR = '#9AA096'; // insegne senza prezzi (Ekom, Despar…)
+// scatti del cursore del raggio (km)
+// (la versione locale, senza OpenStreetMap in diretta, resta entro i 6 km)
+const STEPS = IS_CLOUD ? [0.5, 1, 2, 3, 5, 10, 15, 20] : [0.5, 1, 2, 3, 5];
+const ZONE_SMALL_KM = 6; // fino a qui la zona solita, già in cache; oltre si scarica la zona da 20 km
+const MAX_LIST = 40; // oltre, "Mostra altri"
+const MAX_MAP = 150; // punti sulla mappa (i più vicini)
 
 interface Place { id: string; kind: 'store' | 'fuel'; chain?: string; name: string; address: string | null; lat: number; lon: number;
   distance_km: number; price?: number | null; parking?: Parking | null; logo?: string | null }
@@ -28,13 +37,18 @@ const siteDomain = (url?: string | null) => { const m = url?.match(/^https?:\/\/
 export default function VicinoScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { prefs } = useStore();
+  const { prefs, setPrefs } = useStore();
   const [pos, setPos] = useState<{ lat: number; lon: number; live: boolean } | null>(null);
   const [locating, setLocating] = useState(false);
   const [posError, setPosError] = useState<string | null>(null);
   const [data, setData] = useState<NearMe | null>(null);
+  const [anchor, setAnchor] = useState<{ lat: number; lon: number } | null>(null); // dove ho scaricato i dati
+  const [loadingZone, setLoadingZone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [radiusKm, setRadiusKm] = useState(2);
+  const [stepIdx, setStepIdx] = useState(2);
+  const radiusKm = STEPS[stepIdx];
+  const [listAll, setListAll] = useState(false);
+  const [followAt, setFollowAt] = useState<string | null>(null); // ultimo aggiornamento automatico
   const [show, setShow] = useState({ store: true, fuel: true });
   const [selected, setSelectedId] = useState<string | null>(null);
   const scroll = useRef<ScrollView>(null);
@@ -42,9 +56,14 @@ export default function VicinoScreen() {
   // scelto dalla lista: torno su, dove ci sono la mappa e "Portami lì"
   const setSelected = (id: string | null) => { setSelectedId(id); if (id) scroll.current?.scrollTo({ y: 0, animated: true }); };
 
-  const load = useCallback(async (p: { lat: number; lon: number }) => {
-    setError(null);
-    try { setData(await api.nearMe(p.lat, p.lon, prefs.fuelType)); } catch (e) { setError((e as Error).message); }
+  const loading = useRef(false);
+  const asked = useRef(''); // zona più grande già chiesta per questo punto (se non arriva, non insisto)
+  const load = useCallback(async (p: { lat: number; lon: number }, rKm: number) => {
+    if (loading.current) return;
+    loading.current = true; setLoadingZone(true); setError(null);
+    try { setData(await api.nearMe(p.lat, p.lon, prefs.fuelType, rKm)); setAnchor({ lat: p.lat, lon: p.lon }); }
+    catch (e) { setError((e as Error).message); }
+    finally { loading.current = false; setLoadingZone(false); }
   }, [prefs.fuelType]);
 
   const locate = useCallback(async () => {
@@ -52,30 +71,68 @@ export default function VicinoScreen() {
     try {
       const g = await getCurrentPosition();
       const p = { lat: g.lat, lon: g.lon, live: true };
-      setPos(p); load(p);
+      setPos(p); load(p, radiusKm);
     } catch (e) {
       // senza GPS: la posizione salvata nel Profilo
       if (prefs.location) {
         const p = { lat: prefs.location.lat, lon: prefs.location.lon, live: false };
-        setPos(p); load(p);
+        setPos(p); load(p, radiusKm);
       }
       setPosError((e as Error).message);
     } finally { setLocating(false); }
-  }, [load, prefs.location]);
+  }, [load, prefs.location, radiusKm]);
 
   useFocusEffect(useCallback(() => { if (!pos) locate(); }, [pos, locate]));
 
+  // la posizione ti segue mentre sei in Vicino a me (e l'app è aperta): ~10 s, solo se ti sei spostato
+  const live = !!pos?.live;
+  const prefsRef = useRef(prefs); prefsRef.current = prefs;
+  useFocusEffect(useCallback(() => {
+    if (!live) return;
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    const start = () => {
+      if (stop) return;
+      watchPosition((g) => {
+        setPos((cur) => (cur && metersBetween(cur, g) < 20 ? cur : { lat: g.lat, lon: g.lon, live: true }));
+        setFollowAt(g.updatedAt);
+        // anche il resto dell'app (Lista, Profilo) usa la posizione nuova
+        const pr = prefsRef.current;
+        if (pr.locationMode === 'gps' && (!pr.location || metersBetween(pr.location, g) >= 100)) setPrefs({ location: g });
+      }).then((fn) => { if (cancelled) fn(); else stop = fn; });
+    };
+    const halt = () => { stop?.(); stop = null; };
+    start();
+    const sub = AppState.addEventListener('change', (st) => (st === 'active' ? start() : halt()));
+    return () => { cancelled = true; halt(); sub.remove(); };
+  }, [live, setPrefs]));
+
+  // dati da riscaricare? se il raggio esce dalla zona scaricata, o ti sei spostato troppo dal punto di partenza
+  useEffect(() => {
+    if (!pos || !data || !anchor) return;
+    const zone = data.radius_km;
+    const need = radiusKm > ZONE_SMALL_KM ? Math.max(zone, 20) : zone;
+    const moved = haversineKm(anchor.lat, anchor.lon, pos.lat, pos.lon) * C.road_factor;
+    // un po' di tolleranza sul bordo: in auto non riscarico la zona a ogni aggiornamento
+    const tol = zone > ZONE_SMALL_KM ? 3 : 1;
+    const key = `${need}@${anchor.lat},${anchor.lon}`;
+    if (need > zone && asked.current !== key) { asked.current = key; load(pos, radiusKm); return; }
+    if (moved > tol && moved + radiusKm > zone + tol) load(pos, radiusKm);
+  }, [pos, radiusKm, data, anchor, load]);
+
   const places: Place[] = useMemo(() => {
-    if (!data) return [];
+    if (!data || !pos) return [];
+    // distanze sempre da dove sei adesso (i dati possono essere stati scaricati un po' più in là)
+    const dist = (la: number, lo: number) => pyRound(Math.max(haversineKm(pos.lat, pos.lon, la, lo) * C.road_factor, 0.1), 1);
     const st: Place[] = show.store ? data.stores.map((x) => ({ id: `s-${x.osm_id}`, kind: 'store' as const, chain: x.chain, name: x.name,
-      address: x.address, lat: x.lat, lon: x.lon, distance_km: x.distance_km, parking: x.parking,
+      address: x.address, lat: x.lat, lon: x.lon, distance_km: dist(x.lat, x.lon), parking: x.parking,
       logo: CHAIN_DOMAINS[x.chain] ?? siteDomain(x.website) })) : [];
     const fu: Place[] = show.fuel ? data.stations.map((x) => ({ id: `f-${x.id}`, kind: 'fuel' as const, name: x.name || x.brand,
-      address: [x.address, x.city].filter(Boolean).join(', ') || null, lat: x.lat, lon: x.lon, distance_km: x.distance_km, price: x.price, logo: fuelDomain(x.brand) })) : [];
+      address: [x.address, x.city].filter(Boolean).join(', ') || null, lat: x.lat, lon: x.lon, distance_km: dist(x.lat, x.lon), price: x.price, logo: fuelDomain(x.brand) })) : [];
     return [...st, ...fu].filter((p) => p.distance_km <= radiusKm).sort((a, b) => a.distance_km - b.distance_km);
-  }, [data, show, radiusKm]);
+  }, [data, show, radiusKm, pos]);
 
-  const points: MapPoint[] = places.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, kind: p.kind,
+  const points: MapPoint[] = places.slice(0, MAX_MAP).map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, kind: p.kind,
     color: p.kind === 'fuel' ? FUEL_COLOR : storeColors[p.chain!] ?? OTHER_COLOR, label: p.name, logo: p.logo }));
   const sel = places.find((p) => p.id === selected) ?? null;
   const nStores = places.filter((p) => p.kind === 'store').length, nFuel = places.length - nStores;
@@ -108,13 +165,25 @@ export default function VicinoScreen() {
             </View>
 
             <View style={[s.row, { justifyContent: 'space-between', marginTop: spacing.md }]}>
-              <Text style={s.label}>Raggio: {km(radiusKm)}</Text>
+              <View style={s.row}>
+                <Text style={s.label}>Raggio: {km(radiusKm)}</Text>
+                {loadingZone && data && <ActivityIndicator size="small" color={colors.primary} />}
+              </View>
               <Pressable onPress={locate} hitSlop={8} style={s.row}>
                 {locating ? <ActivityIndicator size="small" color={colors.primary} /> : <Icon name="locate-outline" size={18} color={colors.primary} />}
-                <Text style={s.link}>Aggiorna posizione</Text>
+                <Text style={s.link}>Aggiorna</Text>
               </Pressable>
             </View>
-            <Slider value={radiusKm} min={0.5} max={data?.radius_km ?? 6} step={0.5} onChange={(v) => { setRadiusKm(v); }} />
+            <Slider value={stepIdx} min={0} max={STEPS.length - 1} step={1} onChange={(v) => { setStepIdx(v); setListAll(false); }} />
+            <View style={[s.row, { justifyContent: 'space-between' }]}>
+              {STEPS.map((k) => <Text key={k} style={[s.tick, k === radiusKm && { color: colors.primary, fontWeight: '700' }]}>{k < 1 ? '½' : k}</Text>)}
+            </View>
+            {pos.live && (
+              <Text style={[s.muted, { marginTop: 4 }]}>
+                📍 La posizione ti segue mentre ti sposti{followAt ? ` · aggiornata alle ${new Date(followAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+              </Text>
+            )}
+            {loadingZone && data && <Text style={[s.muted, { marginTop: 4 }]}>Cerco i negozi nel nuovo raggio…</Text>}
 
             <View style={[s.row, { marginTop: spacing.sm, flexWrap: 'wrap' }]}>
               <Chip label={`Supermercati${data ? ` (${nStores})` : ''}`} icon="cart-outline" selected={show.store}
@@ -135,7 +204,7 @@ export default function VicinoScreen() {
             {data && (
               <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
                 {places.length === 0 && <Text style={s.muted}>Niente in questo raggio: allargalo con il cursore.</Text>}
-                {places.filter((p) => p.id !== selected).map((p) => (
+                {places.filter((p) => p.id !== selected).slice(0, listAll ? undefined : MAX_LIST).map((p) => (
                   <Pressable key={p.id} onPress={() => setSelected(p.id)}>
                     <Card style={s.placeCard}>
                       <View style={{ flex: 1 }}><PlaceRow p={p} fuelLabel={data.fuel} /></View>
@@ -145,6 +214,11 @@ export default function VicinoScreen() {
                     </Card>
                   </Pressable>
                 ))}
+                {!listAll && places.length > MAX_LIST + (sel ? 1 : 0) && (
+                  <Pressable onPress={() => setListAll(true)} style={{ alignSelf: 'center', padding: spacing.sm }}>
+                    <Text style={s.link}>Mostra altri {places.length - MAX_LIST - (sel ? 1 : 0)}</Text>
+                  </Pressable>
+                )}
               </View>
             )}
           </>
@@ -183,6 +257,7 @@ const useStyles = makeStyles((c) => ({
   link: { fontSize: 14, color: c.primary, fontWeight: '600' },
   name: { flex: 1, fontSize: 15, fontWeight: '600', color: c.text },
   dist: { fontSize: 13, color: c.textSecondary, fontWeight: '600' },
+  tick: { fontSize: 11, color: c.textSecondary, width: 22, textAlign: 'center' },
   price: { fontSize: 13, color: c.text, fontWeight: '600' },
   placeCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   navBtn: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },

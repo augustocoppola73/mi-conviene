@@ -16,7 +16,7 @@ import {
   shopItem, suggest, primeCores,
 } from '../engine/kitchen';
 import { observedRows, ObservedLine } from '../engine/observed';
-import { flyers, fuelNearby, geocode, KV, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor, supermarketsAround } from '../engine/places';
+import { flyers, fuelNearby, geocode, KV, NEAR_ME_MAX_KM, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor, supermarketsAround } from '../engine/places';
 import { search } from '../engine/recipes';
 import { haversineKm, pyRound } from '../engine/util';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
@@ -109,11 +109,11 @@ function withParking(branches: any[], parkings: OsmParking[]) {
   }
 }
 
-async function stationsNear(lat: number, lon: number): Promise<FuelStation[]> {
-  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+async function stationsNear(lat: number, lon: number, boxKm = 15): Promise<FuelStation[]> {
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)},${boxKm}`;
   const hit = stationCache.get(key);
   if (hit && Date.now() - hit.at < 3600 * 1000) return hit.stations;
-  const stations = check(await sb().rpc('fuel_near', { p_lat: lat, p_lon: lon, p_km: 15 })) as FuelStation[];
+  const stations = check(await sb().rpc('fuel_near', { p_lat: lat, p_lon: lon, p_km: boxKm })) as FuelStation[];
   stationCache.set(key, { at: Date.now(), stations });
   return stations;
 }
@@ -342,20 +342,23 @@ export const cloudApi = {
     return flyers(all, lat, lon);
   },
 
-  nearMe: async (lat: number, lon: number, fuel: T.FuelType): Promise<T.NearMe> => {
+  /** radiusKm: fino a 6 km la zona solita (in cache), oltre si scarica la zona di 20 km. */
+  nearMe: async (lat: number, lon: number, fuel: T.FuelType, radiusKm = RADIUS_M / 1000): Promise<T.NearMe> => {
+    const zoneKm = radiusKm <= RADIUS_M / 1000 ? RADIUS_M / 1000 : NEAR_ME_MAX_KM;
+    const zoneM = zoneKm * 1000;
     const [osm, stations, parkings] = await Promise.all([
-      supermarketsAround(lat, lon, kv).catch(() => { throw new Error('OpenStreetMap non raggiungibile'); }),
-      stationsNear(lat, lon).catch(() => [] as FuelStation[]),
-      parkingsAround(lat, lon, kv).catch(() => null),
+      supermarketsAround(lat, lon, kv, fetch, zoneM).catch(() => { throw new Error('OpenStreetMap non raggiungibile'); }),
+      stationsNear(lat, lon, Math.max(15, zoneKm)).catch(() => [] as FuelStation[]),
+      parkingsAround(lat, lon, kv, fetch, zoneM).catch(() => null),
     ]);
     const km = (la: number, lo: number) => pyRound(Math.max(haversineKm(lat, lon, la, lo) * C.road_factor, 0.1), 1);
     const stores = osm.map((s) => ({ ...s, distance_km: km(s.lat, s.lon) }))
-      .filter((s) => s.distance_km <= RADIUS_M / 1000).sort((a, b) => a.distance_km - b.distance_km);
+      .filter((s) => s.distance_km <= zoneKm).sort((a, b) => a.distance_km - b.distance_km);
     if (parkings) withParking(stores, parkings);
     const fuelStations = stations.map((s) => ({ id: s.id, brand: s.brand, name: s.name ?? s.brand, address: s.address, city: s.city,
       lat: s.lat, lon: s.lon, price: s.prices[fuel]?.self ?? null, distance_km: km(s.lat, s.lon) }))
-      .filter((s) => s.distance_km <= RADIUS_M / 1000).sort((a, b) => a.distance_km - b.distance_km);
-    return { radius_km: RADIUS_M / 1000, stores: stores as T.NearbyStore[], stations: fuelStations, fuel };
+      .filter((s) => s.distance_km <= zoneKm).sort((a, b) => a.distance_km - b.distance_km);
+    return { radius_km: zoneKm, stores: stores as T.NearbyStore[], stations: fuelStations, fuel };
   },
 
   storesNearby: async (lat: number, lon: number) => {
