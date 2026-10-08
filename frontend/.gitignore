@@ -48,3 +48,6 @@ example
 
 # aggiornamenti app Android (generati)
 /dist-ota
+
+# Firebase (non segreto, ma resta sul PC che costruisce l APK)
+/google-services.json

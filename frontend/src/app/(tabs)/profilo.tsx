@@ -7,6 +7,7 @@ import { api, Family, NearbyStore } from '@/api';
 import { attachEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
 import { shareInvite } from '@/invite';
 import { LocationControl } from '@/components/LocationControl';
+import { NotifySettings } from '@/components/NotifySettings';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
 import { useStore } from '@/store';
@@ -161,6 +162,8 @@ export default function ProfiloScreen() {
             </Text>
           )}
         </Card>
+
+        <NotifySettings />
 
         <SectionTitle>Soglia minima di convenienza</SectionTitle>
         <Text style={s.help}>

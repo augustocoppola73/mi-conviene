@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mi Conviene",
     "slug": "mi-conviene",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "miconviene",
@@ -19,11 +19,13 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.augustocoppola.miconviene",
-      "versionCode": 4,
+      "versionCode": 5,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
-      ]
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "single",
@@ -52,13 +54,22 @@
           "cameraPermission": "Mi Conviene usa la fotocamera per leggere lo scontrino e verificare la spesa.",
           "photosPermission": "Mi Conviene apre la foto dello scontrino per verificare la spesa."
         }
-      ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#4F6B4A",
+          "defaultChannel": "famiglia"
+        }
+      ],
+      "./plugins/withReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-    "runtimeVersion": "1",
+    "runtimeVersion": "2",
     "updates": {
       "url": "https://mi-conviene.augustocoppola.workers.dev/api/ota/manifest",
       "enabled": true,
