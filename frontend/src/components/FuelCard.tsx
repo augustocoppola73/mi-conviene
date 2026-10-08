@@ -4,6 +4,7 @@ import { ActivityIndicator, Linking, Pressable, Text, View } from 'react-native'
 import { api, FuelNearby, FuelType } from '../api';
 import { euro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { BrandLogo, fuelDomain } from './BrandLogo';
 import { Chip, Icon } from './ui';
 
 const FUEL_LABEL: Record<FuelType, string> = { benzina: 'Benzina', gasolio: 'Gasolio', gpl: 'GPL', metano: 'Metano' };
@@ -53,6 +54,7 @@ export function FuelCard({ fuel, onFuelChange, lat, lon }: {
       ) : (
         <>
           <Pressable onPress={() => Linking.openURL(best.maps_url)} style={s.best}>
+            <BrandLogo domain={fuelDomain(best.brand)} color="#5B6470" size={28} />
             <View style={{ flex: 1 }}>
               <Text style={s.brand}>{best.brand}</Text>
               <Text style={s.muted} numberOfLines={1}>{best.address}{best.city ? `, ${best.city}` : ''}</Text>

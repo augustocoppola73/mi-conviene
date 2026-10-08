@@ -9,9 +9,10 @@ import { Image } from 'expo-image';
 import { GestureResponderEvent, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 
 import { useTheme } from '../theme';
+import { BrandLogo } from './BrandLogo';
 import { Icon } from './ui';
 
-export interface MapPoint { id: string; lat: number; lon: number; color: string; kind: 'store' | 'fuel'; label?: string }
+export interface MapPoint { id: string; lat: number; lon: number; color: string; kind: 'store' | 'fuel'; label?: string; logo?: string | null }
 
 const TILE = 256;
 const MPP0 = 156543.03392; // metri per pixel a zoom 0 all'equatore
@@ -114,7 +115,7 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
     const visible = points.map((p) => ({ ...p, ...toScreen(p.lat, p.lon) }));
     const onScreen = visible.filter((p) => p.x > -30 && p.x < W + 30 && p.y > -30 && p.y < H + 30);
     const selected = visible.find((p) => p.id === selectedId);
-    const D = onScreen.length > 25 ? 16 : 22; // con tanti negozi segnaposto più piccoli
+    const D = onScreen.length > 25 ? 20 : 26; // con tanti negozi segnaposto più piccoli
     body = (
       <>
         {tiles}
@@ -126,9 +127,11 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
         {onScreen.map((p) => (
           <Pressable key={p.id} onPress={() => onSelect?.(p.id === selectedId ? null : p.id)} hitSlop={8}
             style={{ position: 'absolute', left: p.x - D / 2, top: p.y - D / 2, width: D, height: D, borderRadius: p.kind === 'fuel' ? 5 : D / 2,
-              backgroundColor: p.color, borderWidth: p.id === selectedId ? 3 : 2, borderColor: p.id === selectedId ? colors.text : '#fff',
-              alignItems: 'center', justifyContent: 'center' }}>
-            {p.kind === 'fuel' && <Text style={{ color: '#fff', fontSize: D / 2, fontWeight: '800' }}>⛽</Text>}
+              backgroundColor: p.logo ? '#fff' : p.color, borderWidth: p.id === selectedId ? 3 : 2,
+              borderColor: p.id === selectedId ? colors.text : p.logo ? p.color : '#fff',
+              alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            {p.logo ? <BrandLogo domain={p.logo} color={p.color} size={D - 8} round={p.kind === 'store'} />
+              : p.kind === 'fuel' && <Text style={{ color: '#fff', fontSize: D / 2, fontWeight: '800' }}>⛽</Text>}
           </Pressable>
         ))}
         {selected?.label && (

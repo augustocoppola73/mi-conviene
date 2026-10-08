@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, NearMe, Parking } from '@/api';
 import { ParkingLine } from '@/components/ParkingLine';
+import { BrandLogo, CHAIN_DOMAINS, fuelDomain } from '@/components/BrandLogo';
 import { Slider } from '@/components/Slider';
 import { MapPoint, TileMap } from '@/components/TileMap';
 import { Card, Chip, Icon, PrimaryButton, StoreDot } from '@/components/ui';
@@ -19,7 +20,10 @@ const FUEL_COLOR = '#5B6470';
 const OTHER_COLOR = '#9AA096'; // insegne senza prezzi (Ekom, Despar…)
 
 interface Place { id: string; kind: 'store' | 'fuel'; chain?: string; name: string; address: string | null; lat: number; lon: number;
-  distance_km: number; price?: number | null; parking?: Parking | null }
+  distance_km: number; price?: number | null; parking?: Parking | null; logo?: string | null }
+
+// dominio del sito di un'insegna "altro" (dal tag website di OpenStreetMap), per il logo
+const siteDomain = (url?: string | null) => { const m = url?.match(/^https?:\/\/(?:www\.)?([^/:]+)/i); return m ? m[1] : null; };
 
 export default function VicinoScreen() {
   const s = useStyles();
@@ -64,14 +68,15 @@ export default function VicinoScreen() {
   const places: Place[] = useMemo(() => {
     if (!data) return [];
     const st: Place[] = show.store ? data.stores.map((x) => ({ id: `s-${x.osm_id}`, kind: 'store' as const, chain: x.chain, name: x.name,
-      address: x.address, lat: x.lat, lon: x.lon, distance_km: x.distance_km, parking: x.parking })) : [];
+      address: x.address, lat: x.lat, lon: x.lon, distance_km: x.distance_km, parking: x.parking,
+      logo: CHAIN_DOMAINS[x.chain] ?? siteDomain(x.website) })) : [];
     const fu: Place[] = show.fuel ? data.stations.map((x) => ({ id: `f-${x.id}`, kind: 'fuel' as const, name: x.name || x.brand,
-      address: [x.address, x.city].filter(Boolean).join(', ') || null, lat: x.lat, lon: x.lon, distance_km: x.distance_km, price: x.price })) : [];
+      address: [x.address, x.city].filter(Boolean).join(', ') || null, lat: x.lat, lon: x.lon, distance_km: x.distance_km, price: x.price, logo: fuelDomain(x.brand) })) : [];
     return [...st, ...fu].filter((p) => p.distance_km <= radiusKm).sort((a, b) => a.distance_km - b.distance_km);
   }, [data, show, radiusKm]);
 
   const points: MapPoint[] = places.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon, kind: p.kind,
-    color: p.kind === 'fuel' ? FUEL_COLOR : storeColors[p.chain!] ?? OTHER_COLOR, label: p.name }));
+    color: p.kind === 'fuel' ? FUEL_COLOR : storeColors[p.chain!] ?? OTHER_COLOR, label: p.name, logo: p.logo }));
   const sel = places.find((p) => p.id === selected) ?? null;
   const nStores = places.filter((p) => p.kind === 'store').length, nFuel = places.length - nStores;
 
@@ -154,7 +159,8 @@ function PlaceRow({ p, fuelLabel }: { p: Place; fuelLabel?: string }) {
   return (
     <View style={{ gap: 2 }}>
       <View style={s.row}>
-        {p.kind === 'store' ? (p.chain === 'altro' ? <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: OTHER_COLOR }} /> : <StoreDot storeId={p.chain!} size={12} />) : <Text>⛽</Text>}
+        {p.kind === 'fuel' && !p.logo ? <Text>⛽</Text>
+          : <BrandLogo domain={p.logo} color={p.kind === 'fuel' ? FUEL_COLOR : storeColors[p.chain!] ?? OTHER_COLOR} size={20} />}
         <Text style={s.name} numberOfLines={1}>{p.name}</Text>
         <Text style={s.dist}>{km(p.distance_km)}</Text>
       </View>

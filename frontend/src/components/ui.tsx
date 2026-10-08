@@ -2,7 +2,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { ComponentProps, ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleProp, Text, View, ViewStyle } from 'react-native';
 
-import { makeStyles, radius, spacing, storeColors, useTheme } from '../theme';
+import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { ChainLogo } from './BrandLogo';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -11,12 +12,9 @@ export function Icon({ name, size = 20, color }: { name: IconName; size?: number
   return <Ionicons name={name} size={size} color={color ?? colors.text} />;
 }
 
+/** Segno dell'insegna: il suo logo (o il quadratino colorato se il logo non arriva). Un po' più grande del vecchio quadratino. */
 export function StoreDot({ storeId, size = 12 }: { storeId: string; size?: number }) {
-  return (
-    <View
-      style={{ width: size, height: size, borderRadius: 3, backgroundColor: storeColors[storeId] ?? '#999' }}
-    />
-  );
+  return <ChainLogo chain={storeId} size={Math.round(Math.max(size * 1.4, 16))} />;
 }
 
 export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }) {

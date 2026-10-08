@@ -11,6 +11,7 @@ import { euro, km } from '@/format';
 import { useStore } from '@/store';
 import { openNavigation } from '@/navigate';
 import { ParkingLine } from '@/components/ParkingLine';
+import { BrandLogo, fuelDomain } from '@/components/BrandLogo';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 function shortDate(iso: string | null) {
@@ -209,7 +210,10 @@ export default function RisultatiScreen() {
           )}
           {stop && (
             <Pressable onPress={() => Linking.openURL(stop.maps_url)} style={s.fuelStop}>
-              <Text style={s.fuelStopTitle}>⛽ Sulla strada: {stop.brand} · {stop.price.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <BrandLogo domain={fuelDomain(stop.brand)} color="#5B6470" size={20} />
+                <Text style={[s.fuelStopTitle, { flex: 1 }]}>Sulla strada: {stop.brand} · {stop.price.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l</Text>
+              </View>
               <Text style={s.fuelStopText}>
                 {stop.address}{stop.city ? `, ${stop.city}` : ''} · deviazione circa {stop.detour_km.toLocaleString('it-IT')} km
               </Text>

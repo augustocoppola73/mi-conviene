@@ -86,7 +86,7 @@ export interface Branch {
   /** dai dati di OpenStreetMap (solo versione online); assente = non verificato */
   parking?: Parking | null;
 }
-export interface NearbyStore extends Branch { chain: string; distance_km: number }
+export interface NearbyStore extends Branch { chain: string; distance_km: number; website?: string | null }
 /** "Vicino a me": tutti i punti vendita delle catene e i distributori intorno a un punto */
 export interface NearMe {
   radius_km: number;
