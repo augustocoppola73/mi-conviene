@@ -7,6 +7,7 @@ import { AddPolicy, createGroup, isAnonymous, updateGroup } from '../cloud/group
 import { useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { Icon, PrimaryButton } from './ui';
+import { DatePicker } from './DatePicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const EMOJIS = ['🎉', '🍕', '🎂', '🏖️', '🏠', '⚽', '🍖', '🎄', '⛺', '🍝'];
@@ -35,17 +36,18 @@ export function GroupSheet({ visible, onClose, edit, onSaved, noNavigate }: {
   const [emoji, setEmoji] = useState<string | null>('🎉');
   const [date, setDate] = useState<string | null>(null);
   const [policy, setPolicy] = useState<AddPolicy>('tutti');
+  const [pick, setPick] = useState(false);
+  const todayIso = nextDays(1)[0].iso;
   const { setPrefs } = useStore();
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [anon, setAnon] = useState(false);
-  const days = nextDays(14);
 
   useEffect(() => {
     if (!visible) return;
     setErr(null);
-    setName(edit?.name ?? ''); setEmoji(edit ? edit.emoji : '🎉'); setDate(edit?.event_date ?? null); setPolicy(edit?.add_policy ?? 'tutti');
+    setName(edit?.name ?? ''); setEmoji(edit ? edit.emoji : '🎉'); setDate(edit?.event_date ?? null); setPolicy(edit?.add_policy ?? 'tutti'); setPick(false);
     if (!edit) isAnonymous().then(setAnon).catch(() => {});
   }, [visible]);
 
@@ -60,7 +62,6 @@ export function GroupSheet({ visible, onClose, edit, onSaved, noNavigate }: {
       if (!noNavigate) router.push('/');
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
-  const extra = date && !days.some((d) => d.iso === date);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -94,22 +95,26 @@ export function GroupSheet({ visible, onClose, edit, onSaved, noNavigate }: {
                     </Pressable>
                   ))}
                 </View>
-                <Text style={s.label}>Quando?</Text>
+                <Text style={s.label}>Quanto dura?</Text>
                 <View style={s.row}>
-                  <Pressable onPress={() => setDate(null)} style={[s.chip, date === null && s.on]}>
-                    <Text style={[s.chipText, date === null && s.onText]}>Senza data (gruppo fisso)</Text>
+                  <Pressable onPress={() => { setDate(null); setPick(false); }} style={[s.chip, date === null && s.on]}>
+                    <Text style={[s.chipText, date === null && s.onText]}>Sempre (gruppo fisso)</Text>
                   </Pressable>
-                  {extra && (
-                    <Pressable style={[s.chip, s.on]}><Text style={[s.chipText, s.onText]}>{date}</Text></Pressable>
-                  )}
-                  {days.map((d) => (
-                    <Pressable key={d.iso} onPress={() => setDate(d.iso)} style={[s.chip, date === d.iso && s.on]}>
-                      <Text style={[s.chipText, date === d.iso && s.onText]}>{d.label}</Text>
-                    </Pressable>
-                  ))}
+                  <Pressable onPress={() => { setDate(todayIso); setPick(false); }} style={[s.chip, date === todayIso && !pick && s.on]}>
+                    <Text style={[s.chipText, date === todayIso && !pick && s.onText]}>Oggi</Text>
+                  </Pressable>
+                  <Pressable onPress={() => { setPick(true); if (!date) setDate(todayIso); }} style={[s.chip, (pick || (date !== null && date !== todayIso)) && s.on]}>
+                    <Text style={[s.chipText, (pick || (date !== null && date !== todayIso)) && s.onText]}>📅 Scegli il giorno</Text>
+                  </Pressable>
                 </View>
+                {date !== null && (pick || date !== todayIso) && (
+                  <>
+                    <Text style={s.text}>📅 Fino a <Text style={{ fontWeight: '800' }}>{new Date(`${date}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}</Text></Text>
+                    <DatePicker value={date} onChange={setDate} />
+                  </>
+                )}
                 <Text style={s.hint}>
-                  {date ? 'L\'invito vale fino al giorno dopo. Dopo l\'evento il gruppo resta da consultare.' : 'Per chi fa la spesa insieme sempre (coinquilini, amici): l\'invito vale 30 giorni.'}
+                  {date ? 'Il giorno della festa (o l\'ultimo giorno del gruppo). L\'invito vale fino al giorno dopo; poi il gruppo resta da consultare.' : 'Per chi fa la spesa insieme sempre (coinquilini, amici): l\'invito vale 30 giorni.'}
                 </Text>
                 <Text style={s.label}>Chi aggiunge prodotti alla lista?</Text>
                 <View style={s.row}>
