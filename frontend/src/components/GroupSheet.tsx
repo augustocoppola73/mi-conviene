@@ -6,7 +6,8 @@ import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { AddPolicy, createGroup, isAnonymous, updateGroup } from '../cloud/groups';
 import { useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
-import { PrimaryButton } from './ui';
+import { Icon, PrimaryButton } from './ui';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const EMOJIS = ['🎉', '🍕', '🎂', '🏖️', '🏠', '⚽', '🍖', '🎄', '⛺', '🍝'];
 
@@ -35,6 +36,7 @@ export function GroupSheet({ visible, onClose, edit, onSaved, noNavigate }: {
   const [date, setDate] = useState<string | null>(null);
   const [policy, setPolicy] = useState<AddPolicy>('tutti');
   const { setPrefs } = useStore();
+  const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [anon, setAnon] = useState(false);
@@ -64,8 +66,13 @@ export function GroupSheet({ visible, onClose, edit, onSaved, noNavigate }: {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.backdrop}>
         <View style={s.sheet}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.md }}>
-            <Text style={s.title}>{edit ? 'Modifica il gruppo' : 'Nuovo gruppo'}</Text>
+          <View style={s.head}>
+            <Text style={[s.title, { flex: 1 }]}>{edit ? 'Modifica il gruppo' : 'Nuovo gruppo'}</Text>
+            <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Chiudi">
+              <Icon name="close" size={26} color={colors.textSecondary} />
+            </Pressable>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.md, paddingBottom: Math.max(insets.bottom, 32) + spacing.xl }}>
             {anon ? (
               <>
                 <Text style={s.text}>
@@ -132,6 +139,7 @@ export function GroupSheet({ visible, onClose, edit, onSaved, noNavigate }: {
 
 const useStyles = makeStyles((c) => ({
   backdrop: { flex: 1, backgroundColor: c.overlay, justifyContent: 'flex-end' },
+  head: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
   sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.xl,
     maxHeight: '90%', width: '100%', maxWidth: 640, alignSelf: 'center' },
   title: { color: c.text, fontSize: 20, fontWeight: '800' },
