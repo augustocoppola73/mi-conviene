@@ -1,3 +1,4 @@
+import type { SplitPlan } from './engine/split';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -128,6 +129,10 @@ export interface OptimizeResult {
   budget_status: BudgetStatus | null; savings: Savings; last_similar: LastSimilar | null;
   location: LocationInfo;
   fuel: FuelInfo; price_coverage: { real_lines: number; total_lines: number };
+  /** spesa in due negozi, se conviene (solo versione online con posizione) */
+  split?: SplitPlan | null;
+  /** perché non conviene dividere (es. "risparmieresti solo 1,20 €") */
+  split_note?: string | null;
 }
 export interface FuelInfo {
   fuel_type: FuelType; price_per_liter: number; source: 'mimit' | 'stima';
@@ -139,6 +144,10 @@ export interface OptimizeRequest {
   /** dov'è il punto vendita abituale: se il negozio di quella catena qui vicino è un altro, non vale come abituale */
   habitual_branch?: { lat: number; lon: number; name?: string | null } | null;
   lat?: number; lon?: number; refuel?: boolean; refuel_liters?: number | null;
+  /** 2 = prova anche a dividere la spesa in due negozi */
+  max_stores?: 1 | 2;
+  /** le tue regole: categoria → catena ("la carne sempre da Eurospin") */
+  category_rules?: Record<string, string> | null;
 }
 
 export interface Offer {
@@ -207,10 +216,16 @@ export interface ShopItem {
   key: string; product_id: string; name: string; quantity: number; unit: string; category_id: string;
   price: number | null; checked: boolean; checked_by: string | null; checked_by_id?: string | null; checked_at: string | null; added_in_store: boolean;
   in_promo?: boolean; promo_until?: string | null; variant?: VariantHint | null; seen?: { price: number; kind: PriceKind; note?: string | null } | null;
+  /** spesa in più tappe: in quale tappa (0, 1) e in quale catena si prende */
+  stop?: number; store_id?: string;
 }
+/** una tappa della spesa in più negozi */
+export interface ShopStop { store_id: string; store_name: string; branch: string | null; lat?: number | null; lon?: number | null; parking?: Parking | null }
 export interface Shop {
   id: string; user_id: string; display_name?: string | null; store_id: string; store_name: string; branch?: string | null;
   saving_id?: string | null; items: ShopItem[]; status: string; created_at: string; aisles: string[]; mine: boolean;
+  /** spesa in due negozi: le tappe (null = negozio unico) */
+  stops?: ShopStop[] | null;
   /** chi sta facendo la spesa (l'ha presa in carico) */
   taken_by?: {
     user_id: string; name: string | null; at: string; helpers?: { user_id: string; name: string | null }[];
@@ -232,7 +247,7 @@ export function canActOn(shop: Shop, userId: string | null): boolean {
   const t = shop.taken_by;
   return !t || t.user_id === userId || !!t.helpers?.some((h) => h.user_id === userId);
 }
-export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null }
+export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null; stop?: number }
 export interface FamilyMember { user_id: string; display_name: string; /** riceve le notifiche (solo versione online) */ notifications?: boolean | null }
 export interface Family { code: string; created_at: string; members: FamilyMember[] }
 export interface FamilyList { code: string; items: ListItem[]; updated_by?: string; updated_at?: string }
@@ -275,7 +290,9 @@ export const localApi = {
     reference_type?: 'habitual' | 'median'; price_basis?: PriceBasis;
     history_id?: string; estimated_spend?: number; estimated_total?: number;
     fuel_saving?: number; fuel_liters?: number; fuel_median?: number; fuel_detour_cost?: number; fuel_station?: string;
-    snapshot?: RankedStore;
+    snapshot?: RankedStore | Record<string, unknown>;
+    /** spesa in due negozi: "Eurospin e Ekom" */
+    store_name?: string;
   }) =>
     post<SavingEntry>('/savings', body),
   savings: (userId: string) => request<SavingsSummary>(`/savings/${userId}`),
@@ -315,7 +332,7 @@ export const localApi = {
   recipeUpdate: (id: string, body: RecipeIn) => request<Recipe>(`/recipes/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   recipeDelete: (id: string, user_id: string) => request<{ ok: boolean }>(`/recipes/${encodeURIComponent(id)}?user_id=${user_id}`, { method: 'DELETE' }),
   geocode: (q: string) => request<{ lat: number; lon: number; label: string }[]>(`/geocode?q=${encodeURIComponent(q)}`),
-  shopCreate: (body: { user_id: string; store_id: string; saving_id?: string; branch?: string | null; items: ShopItemIn[]; display_name?: string | null }) =>
+  shopCreate: (body: { user_id: string; store_id: string; saving_id?: string; branch?: string | null; items: ShopItemIn[]; display_name?: string | null; stops?: ShopStop[] | null }) =>
     post<Shop>('/shops', body),
   shopActive: (user_id: string) => request<{ shop: Shop | null; others?: number }>(`/shops/active?user_id=${user_id}`),
   shopCheck: (id: string, user_id: string, key: string, checked: boolean, display_name?: string | null) =>

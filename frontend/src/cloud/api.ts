@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type * as T from '../api';
 import { REQUEST_WAIT_MIN } from '../shopRules';
+import { splitPlan } from '../engine/split';
 import {
   buildPriceBook, computeVirtualReceipt, fuelInfo, FuelStation, HistoryShop, habitualFromHistory, lastSimilarShop, optimizeList, PriceBook,
   RealPrice, savingValue, suggestBudget, UserPrice, verifiedFuelSaving, verifiedSaving,
@@ -217,9 +218,25 @@ function guardAct(shop: any, me: string) {
 
 async function learnFromShop(row: any) {
   const owner = row.family_id || row.user_id;
-  const { data } = await sb().from('aisles').select('ranks').eq('owner_id', owner).eq('store_id', row.store_id).maybeSingle();
-  const ranks = learnAisles(row.items, data?.ranks);
-  if (ranks) await sb().from('aisles').upsert({ owner_id: owner, store_id: row.store_id, ranks, updated_at: nowIso() });
+  // spesa in più tappe: l'ordine dei reparti si impara negozio per negozio
+  const parts: { store_id: string; items: any[] }[] = row.stops?.length > 1
+    ? row.stops.map((st: any, k: number) => ({ store_id: st.store_id, items: row.items.filter((i: any) => (i.stop ?? 0) === k) }))
+    : [{ store_id: row.store_id, items: row.items }];
+  for (const part of parts) {
+    const { data } = await sb().from('aisles').select('ranks').eq('owner_id', owner).eq('store_id', part.store_id).maybeSingle();
+    const ranks = learnAisles(part.items, data?.ranks);
+    if (ranks) await sb().from('aisles').upsert({ owner_id: owner, store_id: part.store_id, ranks, updated_at: nowIso() });
+  }
+}
+
+/** scontrino calcolato di una spesa, anche in più tappe (ogni prodotto col prezzo del suo negozio) */
+function shopReceipt(book: any, shop: any, listItems: any[], stopOf: (i: number) => number): any {
+  if (!(shop.stops?.length > 1)) return computeVirtualReceipt(book, shop.store_id, listItems);
+  const parts = shop.stops.map((st: any, k: number) => computeVirtualReceipt(book, st.store_id, listItems.filter((_: any, i: number) => stopOf(i) === k)));
+  const sum = (f: (r: any) => number) => r2(parts.reduce((t: number, r: any) => t + f(r), 0));
+  return { lines: parts.flatMap((r: any) => r.lines), unknown_products: parts.flatMap((r: any) => r.unknown_products),
+    custom_items: parts.flatMap((r: any) => r.custom_items), real_lines: parts.reduce((t: number, r: any) => t + r.real_lines, 0),
+    total: sum((r) => r.total), normal_total: sum((r) => r.normal_total), savings_vs_normal: sum((r) => r.savings_vs_normal) };
 }
 
 /**
@@ -234,7 +251,7 @@ async function finalizeSaving(shop: any) {
   const bought: T.ShopItem[] = shop.items.filter((i: T.ShopItem) => i.checked);
   const listItems = bought.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name, category_id: i.category_id, unit: i.unit }));
   bookCache = null;  // i prezzi segnati in negozio valgono subito
-  const receipt: any = computeVirtualReceipt(await priceBook(), shop.store_id, listItems);
+  const receipt: any = shopReceipt(await priceBook(), shop, listItems, (i) => bought[i].stop ?? 0);
   const snap = data.snapshot ? { ...data.snapshot } : null;
   if (snap) {
     const fuel = snap.travel?.fuel_cost ?? 0;
@@ -305,6 +322,13 @@ export const cloudApi = {
     if (parkings) {
       for (const r of result.ranked) if (r.branch) r.branch.parking = parkingFor({ lat: r.branch.lat, lon: r.branch.lon, chain: r.store_id }, parkings);
     }
+    // #2: anche in due negozi, se conviene davvero (solo con la posizione vera: serve la distanza tra i due)
+    if ((req.max_stores ?? 1) >= 2 && location.mode === 'reale') {
+      const withCat = req.items.map((i) => ({ ...i, category_id: i.category_id ?? PRODUCT_INDEX[i.product_id]?.category_id ?? null }));
+      Object.assign(result, splitPlan(result.ranked, result.recommended, withCat, {
+        transport: req.transport, fuel, min_savings_threshold: req.min_savings_threshold, rules: req.category_rules ?? null,
+      }));
+    }
     const last: any = lastSimilarShop(req.items.map((i) => i.product_id), shops);
     if (last) last.same_as_recommended = last.store_id === result.recommended.store_id;
     result.last_similar = last;
@@ -372,7 +396,7 @@ export const cloudApi = {
   addSaving: async (body: Parameters<typeof import('../api').localApi.addSaving>[0]): Promise<T.SavingEntry> => {
     const { user_id: _u, store_id, ...rest } = body;
     const data = { fuel_saving: 0, ...rest, verified_amount: null, paid: null,
-      store_name: STORE_INDEX[store_id]?.name ?? store_id };
+      store_name: rest.store_name ?? STORE_INDEX[store_id]?.name ?? store_id };
     const row = check(await sb().from('savings').insert({ store_id, data }).select('*').single());
     return savingOut(row);
   },
@@ -542,20 +566,26 @@ export const cloudApi = {
 
   geocode: async (q: string) => geocode(q),
 
-  shopCreate: async (body: { user_id: string; store_id: string; saving_id?: string; branch?: string | null; items: T.ShopItemIn[]; display_name?: string | null }): Promise<T.Shop> => {
+  shopCreate: async (body: { user_id: string; store_id: string; saving_id?: string; branch?: string | null; items: T.ShopItemIn[]; display_name?: string | null; stops?: T.ShopStop[] | null }): Promise<T.Shop> => {
     if (!STORE_INDEX[body.store_id]) throw new Error('Negozio sconosciuto');
     const me = await uid();
     const book = await priceBook();
     const seen = new Set<string>();
     const items: any[] = [];
+    const stops = body.stops && body.stops.length > 1 ? body.stops : null;
     for (const it of body.items) {
       if (seen.has(it.product_id)) continue;
       seen.add(it.product_id);
-      items.push(shopItem(book, it, body.store_id));
+      if (!stops) { items.push(shopItem(book, it, body.store_id)); continue; }
+      // spesa in più tappe: ogni prodotto col prezzo del negozio dove lo prendi
+      const k = Math.min(Math.max(it.stop ?? 0, 0), stops.length - 1);
+      items.push({ ...shopItem(book, it, stops[k].store_id), stop: k, store_id: stops[k].store_id });
     }
     const row = check(await sb().from('shops').insert({
-      display_name: body.display_name ?? null, store_id: body.store_id, store_name: STORE_INDEX[body.store_id].name,
+      display_name: body.display_name ?? null, store_id: body.store_id,
+      store_name: stops ? stops.map((st) => STORE_INDEX[st.store_id]?.name ?? st.store_name).join(' e ') : STORE_INDEX[body.store_id].name,
       branch: body.branch ?? null, saving_id: body.saving_id ?? null, items,
+      ...(stops ? { stops } : {}),
     }).select('*').single());
     return shopOut(row, me);
   },
@@ -651,7 +681,11 @@ export const cloudApi = {
       guardAct(shop, me);
       const existing = shop.items.find((i: any) => i.key === item.product_id);
       if (existing) existing.quantity = pyRound(existing.quantity + item.quantity, 3);
-      else shop.items.push({ ...shopItem(book, item, shop.store_id, true), checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
+      else if (shop.stops?.length > 1) {
+        const k = Math.min(Math.max(item.stop ?? 0, 0), shop.stops.length - 1);
+        const sid = shop.stops[k].store_id;
+        shop.items.push({ ...shopItem(book, item, sid, true), stop: k, store_id: sid, checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
+      } else shop.items.push({ ...shopItem(book, item, shop.store_id, true), checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
     });
     return shopOut(row, me);
   },
@@ -666,7 +700,8 @@ export const cloudApi = {
       const kg = item.unit === 'kg';
       await saveObserved([{ product_id: item.product_id, text: item.name, net_price: body.price,
         quantity: kg ? 1 : item.quantity, weight_kg: kg ? item.quantity : null, kind: body.kind,
-        promo_until: body.promo_until ?? null, note: body.note ?? null }], current.store_id, today(), current.branch ?? null);
+        promo_until: body.promo_until ?? null, note: body.note ?? null }], item.store_id ?? current.store_id, today(),
+        (item.stop != null && current.stops?.[item.stop]?.branch) || current.branch || null);
     }
     const row = await updateShop(id, (shop) => {
       const it = shop.items.find((i: any) => i.key === body.key);

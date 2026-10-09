@@ -54,7 +54,7 @@ export default function RisultatiScreen() {
     );
   }
 
-  const { recommended, ranked, reasoning, budget_status, fuel, price_coverage, savings, last_similar, location } = lastResult;
+  const { recommended, ranked, reasoning, budget_status, fuel, price_coverage, savings, last_similar, location, split, split_note } = lastResult;
   const lastToday = last_similar ? ranked.find((r) => r.store_id === last_similar.store_id) : undefined;
   const others = ranked.filter((r) => r.store_id !== recommended.store_id);
   // parcheggio: se il consigliato non ha il parcheggio clienti e un'alternativa quasi uguale sì, lo segnalo (scegli tu)
@@ -133,6 +133,43 @@ export default function RisultatiScreen() {
     }
   };
 
+  // #2: spesa in due negozi. Il risparmio va nel Salvadanaio contro lo stesso riferimento del calcolo (abituale o spesa tipica)
+  const splitSaving = split ? Math.max(0, Math.round((savings.reference_cost - split.total_cost) * 100) / 100) : 0;
+  const confirmSplit = async () => {
+    if (!userId || !split) return;
+    setSaving(true);
+    try {
+      const names = split.stops.map((st) => st.store_name).join(' e ');
+      const first = split.stops[0];
+      const h = await api.addHistory({ user_id: userId, items, store_id: first.store_id, total_cost: split.total_cost });
+      const entry = await api.addSaving({
+        user_id: userId, store_id: first.store_id, store_name: names, amount: splitSaving,
+        note: splitSaving > 0 ? `${savings.reference.label} · spesa in due negozi` : 'spesa in due negozi',
+        reference_type: savings.reference.type, price_basis: savings.price_basis, history_id: h.id,
+        estimated_spend: split.items_total, estimated_total: split.total_cost,
+        snapshot: { store_id: first.store_id, store_name: names, split: true, stops: split.stops, travel: split.travel, total_cost: split.total_cost,
+          receipt: { lines: split.stops.flatMap((st) => st.lines), total: split.items_total } },
+      });
+      setAddedAmount(splitSaving);
+      setConfirmed('split');
+      const stopOf = new Map(split.stops.flatMap((st, k) => st.lines.map((l) => [l.product_id, k] as const)));
+      try {
+        await api.shopCreate({
+          user_id: userId, store_id: first.store_id, saving_id: entry.id,
+          branch: first.branch ? [first.branch.name, first.branch.address].filter(Boolean).join(' · ') : null,
+          display_name: prefs.displayName || null,
+          stops: split.stops.map((st) => ({ store_id: st.store_id, store_name: st.store_name,
+            branch: st.branch ? [st.branch.name, st.branch.address].filter(Boolean).join(' · ') : null,
+            lat: st.branch?.lat ?? null, lon: st.branch?.lon ?? null, parking: st.branch?.parking ?? null })),
+          items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null,
+            unit: i.unit ?? null, stop: stopOf.get(i.product_id) ?? 0 })),
+        });
+        clearItems();
+        setShopError(null);
+      } catch (e) { setShopError((e as Error).message); }
+    } finally { setSaving(false); }
+  };
+
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
       <ScrollView contentContainerStyle={s.content}>
@@ -193,6 +230,12 @@ export default function RisultatiScreen() {
             <Icon name="bulb-outline" size={18} color={colors.primary} />
             <Text style={s.reason}>{reasoning}</Text>
           </View>
+          {!split && split_note && (
+            <View style={s.savingBox}>
+              <Icon name="git-branch-outline" size={16} color={colors.textSecondary} />
+              <Text style={s.lastText}>{split_note}</Text>
+            </View>
+          )}
           {last_similar && (
             <View style={s.savingBox}>
               <Icon name="time-outline" size={16} color={colors.textSecondary} />
@@ -282,11 +325,61 @@ export default function RisultatiScreen() {
           <ReceiptToggle store={recommended} expanded={expanded === recommended.store_id} onToggle={() => setExpanded(expanded === recommended.store_id ? null : recommended.store_id)} />
         </Card>
 
+        {split && (
+          <Card style={s.splitCard}>
+            <View style={s.altRow}>
+              <Icon name="git-branch-outline" size={20} color={colors.primary} />
+              <Text style={[s.altName, { flex: 1 }]}>Conviene dividere in due negozi</Text>
+            </View>
+            <Text style={s.splitTotal}>{euro(split.total_cost)}
+              <Text style={s.splitSave}>  · {euro(split.saving)} in meno di {split.vs.store_name}</Text>
+            </Text>
+            <Text style={s.altMeta}>
+              spesa {euro(split.items_total)}{split.travel.fuel_cost > 0 ? ` + carburante ${euro(split.travel.fuel_cost)}` : ''} · giro di {km(split.travel.distance_km)}
+              {' · '}{split.travel.time_min} min{split.extra_min > 0 ? ` (${split.extra_min} in più)` : ''}
+            </Text>
+            {split.stops.map((st, k) => (
+              <View key={st.store_id} style={s.splitStop}>
+                <View style={s.altRow}>
+                  <StoreDot storeId={st.store_id} size={14} />
+                  <Text style={[s.altName, { flex: 1 }]}>{k + 1}. {st.store_name}</Text>
+                  <Text style={s.altTotal}>{euro(st.subtotal)}</Text>
+                </View>
+                {st.branch && (
+                  <Pressable onPress={() => openNavigation(st.branch.lat, st.branch.lon, st.branch.name)} hitSlop={4} style={s.altNav}>
+                    <Text style={[s.altMeta, { flex: 1 }]} numberOfLines={1}>{st.branch.name}{st.branch.address ? ` · ${st.branch.address}` : ''}</Text>
+                    <Icon name="navigate" size={14} color={colors.primary} />
+                    <Text style={s.altNavText}>Portami lì</Text>
+                  </Pressable>
+                )}
+                {st.branch && <ParkingLine parking={st.branch.parking} size={12} />}
+                <Text style={s.altMeta} numberOfLines={3}>
+                  {st.lines.length} {st.lines.length === 1 ? 'prodotto' : 'prodotti'}: {st.lines.map((l) => l.name).join(', ')}
+                </Text>
+                {st.by_rule > 0 && <Text style={s.altMeta}>📌 {st.by_rule} per le tue regole</Text>}
+              </View>
+            ))}
+            {split.rules_cost > 0 && <Text style={s.altMeta}>📌 Le tue regole costano {euro(split.rules_cost)} in più rispetto a dividere liberamente.</Text>}
+            {confirmed === 'split' ? (
+              <Text style={s.confirmNote}>
+                {addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
+                {'\n'}La lista è pronta, divisa per negozio.
+              </Text>
+            ) : (
+              <PrimaryButton label="Usa due negozi" icon="git-branch-outline" onPress={confirmSplit} loading={saving}
+                disabled={!!confirmed} style={{ marginTop: spacing.sm }} />
+            )}
+            {confirmed === 'split' && !shopError && (
+              <PrimaryButton label="Vai alla spesa in corso" icon="basket-outline" onPress={() => router.push('/spesa')} style={{ marginTop: spacing.sm }} />
+            )}
+          </Card>
+        )}
+
         <PrimaryButton
-          label={confirmed === recommended.store_id ? 'Spesa confermata' : 'Confermo questa spesa'}
+          label={confirmed === recommended.store_id ? 'Spesa confermata' : split ? `Resto in un negozio: ${recommended.store_name}` : 'Confermo questa spesa'}
           icon={confirmed === recommended.store_id ? 'checkmark-circle' : 'cart-outline'}
           onPress={openConfirm}
-          disabled={confirmed === recommended.store_id}
+          disabled={!!confirmed}
           style={{ marginTop: spacing.lg }}
         />
         {confirmed === recommended.store_id && (
@@ -451,6 +544,10 @@ const useStyles = makeStyles((c) => ({
   reason: { flex: 1, color: c.text, fontSize: 14, lineHeight: 20 },
   budgetBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: spacing.md, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
   budgetText: { fontSize: 13, fontWeight: '600' },
+  splitCard: { marginTop: spacing.lg, gap: spacing.sm, borderColor: c.primary, borderWidth: 2 },
+  splitTotal: { color: c.text, fontSize: 24, fontWeight: '800' },
+  splitSave: { color: c.success, fontSize: 14, fontWeight: '700' },
+  splitStop: { gap: 4, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: c.border },
   confirmNote: { color: c.success, textAlign: 'center', marginTop: spacing.sm, fontSize: 14 },
   altRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   altName: { flex: 1, color: c.text, fontSize: 16, fontWeight: '600' },

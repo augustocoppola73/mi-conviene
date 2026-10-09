@@ -27,6 +27,8 @@ export interface Prefs {
   menu: MenuEntry[];
   /** Vicino a me: solo le insegne con prezzi nell'app */
   nearOnlyPriced: boolean;
+  /** le mie regole per la spesa in due negozi: categoria → catena */
+  categoryRules: Record<string, string>;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -43,6 +45,7 @@ const DEFAULT_PREFS: Prefs = {
   refuelLiters: null,
   menu: [],
   nearOnlyPriced: false,
+  categoryRules: {},
 };
 
 interface StoreValue {

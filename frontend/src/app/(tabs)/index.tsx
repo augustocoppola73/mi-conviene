@@ -128,6 +128,8 @@ export default function ListaScreen() {
         ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
         refuel: prefs.transport === 'car' && prefs.refuel,
         refuel_liters: prefs.refuelLiters,
+        max_stores: 2, // l'app prova anche due negozi e lo propone solo se conviene davvero
+        category_rules: prefs.categoryRules,
       });
       setLastResult(r);
       router.push('/risultati');

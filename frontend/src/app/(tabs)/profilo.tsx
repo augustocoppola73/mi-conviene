@@ -8,6 +8,7 @@ import { attachEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, sig
 import { shareInvite, shareNotifyReminder } from '@/invite';
 import { LocationControl } from '@/components/LocationControl';
 import { NotifySettings } from '@/components/NotifySettings';
+import { CategoryRules } from '@/components/CategoryRules';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
 import { useStore } from '@/store';
@@ -164,6 +165,8 @@ export default function ProfiloScreen() {
         </Card>
 
         <NotifySettings />
+
+        {IS_CLOUD && <CategoryRules />}
 
         <SectionTitle>Soglia minima di convenienza</SectionTitle>
         <Text style={s.help}>

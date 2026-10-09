@@ -10,6 +10,8 @@ import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
 import { ProductSearch } from '@/components/ProductSearch';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty } from '@/format';
+import { ParkingLine } from '@/components/ParkingLine';
+import { openNavigation } from '@/navigate';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -145,6 +147,7 @@ export default function SpesaScreen() {
     } catch (e) { tell('Spesa', (e as Error).message); return false; }
   };
   const canAct = shop ? canActOn(shop, userId) : false;
+  const addStop = useRef(0); // spesa in due negozi: le cose aggiunte in negozio vanno nella tappa in corso
 
   const toggle = (it: ShopItem) => {
     if (!shop || !userId) return;
@@ -175,7 +178,7 @@ export default function SpesaScreen() {
     const p = catalog?.products.find((x) => x.id === productId);
     try {
       const r = await api.shopAdd(shop.id, userId, {
-        product_id: productId, quantity: p?.default_qty ?? 1, name: nameNew, category_id: categoryId,
+        product_id: productId, quantity: p?.default_qty ?? 1, name: nameNew, category_id: categoryId, stop: addStop.current,
       });
       setShop(applyPending(r));
       save(r);
@@ -298,9 +301,19 @@ export default function SpesaScreen() {
   const order = new Map(shop.aisles.map((c, i) => [c, i]));
   const todo = shop.items.filter((i) => !i.checked);
   const done = shop.items.filter((i) => i.checked).sort((a, b) => (b.checked_at ?? '').localeCompare(a.checked_at ?? ''));
-  const groups = new Map<string, ShopItem[]>();
-  for (const i of todo) groups.set(i.category_id, [...(groups.get(i.category_id) ?? []), i]);
-  const sortedGroups = [...groups.entries()].sort((a, b) => (order.get(a[0]) ?? 99) - (order.get(b[0]) ?? 99));
+  const byAisle = (list: ShopItem[]) => {
+    const groups = new Map<string, ShopItem[]>();
+    for (const i of list) groups.set(i.category_id, [...(groups.get(i.category_id) ?? []), i]);
+    return [...groups.entries()].sort((a, b) => (order.get(a[0]) ?? 99) - (order.get(b[0]) ?? 99));
+  };
+  // spesa in due negozi: la lista divisa per tappa
+  const stops = shop.stops && shop.stops.length > 1 ? shop.stops : null;
+  const sections = stops
+    ? stops.map((st, k) => ({ st, k, groups: byAisle(todo.filter((i) => (i.stop ?? 0) === k)), left: todo.filter((i) => (i.stop ?? 0) === k).length }))
+    : [{ st: null, k: 0, groups: byAisle(todo), left: todo.length }];
+  // dove sei adesso: la prima tappa con qualcosa da prendere (lì vanno le cose aggiunte in negozio)
+  const currentStop = stops ? (sections.find((x) => x.left > 0)?.k ?? stops.length - 1) : 0;
+  addStop.current = currentStop;
   const cart = Math.round(done.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
   const estimated = Math.round(shop.items.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
   const pct = shop.items.length ? done.length / shop.items.length : 0;
@@ -314,7 +327,8 @@ export default function SpesaScreen() {
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={s.title}>🛒 {shop.store_name}</Text>
-          {!!shop.branch && <Text style={s.muted} numberOfLines={1}>{shop.branch}</Text>}
+          {!!shop.branch && !stops && <Text style={s.muted} numberOfLines={1}>{shop.branch}</Text>}
+          {stops && <Text style={s.muted}>Spesa in {stops.length} negozi: segui le tappe qui sotto</Text>}
           {!shop.mine && <Text style={s.muted}>Lista di {shop.display_name ?? 'un familiare'}</Text>}
         </View>
       </View>
@@ -331,30 +345,50 @@ export default function SpesaScreen() {
 
       <ScrollView contentContainerStyle={s.content}>
         {todo.length === 0 && <Text style={s.allDone}>✅ Hai preso tutto!</Text>}
-        {sortedGroups.map(([cat, list]) => (
-          <View key={cat} style={{ gap: 6 }}>
-            <Text style={s.group}>{catById.get(cat)?.emoji ?? '🛒'} {catById.get(cat)?.name ?? 'Altro'}</Text>
-            {list.map((i) => (
-              <Pressable key={i.key} onPress={() => toggle(i)} style={s.row} accessibilityRole="checkbox" accessibilityState={{ checked: false }}>
-                <Icon name="ellipse-outline" size={26} color={colors.primary} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.name}>{i.name}</Text>
-                  <Text style={s.muted}>
-                    {formatQty(i.quantity, i.unit)}{i.price != null ? ` · ~${euro(i.price)}` : ''}
-                    {i.in_promo ? ` · in offerta${i.promo_until ? ` fino al ${i.promo_until.slice(8, 10)}/${i.promo_until.slice(5, 7)}` : ''}` : ''}
-                  </Text>
-                  {i.variant && (
-                    <Text style={[s.muted, { color: colors.primary }]}>
-                      💡 l'ultima volta qui: {i.variant.note || 'altra marca'} a {euro(i.variant.price)}
-                    </Text>
-                  )}
-                </View>
-                {canAct && !i.product_id.startsWith('custom:') && (
-                  <Pressable onPress={() => openPrice(i)} hitSlop={8} style={s.priceBtn} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
-                    <Text style={s.priceBtnText}>€</Text>
+        {sections.map((sec) => (
+          <View key={sec.k} style={{ gap: 6 }}>
+            {sec.st && (
+              <View style={[s.stopHead, sec.k === currentStop && sec.left > 0 && s.stopHeadNow]}>
+                <Text style={s.stopTitle}>
+                  {sec.left === 0 ? '✅' : sec.k === currentStop ? '📍' : '⏭️'} Tappa {sec.k + 1} · {sec.st.store_name}
+                  <Text style={s.muted}>  {sec.left === 0 ? 'fatto' : `${sec.left} da prendere`}</Text>
+                </Text>
+                {!!sec.st.branch && <Text style={s.muted} numberOfLines={1}>{sec.st.branch}</Text>}
+                <ParkingLine parking={sec.st.parking} size={12} />
+                {sec.st.lat != null && sec.st.lon != null && sec.left > 0 && (
+                  <Pressable onPress={() => openNavigation(sec.st!.lat!, sec.st!.lon!, sec.st!.store_name)} hitSlop={6} style={s.stopNav}>
+                    <Icon name="navigate" size={14} color={colors.primary} />
+                    <Text style={s.stopNavText}>Portami lì</Text>
                   </Pressable>
                 )}
-              </Pressable>
+              </View>
+            )}
+                {sec.groups.map(([cat, list]) => (
+              <View key={cat} style={{ gap: 6 }}>
+                <Text style={s.group}>{catById.get(cat)?.emoji ?? '🛒'} {catById.get(cat)?.name ?? 'Altro'}</Text>
+                {list.map((i) => (
+                  <Pressable key={i.key} onPress={() => toggle(i)} style={s.row} accessibilityRole="checkbox" accessibilityState={{ checked: false }}>
+                    <Icon name="ellipse-outline" size={26} color={colors.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.name}>{i.name}</Text>
+                      <Text style={s.muted}>
+                        {formatQty(i.quantity, i.unit)}{i.price != null ? ` · ~${euro(i.price)}` : ''}
+                        {i.in_promo ? ` · in offerta${i.promo_until ? ` fino al ${i.promo_until.slice(8, 10)}/${i.promo_until.slice(5, 7)}` : ''}` : ''}
+                      </Text>
+                      {i.variant && (
+                        <Text style={[s.muted, { color: colors.primary }]}>
+                          💡 l'ultima volta qui: {i.variant.note || 'altra marca'} a {euro(i.variant.price)}
+                        </Text>
+                      )}
+                    </View>
+                    {canAct && !i.product_id.startsWith('custom:') && (
+                      <Pressable onPress={() => openPrice(i)} hitSlop={8} style={s.priceBtn} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
+                        <Text style={s.priceBtnText}>€</Text>
+                      </Pressable>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
             ))}
           </View>
         ))}
@@ -449,6 +483,11 @@ const useStyles = makeStyles((c) => ({
     borderRadius: radius.md, backgroundColor: c.primarySoft },
   takenText: { color: c.text, fontSize: 14, fontWeight: '600' },
   takeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  stopHead: { gap: 2, marginTop: spacing.md, padding: spacing.sm, borderRadius: radius.md, backgroundColor: c.surfaceMuted },
+  stopHeadNow: { backgroundColor: c.primarySoft, borderWidth: 1, borderColor: c.primary },
+  stopTitle: { color: c.text, fontSize: 16, fontWeight: '700' },
+  stopNav: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 2 },
+  stopNavText: { color: c.primary, fontWeight: '700', fontSize: 13 },
   requestBox: { gap: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: c.surface, borderWidth: 2, borderColor: c.primary },
   takeBtn: { backgroundColor: c.primary, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
   takeBtnSecondary: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.primary },
