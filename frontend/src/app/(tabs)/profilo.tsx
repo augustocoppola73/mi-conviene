@@ -378,6 +378,17 @@ function AccountCard() {
       setEmailSent(false); setEmailCode('');
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
+  // l'email ha solo il link (modelli di Supabase senza codice): dopo averlo toccato si ricontrolla l'account
+  const checkLinked = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      await sb().auth.refreshSession();
+      const { data } = await sb().auth.getUser();
+      const mail = data.user?.email || null;
+      if (!mail) throw new Error("Non risulta ancora confermata: tocca il link nell'email e riprova");
+      setUser({ email: mail, anonymous: false }); setEmailSent(false);
+    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
   const newDevCode = async () => {
     setBusy(true); setMsg(null);
     try { setDevCode(await createDeviceCode()); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
@@ -407,11 +418,12 @@ function AccountCard() {
               </>
             ) : (
               <>
-                <Text style={text}>Ti ho mandato un'email a {newEmail.trim()}: scrivi qui il codice per confermarla (guarda anche nello spam).</Text>
+                <Text style={text}>Ti ho mandato un'email a {newEmail.trim()} (guarda anche nello spam). Se contiene un codice scrivilo qui; se c'è solo un link, toccalo e poi «Ho toccato il link».</Text>
                 <TextInput value={emailCode} onChangeText={(t) => setEmailCode(t.replace(/\D/g, '').slice(0, 8))} placeholder="123456"
                   placeholderTextColor={colors.textSecondary} keyboardType="number-pad" inputMode="numeric" autoComplete="one-time-code"
                   style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 20, letterSpacing: 4, textAlign: 'center' }} />
                 <PrimaryButton label="Conferma l'email" icon="checkmark-outline" onPress={confirmCode} loading={busy} disabled={emailCode.length < 6} />
+                <PrimaryButton label="Ho toccato il link" icon="link-outline" variant="secondary" onPress={checkLinked} loading={busy} />
                 <PrimaryButton label="Cambia email" variant="secondary" onPress={() => { setEmailSent(false); setEmailCode(''); }} />
               </>
             )}

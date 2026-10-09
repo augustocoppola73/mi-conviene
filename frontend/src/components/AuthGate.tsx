@@ -157,7 +157,7 @@ function LoginForm({ old, onInvite }: { old: boolean; onInvite: (code: string) =
         ) : (
           <>
             <Text style={s.ok}>{NATIVE
-              ? `Ti ho mandato un'email a ${email.trim()}: scrivi qui il codice che c'è dentro. Se non la trovi, guarda anche nello spam.`
+              ? `Ti ho mandato un'email a ${email.trim()} (guarda anche nello spam). Se dentro c'è un codice scrivilo qui. Se c'è solo un link: aprilo nel browser, entra, poi in Profilo → Account tocca «Collega un altro telefono» e qui usa «Ho un codice».`
               : `Controlla la posta di ${email.trim()} e apri il link: ti fa entrare direttamente. Se non la trovi, guarda anche nello spam.`}</Text>
             {!withCode ? (
               <PrimaryButton label="Nell'email c'è un codice" variant="secondary" onPress={() => setWithCode(true)} />
