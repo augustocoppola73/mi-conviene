@@ -23,7 +23,6 @@ import { search } from '../engine/recipes';
 import { haversineKm, pyRound } from '../engine/util';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
 import RECIPE_CORES from '../engine/data/recipe_cores.json';
-import { addGroupExpense } from './groups';
 import { check, IS_CLOUD, sb, uid } from './client';
 
 const COLLECTION = (WIKIBOOKS as { recipes: Recipe[] }).recipes;
@@ -258,35 +257,11 @@ function shopReceipt(book: any, shop: any, listItems: any[], stopOf: (i: number)
  * (comprese le cose aggiunte in negozio, senza quelle non prese), con i prezzi visti in negozio.
  * Così la verifica con lo scontrino vero confronta cose uguali.
  */
-// #21: prodotti presi per un gruppo → stato nella lista del gruppo (solo chi li prende può: gli altri errori si ignorano)
-function syncGroupItems(groups: T.GroupShare[], status: 'preso' | 'da_prendere' | 'mancava') {
-  for (const g of groups) sb().from('group_list_items').update({ status }).eq('id', g.group_item_id).then(() => {}, () => {});
-}
-
-/** #21: a fine spesa, la parte per ogni gruppo diventa una spesa del gruppo pagata da me (lo "scontrino del gruppo"). */
-async function groupReceipts(items: T.ShopItem[], storeName: string) {
-  const per = new Map<string, { group_id: string; group_name: string; emoji: string | null; amount: number; lines: number }>();
-  for (const it of items) {
-    if (!it.groups?.length) continue;
-    if (!it.checked) { syncGroupItems(it.groups, 'da_prendere'); continue; }   // non preso: resta da prendere (a te)
-    syncGroupItems(it.groups, 'preso');
-    for (const g of it.groups) {
-      const part = it.price != null && it.quantity > 0 ? (it.price * g.quantity) / it.quantity : 0;
-      const cur = per.get(g.group_id) ?? { group_id: g.group_id, group_name: g.group_name, emoji: g.emoji, amount: 0, lines: 0 };
-      cur.amount += part; cur.lines += 1;
-      per.set(g.group_id, cur);
-    }
-  }
-  const out: { group_id: string; group_name: string; emoji: string | null; amount: number; lines: number; saved: boolean }[] = [];
-  for (const g of per.values()) {
-    const amount = r2(g.amount);
-    let saved = false;
-    if (amount > 0) {
-      try { await addGroupExpense(g.group_id, amount, `Spesa da ${storeName}`); saved = true; } catch { /* non sei nel gruppo (es. l'ha finita un familiare) */ }
-    }
-    out.push({ ...g, amount, saved });
-  }
-  return out;
+// #21: i prodotti per i gruppi seguono la spesa (anche se spunta o chiude un familiare): lo fa il database
+async function shopGroupSync(shopId: string, finish: boolean): Promise<T.GroupReceipt[]> {
+  const { data, error } = await sb().rpc('shop_group_sync', { p_shop: shopId, p_finish: finish });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as T.GroupReceipt[];
 }
 
 async function finalizeSaving(shop: any) {
@@ -706,7 +681,7 @@ export const cloudApi = {
     });
     // #21: un prodotto preso anche per un gruppo risulta preso nel gruppo (gli altri lo vedono subito)
     const it = (row.items as T.ShopItem[]).find((i) => i.key === key);
-    if (it?.groups?.length) syncGroupItems(it.groups, checked ? 'preso' : 'da_prendere');
+    if (it?.groups?.length) shopGroupSync(id, false).catch(() => {});
     return shopOut(row, me);
   },
 
@@ -887,7 +862,7 @@ export const cloudApi = {
     check(await sb().from('shops').update({ status: 'done', finished_at: nowIso() }).eq('id', id));
     await finalizeSaving(shop).catch(() => {});
     const items: T.ShopItem[] = shop.items;
-    const group_receipts = await groupReceipts(items, shop.store_name).catch(() => []);
+    const group_receipts = items.some((i) => i.groups?.length) ? await shopGroupSync(id, true).catch(() => []) : [];
     return { missing: items.filter((i) => !i.checked), saving_id: shop.saving_id ?? null, store_name: shop.store_name as string,
       cart: r2(items.filter((i) => i.checked).reduce((s, i) => s + (i.price || 0), 0)), group_receipts };
   },

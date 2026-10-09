@@ -158,12 +158,13 @@ const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista da
   ] });
   ok('spesa con la parte del gruppo', gshop.items?.find((i) => i.key === 'custom:patatine')?.groups?.length === 1, gshop.__error || '');
   await A.call('shopPrice', gshop.id, { user_id: U, key: 'custom:patatine', price: 3.2, kind: 'normale', display_name: 'Augusto' });
-  await A.call('shopCheck', gshop.id, U, 'custom:patatine', true, 'Augusto');
+  // la spesa la fa B (famiglia, e anche nel gruppo): le sue spunte valgono anche per il gruppo
+  await Bu.call('shopCheck', gshop.id, 'x', 'custom:patatine', true, 'Ale');
   await new Promise((r) => setTimeout(r, 800));
-  ok('spuntate in negozio → prese nel gruppo', (await Bu.g('groupItems', g.list_id)).find((i) => i.name === 'patatine')?.status === 'preso');
-  await A.call('shopCheck', gshop.id, U, 'latte', true, 'Augusto');
-  const gfin = await A.call('shopFinish', gshop.id, U);
-  ok('scontrino del gruppo a fine spesa', gfin.group_receipts?.length === 1 && gfin.group_receipts[0].amount > 0 && gfin.group_receipts[0].saved, JSON.stringify(gfin.group_receipts ?? gfin.__error));
+  ok('spuntate da un familiare → prese nel gruppo', (await A.g('groupItems', g.list_id)).find((i) => i.name === 'patatine')?.status === 'preso');
+  await Bu.call('shopCheck', gshop.id, 'x', 'latte', true, 'Ale');
+  const gfin = await Bu.call('shopFinish', gshop.id, 'x');
+  ok('scontrino del gruppo a fine spesa (chiusa dal familiare)', gfin.group_receipts?.length === 1 && gfin.group_receipts[0].amount === 3.2 && gfin.group_receipts[0].saved, JSON.stringify(gfin.group_receipts ?? gfin.__error));
   // la pagina Lista in modalità gruppo
   await A.page.evaluate((gid) => { const p = JSON.parse(localStorage.getItem('margine_prefs') || '{}'); p.activeList = gid; localStorage.setItem('margine_prefs', JSON.stringify(p)); }, gid);
   await A.page.goto('http://localhost:8790/'); await A.page.waitForTimeout(3500);
