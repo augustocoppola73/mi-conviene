@@ -20,7 +20,7 @@ import {
 import { observedRows, ObservedLine } from '../engine/observed';
 import { flyers, fuelNearby, geocode, KV, NEAR_ME_MAX_KM, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor, supermarketsAround } from '../engine/places';
 import { search } from '../engine/recipes';
-import { haversineKm, pyRound } from '../engine/util';
+import { haversineKm, median, pyRound } from '../engine/util';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
 import RECIPE_CORES from '../engine/data/recipe_cores.json';
 import { check, IS_CLOUD, sb, uid } from './client';
@@ -797,6 +797,30 @@ export const cloudApi = {
     const fuel = fuelInfo(fuelType || 'benzina', stations, lat, lon);
     if (parkings) withParking(stores.map((st) => (st.branch ? Object.assign(st.branch, { chain: st.id }) : null)), parkings);
     return helpOptions(todo, stores, (sid, pid, q) => shopItem(book, { product_id: pid, quantity: q }, sid).price, { transport, fuel }) as T.HelpOption[];
+  },
+
+  /**
+   * #15 "Cosa conviene prendere a me": tra i prodotti liberi del gruppo, quelli che costano meno nei negozi vicino a me
+   * (rispetto al prezzo tipico in zona). Stesso motore di "Ti do una mano".
+   */
+  groupHelpPlan: async (items: { id: string; product_id: string; name: string; quantity: number; unit: string; category_id: string | null }[],
+    lat: number, lon: number, transport: T.Transport, fuelType: T.FuelType): Promise<T.HelpOption[]> => {
+    const book = await priceBook();
+    let near;
+    try { near = nearestPerChain(await storesAround(lat, lon, kv), lat, lon); } catch { throw new Error('OpenStreetMap non raggiungibile: riprova tra poco'); }
+    const [stores, loc] = storesFor(near);
+    if (loc.mode !== 'reale') throw new Error('Nessun supermercato vicino a te');
+    const priceAt = (sid: string, pid: string, q: number) => shopItem(book, { product_id: pid, quantity: q }, sid).price;
+    // prezzo "tipico": mediana dei negozi vicini (così "conviene" vuol dire meno di quanto si spenderebbe di solito)
+    const todo = items.filter((i) => !i.product_id.startsWith('custom:')).map((i) => {
+      const ps = stores.map((st) => priceAt(st.id, i.product_id, i.quantity)).filter((p): p is number => p != null);
+      return { key: i.id, product_id: i.product_id, name: i.name, quantity: i.quantity, unit: i.unit, category_id: i.category_id, price: ps.length ? r2(median(ps)) : null };
+    });
+    if (!todo.length) throw new Error('Non ci sono prodotti del catalogo liberi da prendere');
+    const [stations, parkings] = await Promise.all([stationsNear(lat, lon).catch(() => [] as FuelStation[]), parkingsAround(lat, lon, kv).catch(() => null)]);
+    const fuel = fuelInfo(fuelType || 'benzina', stations, lat, lon);
+    if (parkings) withParking(stores.map((st) => (st.branch ? Object.assign(st.branch, { chain: st.id }) : null)), parkings);
+    return helpOptions(todo, stores, priceAt, { transport, fuel }) as T.HelpOption[];
   },
 
   /** prendo io questi prodotti da quel negozio: diventano una tappa mia, spariscono dalla lista di chi fa la spesa */

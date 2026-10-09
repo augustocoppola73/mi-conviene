@@ -147,6 +147,9 @@ const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista da
   await A.page.goto(`http://localhost:8790/gruppo/${gid}`); await A.page.waitForTimeout(3000);
   ok('pagina gruppo', await A.page.getByText('Festa di sabato').count() > 0 && await A.page.getByText('patatine').count() > 0);
   await A.page.screenshot({ path: process.argv[2] + '/gruppo.png' });
+  // #15: cosa conviene prendere a me (prodotti liberi, dalla mia posizione)
+  const hp = await A.call('groupHelpPlan', ['latte', 'spaghetti', 'passata', 'uova', 'tonno', 'yogurt'].map((p, i) => ({ id: `x${i}`, product_id: p, name: p, quantity: 2, unit: 'pz', category_id: null })), 43.55, 10.31, 'car', 'benzina');
+  ok('cosa conviene prendere a me', Array.isArray(hp) && (hp.length === 0 || (hp[0].lines.length > 0 && hp[0].suggested > 0)), hp.__error || (hp[0]?.reasoning ?? 'nessuna proposta'));
   // #21: la mia parte del gruppo entra nella mia spesa; a fine spesa diventa lo scontrino del gruppo
   await A.g('updateGroupItem', pat.id, { assigned_to: '11111111-1111-1111-1111-111111111111' }).catch(() => {});
   const mineG = await A.g('myGroupItems');

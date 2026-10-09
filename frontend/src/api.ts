@@ -398,6 +398,11 @@ export const localApi = {
       mode: mode === 'request' ? 'take' : mode === 'request_help' ? 'help' : mode === 'release' || mode === 'help' ? mode : 'take' }),
   shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
   /** "Ti do una mano" (#4): solo nella versione online (serve la famiglia e la posizione) */
+  /** #15: nel gruppo, cosa conviene prendere a me (dalla mia posizione): solo versione online */
+  groupHelpPlan: async (_items: { id: string; product_id: string; name: string; quantity: number; unit: string; category_id: string | null }[],
+    _lat: number, _lon: number, _transport: Transport, _fuel: FuelType): Promise<HelpOption[]> => {
+    throw new Error('Funziona nella versione online');
+  },
   shopHelpPlan: async (_id: string, _lat: number, _lon: number, _transport: Transport, _fuel: FuelType): Promise<HelpOption[]> => {
     throw new Error('"Ti do una mano" funziona nella versione online');
   },

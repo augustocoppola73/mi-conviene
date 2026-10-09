@@ -4,20 +4,20 @@
  */
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { api, ListItem } from '../api';
+import { api, HelpOption, ListItem } from '../api';
 import { IS_CLOUD, uid } from '../cloud/client';
 import {
   addGroupItem, eventLabel, Group, GroupItem, groupItems, GroupMember, groupMembers, myGroups, removeGroupItem, similarName,
   updateGroupItem, watchList,
 } from '../cloud/groups';
-import { formatQty, qtyStep } from '../format';
+import { euro, formatQty, qtyStep } from '../format';
 import { shareInvite } from '../invite';
 import { customId, useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { QtyStepper } from './QtyStepper';
-import { Icon } from './ui';
+import { Icon, PrimaryButton } from './ui';
 
 const PALETTE = ['#4F6B4A', '#B5652B', '#3E6C8F', '#8A4F7D', '#A0812A', '#5E5BA6', '#2F7F73', '#A24848'];
 export const colorOf = (id: string | null) => PALETTE[id ? [...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % PALETTE.length : 0];
@@ -207,6 +207,7 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
   const { prefs, setPrefs } = useStore();
   const { group, members, items, me, owner, after } = gl;
   const [showDone, setShowDone] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   if (gl.missing) {
     return (
       <View style={s.card}>
@@ -271,6 +272,18 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
         </>
       )}
 
+      {freeOnes.length > 0 && (
+        <Pressable onPress={() => setHelpOpen(true)} style={s.helpBtn} accessibilityRole="button">
+          <Text style={{ fontSize: 18 }}>💡</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.name, { fontWeight: '700' }]}>Cosa conviene prendere a me?</Text>
+            <Text style={s.meta}>Guardo i negozi vicino a te: ti propongo i prodotti liberi che lì costano meno.</Text>
+          </View>
+          <Icon name="chevron-forward" size={18} color={colors.primary} />
+        </Pressable>
+      )}
+      <GroupHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} gl={gl} />
+
       <View style={s.sectionRow}>
         <Text style={[s.section, { flex: 1 }]}>Da prendere · {todo.length}{mine ? ` · ${mine === 1 ? '1 lo prendi tu' : `${mine} li prendi tu`}` : ''}</Text>
         {freeOnes.length > 1 && <Text onPress={takeAll} style={s.link}>Prendo tutti i liberi</Text>}
@@ -288,7 +301,93 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
   );
 }
 
+/** #15: "Cosa conviene prendere a me" — negozio vicino a me e prodotti liberi che lì costano meno; "Li prendo io". */
+function GroupHelpSheet({ visible, onClose, gl }: { visible: boolean; onClose: () => void; gl: GroupListState }) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const { prefs } = useStore();
+  const [opts, setOpts] = useState<HelpOption[] | null>(null);
+  const [k, setK] = useState(0);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const loc = prefs.location;
+
+  useEffect(() => {
+    if (!visible) return;
+    setOpts(null); setErr(null); setK(0);
+    if (!loc) { setErr('Attiva la posizione (Profilo › Negozi): mi serve per sapere quali negozi hai vicino.'); return; }
+    const free = gl.items.filter((i) => i.status === 'da_prendere' && !i.assigned_to)
+      .map((i) => ({ id: i.id, product_id: i.product_id, name: i.name || i.product_id, quantity: Number(i.quantity), unit: i.unit || 'pz', category_id: i.category_id }));
+    api.groupHelpPlan(free, loc.lat, loc.lon, prefs.transport, prefs.fuelType)
+      .then((o) => { setOpts(o); if (o[0]) setSel(new Set(o[0].lines.slice(0, o[0].suggested).map((l) => l.key))); })
+      .catch((e) => setErr((e as Error).message));
+  }, [visible]);
+
+  const pick = (i: number) => { setK(i); const o = opts![i]; setSel(new Set(o.lines.slice(0, o.suggested).map((l) => l.key))); };
+  const take = async () => {
+    if (!gl.me || !sel.size) return;
+    setBusy(true);
+    await gl.after(async () => { for (const id of sel) await updateGroupItem(id, { assigned_to: gl.me }).catch(() => {}); });
+    setBusy(false); onClose();
+    tell(`Fatto: ${sel.size} ${sel.size === 1 ? 'prodotto è tuo' : 'prodotti sono tuoi'}. Li trovi nella tua lista, con l'etichetta del gruppo.`);
+  };
+  const o = opts?.[k];
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={s.backdrop}>
+        <View style={s.sheet}>
+          <View style={s.headRow}>
+            <Text style={[s.title, { flex: 1 }]}>💡 Cosa conviene prendere a me</Text>
+            <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Chiudi"><Icon name="close" size={24} color={colors.textSecondary} /></Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.xl }}>
+            {err && <Text style={[s.name, { color: colors.danger }]}>{err}</Text>}
+            {!err && !opts && <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.xl }} />}
+            {opts && !opts.length && <Text style={s.name}>Vicino a te nessun negozio conviene per i prodotti liberi: prendili dove fai la spesa di solito.</Text>}
+            {opts && opts.length > 1 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {opts.map((x, i) => (
+                  <Pressable key={x.store_id} onPress={() => pick(i)} style={[s.chip, i === k && s.chipOn]}>
+                    <Text style={[s.meta, { marginTop: 0 }, i === k && { color: colors.primaryText, fontWeight: '700' }]}>{x.store_name} · {String(x.distance_km).replace('.', ',')} km</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {o && (
+              <>
+                <Text style={s.name}>{o.reasoning}</Text>
+                {o.lines.map((l) => {
+                  const on = sel.has(l.key);
+                  return (
+                    <Pressable key={l.key} onPress={() => setSel((p) => { const n = new Set(p); if (n.has(l.key)) n.delete(l.key); else n.add(l.key); return n; })} style={s.row}>
+                      <Icon name={on ? 'checkbox' : 'square-outline'} size={22} color={on ? colors.primary : colors.textSecondary} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.name} numberOfLines={1}>{l.name}</Text>
+                        <Text style={s.meta}>{formatQty(l.quantity, l.unit)} · {euro(l.line_price)}{l.was != null && l.was - l.line_price > 0.04 ? ` invece di ${euro(l.was)}` : ''}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+                <PrimaryButton label={`Li prendo io (${sel.size})`} icon="hand-right-outline" onPress={take} loading={busy} disabled={!sel.size} />
+                <Text style={s.meta}>Ti propongo circa metà di quello che resta: il resto lo prende qualcun altro. Puoi spuntare o togliere.</Text>
+              </>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const useStyles = makeStyles((c) => ({
+  helpBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: c.primarySoft },
+  backdrop: { flex: 1, backgroundColor: c.overlay, justifyContent: 'flex-end' },
+  sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg,
+    maxHeight: '85%', width: '100%', maxWidth: 640, alignSelf: 'center', paddingBottom: spacing.xl + 24 },
+  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
+  chipOn: { backgroundColor: c.primary, borderColor: c.primary },
   card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.border, padding: spacing.md, gap: spacing.sm },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   title: { color: c.text, fontSize: 18, fontWeight: '800' },
