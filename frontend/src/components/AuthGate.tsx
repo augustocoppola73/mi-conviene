@@ -35,10 +35,12 @@ function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<InvitePreview | null>(null);
   useEffect(() => { api.invitePreview(code).then(setInfo).catch(() => setInfo({ valid: false, reason: 'Non riesco a leggere l\'invito: controlla la connessione' })); }, [code]);
-  const enter = async () => {
+  const enter = async (back?: { id: string; name: string }) => {
     setBusy(true); setError(null);
-    try { setPendingInvite(code, name.trim()); await signInWithoutAccount(name); } catch (e) { setError((e as Error).message); setBusy(false); }
+    const nm = back ? back.name : name.trim();
+    try { setPendingInvite(code, nm, back?.id ?? null); await signInWithoutAccount(nm); } catch (e) { setError((e as Error).message); setBusy(false); }
   };
+  const back = info?.valid && info.kind === 'evento' ? info.returning ?? [] : [];
   const fam = info?.kind !== 'evento';
   const where = fam ? 'nella famiglia' : `in «${info?.emoji ? `${info.emoji} ` : ''}${info?.name || 'un gruppo'}»`;
   return (
@@ -56,8 +58,19 @@ function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
             <Text style={s.sub}>{info.invited_by} ti invita {where} su Mi Conviene: fate la spesa insieme e vedete dove conviene.</Text>
             <Text style={s.label}>Come ti chiami?</Text>
             <TextInput value={name} onChangeText={setName} placeholder="Il tuo nome" placeholderTextColor={colors.textSecondary}
-              autoComplete="given-name" style={s.input} onSubmitEditing={() => name.trim() && enter()} />
-            <PrimaryButton label={info.needs_approval ? 'Chiedi di entrare' : 'Entra'} icon="log-in-outline" onPress={enter} loading={busy} disabled={!name.trim()} />
+              autoComplete="given-name" style={s.input} onSubmitEditing={() => { if (name.trim()) enter(); }} />
+            <PrimaryButton label={info.needs_approval ? 'Chiedi di entrare' : 'Entra'} icon="log-in-outline" onPress={() => enter()} loading={busy} disabled={!name.trim()} />
+            {back.length > 0 && (
+              <View style={{ marginTop: spacing.lg }}>
+                <Text style={s.label}>Eri già nel gruppo da un altro telefono?</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {back.map((b) => (
+                    <PrimaryButton key={b.id} label={`Sono ${b.name}, rientro`} variant="secondary" onPress={() => enter(b)} disabled={busy} />
+                  ))}
+                </View>
+                <Text style={s.note}>Ritrovi quello che avevi aggiunto e preso. Gli altri ricevono un avviso.</Text>
+              </View>
+            )}
             <Text style={s.note}>{info.needs_approval
               ? `Niente email né password. ${info.invited_by} (o un familiare) ti accetta e sei dentro.`
               : 'Niente email né password: entri subito.'} Gli altri vedono solo il tuo nome. Dopo puoi salvare l'accesso con la tua email dal Profilo.</Text>

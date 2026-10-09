@@ -285,7 +285,9 @@ export interface FamilyMember { user_id: string; display_name: string; /** ricev
 export interface Family { id?: string; code: string; created_at: string; members: FamilyMember[]; my_role?: 'proprietario' | 'membro' }
 export type GroupKind = 'famiglia' | 'evento';
 export interface InvitePreview { valid: boolean; reason?: string; kind?: GroupKind; name?: string | null; emoji?: string | null;
-  invited_by?: string; needs_approval?: boolean; expires_at?: string }
+  invited_by?: string; needs_approval?: boolean; expires_at?: string;
+  /** gruppo evento: chi è dentro senza account (per "Sono Luca, rientro") */
+  returning?: { id: string; name: string }[] }
 export interface OpenInvite { code: string; expires_at: string; uses: number; max_uses: number | null; created_by_name: string | null }
 export interface JoinRequest { user_id: string; display_name: string | null; created_at: string }
 export interface JoinResult { status: 'joined' | 'pending' | 'already' | 'invalid'; reason?: string; kind?: GroupKind; group_id?: string }
@@ -408,6 +410,7 @@ export const localApi = {
   inviteRevoke: (async (_code: string) => { throw new Error(ONLINE); }) as (code: string) => Promise<void>,
   invitePreview: (async (_code: string) => { throw new Error(ONLINE); }) as (code: string) => Promise<InvitePreview>,
   inviteJoin: (async (_code: string, _name?: string) => { throw new Error(ONLINE); }) as (code: string, name?: string) => Promise<JoinResult>,
+  inviteRejoin: (async (_code: string, _old: string) => { throw new Error(ONLINE); }) as (code: string, old: string) => Promise<JoinResult>,
   joinRequests: (async (_group: string) => { throw new Error(ONLINE); }) as (group: string) => Promise<JoinRequest[]>,
   joinDecide: (async (_group: string, _user: string, _accept: boolean) => { throw new Error(ONLINE); }) as (group: string, user: string, accept: boolean) => Promise<void>,
   myJoinRequest: (async () => null) as () => Promise<MyJoinRequest | null>,

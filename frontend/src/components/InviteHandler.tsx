@@ -5,7 +5,7 @@ import { Modal, Text, View } from 'react-native';
 
 import { api, InvitePreview, JoinResult } from '../api';
 import { IS_CLOUD } from '../cloud/client';
-import { clearInvite, pendingInvite, takeAutoName, takeOldLinkNotice } from '../invite';
+import { clearInvite, pendingInvite, takeAutoName, takeOldLinkNotice, takeRejoin } from '../invite';
 import { useStore } from '../store';
 import { makeStyles, radius, spacing } from '../theme';
 import { PrimaryButton } from './ui';
@@ -29,11 +29,12 @@ export function InviteHandler() {
     const code = pendingInvite();
     if (!code) return;
     const auto = takeAutoName();   // entrato adesso dalla schermata d'invito: niente altre domande
+    const rejoin = takeRejoin();
     (async () => {
       const info = await api.invitePreview(code).catch(() => null);
       if (auto !== null) {
         if (auto) setPrefs({ displayName: auto });
-        await join(code, auto, info);
+        await join(code, auto, info, rejoin);
         return;
       }
       if (!info?.valid) { clearInvite(); setView({ mode: 'error', message: info?.reason || 'Invito non valido' }); return; }
@@ -42,10 +43,10 @@ export function InviteHandler() {
     })();
   }, [hydrated, userId]);
 
-  const join = async (code: string, name: string | undefined, info: InvitePreview | null) => {
+  const join = async (code: string, name: string | undefined, info: InvitePreview | null, rejoin?: string | null) => {
     setBusy(true);
     try {
-      const r: JoinResult = await api.inviteJoin(code, name);
+      const r: JoinResult = rejoin ? await api.inviteRejoin(code, rejoin) : await api.inviteJoin(code, name);
       clearInvite();
       if (r.status === 'invalid') return setView({ mode: 'error', message: r.reason || 'Invito non valido' });
       if (r.status === 'pending') return setView({ mode: 'pending', info });

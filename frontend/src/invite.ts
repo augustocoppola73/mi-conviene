@@ -4,8 +4,10 @@ import { Platform, Share } from 'react-native';
 
 const KEY = 'mc_invito';
 const AUTO = 'mc_invito_auto';
+const REJOIN = 'mc_invito_rientro';
 let memo: string | null = null;        // sul telefono (app) non c'è localStorage: basta la memoria
 let memoAuto: string | null = null;
+let memoRejoin: string | null = null;
 let oldLink = false;
 
 function appUrl(): string {
@@ -64,13 +66,15 @@ export function takeOldLinkNotice(): boolean {
   const r = oldLink; oldLink = false; return r;
 }
 
-export function setPendingInvite(code: string, autoName?: string): void {
+export function setPendingInvite(code: string, autoName?: string, rejoin?: string | null): void {
   memo = normCode(code);
   if (autoName !== undefined) memoAuto = autoName;
+  memoRejoin = rejoin ?? null;
   try {
     if (Platform.OS !== 'web') return;
     localStorage.setItem(KEY, memo);
     if (autoName !== undefined) localStorage.setItem(AUTO, autoName);
+    if (rejoin) localStorage.setItem(REJOIN, rejoin); else localStorage.removeItem(REJOIN);
   } catch { /* pazienza */ }
 }
 
@@ -88,8 +92,16 @@ export function takeAutoName(): string | null {
 }
 
 export function clearInvite(): void {
-  memo = null; memoAuto = null;
-  try { if (Platform.OS === 'web') { localStorage.removeItem(KEY); localStorage.removeItem(AUTO); } } catch { /* pazienza */ }
+  memo = null; memoAuto = null; memoRejoin = null;
+  try { if (Platform.OS === 'web') { localStorage.removeItem(KEY); localStorage.removeItem(AUTO); localStorage.removeItem(REJOIN); } } catch { /* pazienza */ }
+}
+
+/** "Sono Luca, rientro": l'account (senza email) di cui prendere il posto nel gruppo. */
+export function takeRejoin(): string | null {
+  let v = memoRejoin;
+  try { if (Platform.OS === 'web') { v = localStorage.getItem(REJOIN) ?? v; localStorage.removeItem(REJOIN); } } catch { /* niente */ }
+  memoRejoin = null;
+  return v;
 }
 
 /** Promemoria a un familiare che non riceve le notifiche (WhatsApp, SMS… dal menu Condividi). */

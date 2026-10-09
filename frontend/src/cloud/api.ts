@@ -897,6 +897,7 @@ export const cloudApi = {
     if (r.status === 'joined' && r.kind === 'famiglia' && r.group_id) await moveMyThings(r.group_id).catch(() => {});
     return r;
   },
+  inviteRejoin: async (code: string, old: string) => check(await sb().rpc('rejoin_as', { c: code, old })) as T.JoinResult,
   joinRequests: async (group: string) => (check(await sb().rpc('group_pending_requests', { g: group })) ?? []) as T.JoinRequest[],
   joinDecide: async (group: string, user: string, accept: boolean) => {
     check(await sb().rpc('decide_join_request', { g: group, u: user, accept }));

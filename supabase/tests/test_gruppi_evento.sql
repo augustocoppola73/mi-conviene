@@ -72,7 +72,21 @@ insert into esito select 'Laura non rinomina il gruppo', pg_temp.fallisce(format
 insert into esito select 'Laura vede il gruppo e i membri', (select count(*) from public.group_members where group_id = pg_temp.val('g')::uuid) = 2;
 insert into esito select 'Laura NON vede la famiglia di Augusto', not exists (select 1 from public.families where kind = 'famiglia');
 update public.group_list_items set assigned_to = :'L' where name = 'patatine';
--- Laura esce: le patatine tornano libere
+-- Laura cambia telefono (nuovo account X, senza email) e rientra come "Laura"
+reset role;
+update auth.users set is_anonymous = true where id = :'L';
+update auth.users set is_anonymous = false where id in (:'A', :'X');
+set local role authenticated;
+select pg_temp.come(:'X', true);
+insert into esito select 'Anteprima: chi è dentro senza account (Laura)',
+  (select p->'returning' @> jsonb_build_array(jsonb_build_object('name', 'Laura')) and not (p->'returning' @> jsonb_build_array(jsonb_build_object('name', 'Augusto')))
+   from (select public.invite_preview(pg_temp.val('inv')) p) x);
+insert into esito select 'Non si rientra come Augusto (ha l''email)', pg_temp.fallisce(format('select public.rejoin_as(%L, %L)', pg_temp.val('inv'), :'A'), 'email');
+insert into esito select 'Rientro come Laura', (select public.rejoin_as(pg_temp.val('inv'), :'L')->>'status') = 'joined';
+insert into esito select 'Le patatine di Laura ora sono del telefono nuovo', (select assigned_to from public.group_list_items where name = 'patatine') = :'X';
+insert into esito select 'Nel gruppo c''è una sola Laura', (select count(*) from public.group_members where group_id = pg_temp.val('g')::uuid and display_name = 'Laura') = 1
+  and not exists (select 1 from public.group_members where group_id = pg_temp.val('g')::uuid and user_id = :'L');
+-- Laura (telefono nuovo) esce: le patatine tornano libere
 select public.leave_group(pg_temp.val('g')::uuid);
 select pg_temp.come(:'A');
 insert into esito select 'Laura uscita: le patatine sono di nuovo libere', (select assigned_to from public.group_list_items where name = 'patatine') is null;
@@ -85,7 +99,8 @@ select public.leave_group(pg_temp.val('g')::uuid);
 reset role;
 insert into esito select 'Uscito l''ultimo: il gruppo non c''è più', not exists (select 1 from public.families where id = pg_temp.val('g')::uuid);
 insert into esito select 'Avvisi: ingresso e prodotti aggiunti',
-  (select count(*) filter (where kind = 'gruppo_ingresso') = 1 and count(*) filter (where kind = 'gruppo_lista') = 3 from public.notif_test);
+  (select count(*) filter (where kind = 'gruppo_ingresso') = 1 and count(*) filter (where kind = 'gruppo_lista') = 3
+   and count(*) filter (where kind = 'gruppo_rientro') = 1 from public.notif_test);
 
 select (case when ok then '✓ ' else '✗ ' end) || prova from esito;
 select case when bool_and(ok) then 'TUTTE LE PROVE OK ✓' else 'PROVE FALLITE: ' || count(*) filter (where not ok) end from esito;
