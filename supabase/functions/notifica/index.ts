@@ -54,10 +54,22 @@ function message(kind: string, who: string, b: any): { title: string; body: stri
     case 'finita': return { title: `✅ ${who} ha finito la spesa da ${b.store}`,
       body: b.total ? `Totale ${euro(Number(b.total))}` : 'Tocca per vedere com\'è andata', url: '/salvadanaio' };
     case 'prova': return { title: '🔔 Notifiche attive', body: 'Da ora ti avviso quando la famiglia fa la spesa.', url: '/' };
+    case 'richiesta': return b.mode === 'help'
+      ? { title: `🤝 ${who} vuole aiutarti con la spesa da ${b.store}`, body: 'Tocca per rispondere', url: '/spesa' }
+      : { title: `🙋 ${who} chiede di fare la spesa da ${b.store} al posto tuo`, body: 'Tocca per rispondere', url: '/spesa' };
+    case 'accettata': return b.mode === 'help'
+      ? { title: `🤝 ${who} ha accettato il tuo aiuto da ${b.store}`, body: 'Ora potete smarcare in due', url: '/spesa' }
+      : { title: `✅ ${who} ti ha lasciato la spesa da ${b.store}`, body: 'Ora la fai tu: tocca per aprirla', url: '/spesa' };
+    case 'rifiutata': return { title: `👌 ${who} continua la spesa da ${b.store}`, body: 'Puoi seguirla in diretta', url: '/spesa' };
+    case 'lasciata': return { title: `🔓 ${who} ha lasciato la spesa da ${b.store}`, body: 'È libera: tocca se vuoi prenderla tu', url: '/spesa' };
   }
   return null;
 }
-const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1 };
+const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1 };
+// avvisi personali (a una persona sola): niente pausa e non si possono spegnere, sono il modo in cui vi parlate
+const DIRECT = new Set(['richiesta', 'accettata', 'rifiutata']);
+// avvisi che seguono l'interruttore di un altro tipo nel Profilo
+const PREF_OF: Record<string, string> = { lasciata: 'presa' };
 
 Deno.serve(async (req) => {
   try {
@@ -72,13 +84,17 @@ Deno.serve(async (req) => {
     let to: { id: string; prefs: any }[] = [];
     if (kind === 'prova') {
       to = [{ id: actor, prefs: {} }];
+    } else if (DIRECT.has(kind)) {
+      // solo alla persona interessata, se è davvero nella stessa famiglia
+      const { data } = await admin.from('profiles').select('id, prefs').eq('id', body.to).eq('family_id', family_id);
+      to = data ?? [];
     } else {
       // niente raffiche: la stessa cosa nella stessa famiglia al massimo ogni qualche minuto
       const { data: last } = await admin.from('notify_log').select('at').eq('family_id', family_id).eq('kind', kind).maybeSingle();
       if (last && Date.now() - new Date(last.at).getTime() < (THROTTLE_MIN[kind] ?? 2) * 60_000) return json({ ok: true, skipped: 'throttle' });
       await admin.from('notify_log').upsert({ family_id, kind, at: new Date().toISOString() });
       const { data } = await admin.from('profiles').select('id, prefs').eq('family_id', family_id).neq('id', actor);
-      to = (data ?? []).filter((p: any) => p.prefs?.notify?.[kind] !== false);
+      to = (data ?? []).filter((p: any) => p.prefs?.notify?.[PREF_OF[kind] ?? kind] !== false);
     }
     if (!to.length) return json({ ok: true, sent: 0 });
 
@@ -98,7 +114,7 @@ Deno.serve(async (req) => {
       const r = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
         method: 'POST', headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: { token: t.token, notification: { title: msg.title, body: msg.body }, data: { url: msg.url, kind },
-          android: { priority: 'high', notification: { channel_id: 'famiglia', color: '#4F6B4A', tag: `${kind}-${family_id ?? ''}` } } } }),
+          android: { priority: 'high', notification: { channel_id: 'famiglia', color: '#4F6B4A', tag: `${DIRECT.has(kind) ? 'richiesta' : kind}-${family_id ?? ''}` } } } }),
       });
       if (r.ok) { sent++; continue; }
       const err = await r.text();

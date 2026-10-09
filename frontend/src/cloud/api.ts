@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type * as T from '../api';
+import { REQUEST_WAIT_MIN } from '../shopRules';
 import {
   buildPriceBook, computeVirtualReceipt, fuelInfo, FuelStation, HistoryShop, habitualFromHistory, lastSimilarShop, optimizeList, PriceBook,
   RealPrice, savingValue, suggestBudget, UserPrice, verifiedFuelSaving, verifiedSaving,
@@ -210,7 +211,7 @@ async function updateShop(id: string, change: (row: any) => void): Promise<any> 
 function guardAct(shop: any, me: string) {
   const t = shop.taken_by;
   if (t && t.user_id !== me && !(t.helpers || []).some((h: any) => h.user_id === me)) {
-    throw new Error(`La sta facendo ${t.name || 'un familiare'}: premi "Ti aiuto" per smarcare anche tu`);
+    throw new Error(`La sta facendo ${t.name || 'un familiare'}: chiedi di aiutare per smarcare anche tu`);
   }
 }
 
@@ -581,26 +582,62 @@ export const cloudApi = {
         }
       }
       if (!found) throw new Error('Prodotto non trovato');
-      // chi smarca per primo prende in carico la spesa
+      // spesa libera: smarcare vuol dire prenderla (l'app chiede conferma prima)
       if (checked && !shop.taken_by) shop.taken_by = { user_id: me, name: display_name || null, at: nowIso(), helpers: [] };
     });
     return shopOut(row, me);
   },
 
-  /** "La faccio io": chi va in negozio prende in carico la spesa (gli altri lo vedono). */
+  /**
+   * Chi fa la spesa: una persona sola, presa solo con un gesto esplicito. Chi vuole prenderla (o aiutare) chiede,
+   * chi la fa risponde; dopo un "no" niente nuova richiesta per REQUEST_WAIT_MIN minuti; senza risposta per
+   * REQUEST_WAIT_MIN minuti chi ha chiesto può prenderla comunque.
+   */
   shopTake: async (id: string, _user_id: string, display_name?: string | null, mode: T.TakeMode = 'take'): Promise<T.Shop> => {
     const me = await uid();
+    // il nome lo vedono gli altri ("La sta facendo Moira"): se sul telefono non c'è, quello del profilo
+    const name = display_name || (await myProfile().catch(() => null as any))?.display_name || null;
+    const waitMs = REQUEST_WAIT_MIN * 60_000;
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
       const t = shop.taken_by;
-      const name = display_name || null;
-      if (mode === 'take') shop.taken_by = { user_id: me, name, at: nowIso(), helpers: [] };
-      else if (mode === 'help') {
-        if (!t) shop.taken_by = { user_id: me, name, at: nowIso(), helpers: [] };
-        else if (t.user_id !== me && !(t.helpers || []).some((h: any) => h.user_id === me)) t.helpers = [...(t.helpers || []), { user_id: me, name }];
-      } else if (t) {  // release
-        if (t.user_id === me) shop.taken_by = null;
-        else t.helpers = (t.helpers || []).filter((h: any) => h.user_id !== me);
+      const who = t?.name || 'un familiare';
+      const fresh = (u: string) => ({ user_id: u, name, at: nowIso(), helpers: [] });
+      switch (mode) {
+        case 'take': {
+          if (!t || t.user_id === me) { shop.taken_by = t?.user_id === me ? t : fresh(me); break; }
+          const r = t.request;
+          if (r?.user_id === me && Date.now() - new Date(r.at).getTime() >= waitMs) { shop.taken_by = fresh(me); break; }
+          throw new Error(`La sta facendo ${who}: chiedi di prenderla`);
+        }
+        case 'request': case 'request_help': case 'help': {
+          if (!t) { shop.taken_by = fresh(me); break; }               // libera: la prendo e basta
+          if (t.user_id === me || (t.helpers || []).some((h: any) => h.user_id === me)) break;
+          if (t.request && t.request.user_id !== me) throw new Error(`${t.request.name || 'Un familiare'} ha già chiesto a ${who}: aspetta la risposta`);
+          if (t.declined?.user_id === me && new Date(t.declined.until).getTime() > Date.now()) {
+            const at = new Date(t.declined.until).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+            throw new Error(`${who} la sta facendo: potrai chiedere di nuovo dalle ${at}`);
+          }
+          t.request = { user_id: me, name, mode: mode === 'request' ? 'take' : 'help', at: nowIso() };
+          break;
+        }
+        case 'cancel':
+          if (t?.request?.user_id === me) t.request = null;
+          break;
+        case 'accept': case 'decline': {
+          if (!t || t.user_id !== me) throw new Error('Solo chi fa la spesa può rispondere');
+          const r = t.request;
+          if (!r) break;
+          if (mode === 'decline') { t.request = null; t.declined = { user_id: r.user_id, until: new Date(Date.now() + waitMs).toISOString() }; break; }
+          if (r.mode === 'help') { t.helpers = [...(t.helpers || []).filter((h: any) => h.user_id !== r.user_id), { user_id: r.user_id, name: r.name }]; t.request = null; t.declined = null; }
+          else shop.taken_by = { user_id: r.user_id, name: r.name, at: nowIso(), helpers: [] };
+          break;
+        }
+        case 'release':
+          if (!t) break;
+          if (t.user_id === me) shop.taken_by = null;
+          else t.helpers = (t.helpers || []).filter((h: any) => h.user_id !== me);
+          break;
       }
     });
     return shopOut(row, me);

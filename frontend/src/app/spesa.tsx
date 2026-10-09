@@ -2,10 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, canActOn, PriceKind, Shop, ShopItem, TakeMode } from '@/api';
+import { api, canActOn, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
 import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
 import { ProductSearch } from '@/components/ProductSearch';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
@@ -28,6 +28,19 @@ function KeepAwake() {
  * Reparti nell'ordine del negozio (imparato da come smarchi), condivisa con la famiglia,
  * e funziona anche se in negozio la rete va e viene (le spunte si inviano appena torna).
  */
+/** Domanda sì/no (sul web confirm, sul telefono il riquadro di Android). */
+function ask(title: string, message: string, yes: string): Promise<boolean> {
+  if (Platform.OS === 'web') return Promise.resolve(globalThis.confirm?.(`${title}\n\n${message}`) ?? true);
+  return new Promise((res) => Alert.alert(title, message, [
+    { text: 'Annulla', style: 'cancel', onPress: () => res(false) },
+    { text: yes, onPress: () => res(true) },
+  ], { cancelable: true, onDismiss: () => res(false) }));
+}
+function tell(title: string, message: string) {
+  if (Platform.OS === 'web') globalThis.alert?.(`${title}\n\n${message}`); else Alert.alert(title, message);
+}
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
 export default function SpesaScreen() {
   const s = useStyles();
   const { colors } = useTheme();
@@ -114,30 +127,37 @@ export default function SpesaScreen() {
     return () => clearInterval(t);
   }, [refresh]));
 
-  const take = async (mode: TakeMode = 'take') => {
-    if (!shop || !userId) return;
-    if (mode === 'take' && shop.taken_by && shop.taken_by.user_id !== userId) {
-      const who = shop.taken_by.name ?? 'un familiare';
-      const ok = globalThis.confirm?.(`La sta facendo ${who}. Vuoi prenderla tu? Fallo solo se ${who} non la sta più facendo.`) ?? true;
-      if (!ok) return;
-    }
-    try { const sh = await api.shopTake(shop.id, userId, name, mode); setShop(applyPending(sh)); save(sh); } catch (e) { globalThis.alert?.((e as Error).message); }
+  // chi fa la spesa: si prende solo con un gesto esplicito (aprire la lista non prende niente)
+  const take = async (mode: TakeMode = 'take'): Promise<boolean> => {
+    if (!shop || !userId) return false;
+    const store = shop.store_name;
+    const who = shop.taken_by?.name ?? 'un familiare';
+    if (mode === 'take' && !(await ask('La prendi tu?', `Gli altri vedranno che la spesa da ${store} la stai facendo tu.`, 'La prendo io'))) return false;
+    if (mode === 'release' && shop.taken_by?.user_id === userId
+      && !(await ask('Lasci la spesa?', 'Torna libera: chi vuole può prenderla.', 'Lascia'))) return false;
+    try {
+      const sh = await api.shopTake(shop.id, userId, name, mode);
+      setShop(applyPending(sh)); save(sh);
+      if (mode === 'request' || mode === 'request_help') {
+        tell('Richiesta inviata', `${who} riceve una notifica e risponde con un tocco. Se non risponde entro ${REQUEST_WAIT_MIN} minuti potrai prenderla tu.`);
+      }
+      return true;
+    } catch (e) { tell('Spesa', (e as Error).message); return false; }
   };
   const canAct = shop ? canActOn(shop, userId) : false;
 
-  // un familiare apre la lista di un altro: la prende in carico (se nessuno l'ha già fatto)
-  const autoTook = useRef<string | null>(null);
-  useEffect(() => {
-    if (shop && userId && !shop.mine && !shop.taken_by && autoTook.current !== shop.id) {
-      autoTook.current = shop.id;
-      take('take');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shop?.id, shop?.taken_by, userId]);
-
   const toggle = (it: ShopItem) => {
     if (!shop || !userId) return;
-    if (!canAct) { globalThis.alert?.(`La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: se siete insieme in negozio premi "Ti aiuto".`); return; }
+    if (!canAct) { tell('Spesa', `La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: per smarcare chiedi di prenderla o di aiutare.`); return; }
+    if (!shop.taken_by && !it.checked) {
+      // spesa libera: prima di smarcare la prendi (con conferma), poi la spunta parte da sola
+      take('take').then((ok) => { if (ok) toggleNow(it); });
+      return;
+    }
+    toggleNow(it);
+  };
+  const toggleNow = (it: ShopItem) => {
+    if (!shop || !userId) return;
     const checked = !it.checked;
     const next = {
       ...shop,
@@ -299,29 +319,7 @@ export default function SpesaScreen() {
         </View>
       </View>
       <View style={s.takenBox}>
-        {(() => {
-          const t = shop.taken_by;
-          const helpers = (t?.helpers ?? []).map((h) => (h.user_id === userId ? 'te' : h.name ?? 'un familiare'));
-          const since = t ? new Date(t.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
-          const helping = !!t?.helpers?.some((h) => h.user_id === userId);
-          return (
-            <>
-              <Text style={s.takenText}>
-                {!t ? "Nessuno l'ha ancora presa in carico"
-                  : `🙋 ${t.user_id === userId ? 'La stai facendo tu' : `La sta facendo ${t.name ?? 'un familiare'}`}`
-                    + (helpers.length ? ` con ${helpers.join(', ')}` : '') + ` · dalle ${since}`}
-              </Text>
-              {!canAct && <Text style={s.muted}>Vedi le spunte in diretta. Se siete insieme in negozio, aiuta a smarcare.</Text>}
-              <View style={s.takeActions}>
-                {!t && <TakeBtn label="La faccio io" onPress={() => take('take')} />}
-                {t && !canAct && <TakeBtn label="Ti aiuto" onPress={() => take('help')} />}
-                {t && !canAct && <TakeBtn label="Prendila tu" secondary onPress={() => take('take')} />}
-                {t && t.user_id === userId && <TakeBtn label="Lasciala" secondary onPress={() => take('release')} />}
-                {helping && <TakeBtn label="Smetti di aiutare" secondary onPress={() => take('release')} />}
-              </View>
-            </>
-          );
-        })()}
+        <TakenPanel shop={shop} userId={userId} onAct={take} />
       </View>
       <View style={s.progressBox}>
         <View style={s.progressTrack}><View style={[s.progressFill, { width: `${Math.round(pct * 100)}%` }]} /></View>
@@ -451,6 +449,7 @@ const useStyles = makeStyles((c) => ({
     borderRadius: radius.md, backgroundColor: c.primarySoft },
   takenText: { color: c.text, fontSize: 14, fontWeight: '600' },
   takeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  requestBox: { gap: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: c.surface, borderWidth: 2, borderColor: c.primary },
   takeBtn: { backgroundColor: c.primary, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
   takeBtnSecondary: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.primary },
   takeBtnText: { color: c.primaryText, fontWeight: '700', fontSize: 13 },
@@ -480,6 +479,84 @@ const useStyles = makeStyles((c) => ({
   bg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'center', padding: spacing.md },
   card: { width: '100%', maxWidth: 480, alignSelf: 'center', gap: spacing.sm },
 }));
+
+/** Chi fa la spesa, in chiaro, con le sole azioni possibili in quel momento. */
+function TakenPanel({ shop, userId, onAct }: { shop: Shop; userId: string | null; onAct: (m: TakeMode) => void }) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const t = shop.taken_by;
+  const me = (id?: string | null) => !!id && id === userId;
+  if (!t) {
+    return (
+      <>
+        <Text style={s.takenText}>🛒 Nessuno sta facendo questa spesa</Text>
+        <Text style={s.muted}>Chi va in negozio la prende: gli altri lo vedono subito e ricevono un avviso.</Text>
+        <View style={s.takeActions}><TakeBtn label="La prendo io" onPress={() => onAct('take')} /></View>
+      </>
+    );
+  }
+  const who = t.name ?? 'un familiare';
+  const helpers = (t.helpers ?? []).map((h) => (me(h.user_id) ? 'te' : h.name ?? 'un familiare'));
+  const r = t.request;
+  const waited = r ? (Date.now() - new Date(r.at).getTime()) / 60000 : 0;
+  // la faccio io
+  if (me(t.user_id)) {
+    return (
+      <>
+        <Text style={s.takenText}>🙋 La stai facendo tu{helpers.length ? ` con ${helpers.join(', ')}` : ''} · dalle {hhmm(t.at)}</Text>
+        {r && (
+          <View style={s.requestBox}>
+            <Text style={[s.takenText, { color: colors.text }]}>
+              {r.mode === 'take' ? `${r.name ?? 'Un familiare'} chiede di fare la spesa al posto tuo` : `${r.name ?? 'Un familiare'} vuole aiutarti a smarcare`}
+            </Text>
+            <View style={s.takeActions}>
+              <TakeBtn label={r.mode === 'take' ? `Lasciala a ${r.name ?? 'chi chiede'}` : 'Sì, aiutami'} onPress={() => onAct('accept')} />
+              <TakeBtn label={r.mode === 'take' ? 'No, la faccio io' : 'No, grazie'} secondary onPress={() => onAct('decline')} />
+            </View>
+          </View>
+        )}
+        {!r && <View style={s.takeActions}><TakeBtn label="Lascia la spesa" secondary onPress={() => onAct('release')} /></View>}
+      </>
+    );
+  }
+  // aiuto chi la fa
+  if ((t.helpers ?? []).some((h) => me(h.user_id))) {
+    return (
+      <>
+        <Text style={s.takenText}>🤝 Stai aiutando {who} · smarcate in due</Text>
+        <View style={s.takeActions}><TakeBtn label="Smetti di aiutare" secondary onPress={() => onAct('release')} /></View>
+      </>
+    );
+  }
+  // la fa un altro: guardo e, se serve, chiedo
+  const blockedUntil = t.declined && me(t.declined.user_id) && new Date(t.declined.until).getTime() > Date.now() ? t.declined.until : null;
+  return (
+    <>
+      <Text style={s.takenText}>🙋 La sta facendo {who}{helpers.length ? ` con ${helpers.join(', ')}` : ''} · dalle {hhmm(t.at)}</Text>
+      <Text style={s.muted}>Vedi le spunte in diretta. Per smarcare anche tu, chiedi a {who}.</Text>
+      {r && me(r.user_id) ? (
+        <>
+          <Text style={[s.muted, { color: colors.text }]}>
+            ⏳ Hai chiesto {r.mode === 'take' ? 'di prenderla' : 'di aiutare'} alle {hhmm(r.at)}: aspetto la risposta di {who}.
+          </Text>
+          <View style={s.takeActions}>
+            {r.mode === 'take' && waited >= REQUEST_WAIT_MIN && <TakeBtn label="Prendila comunque" onPress={() => onAct('take')} />}
+            <TakeBtn label="Ritira la richiesta" secondary onPress={() => onAct('cancel')} />
+          </View>
+        </>
+      ) : r ? (
+        <Text style={s.muted}>{r.name ?? 'Un familiare'} ha già chiesto a {who}: aspettate la risposta.</Text>
+      ) : blockedUntil ? (
+        <Text style={s.muted}>👌 {who} ha risposto che continua a farla. Potrai chiedere di nuovo dalle {hhmm(blockedUntil)}.</Text>
+      ) : (
+        <View style={s.takeActions}>
+          <TakeBtn label="Chiedi di prenderla" onPress={() => onAct('request')} />
+          <TakeBtn label="Siamo insieme: aiuto" secondary onPress={() => onAct('request_help')} />
+        </View>
+      )}
+    </>
+  );
+}
 
 function TakeBtn({ label, onPress, secondary }: { label: string; onPress: () => void; secondary?: boolean }) {
   const s = useStyles();

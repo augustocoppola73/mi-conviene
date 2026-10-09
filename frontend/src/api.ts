@@ -212,10 +212,21 @@ export interface Shop {
   id: string; user_id: string; display_name?: string | null; store_id: string; store_name: string; branch?: string | null;
   saving_id?: string | null; items: ShopItem[]; status: string; created_at: string; aisles: string[]; mine: boolean;
   /** chi sta facendo la spesa (l'ha presa in carico) */
-  taken_by?: { user_id: string; name: string | null; at: string; helpers?: { user_id: string; name: string | null }[] } | null;
+  taken_by?: {
+    user_id: string; name: string | null; at: string; helpers?: { user_id: string; name: string | null }[];
+    /** richiesta in attesa di risposta: un familiare vuole prenderla (take) o aiutare (help) */
+    request?: { user_id: string; name: string | null; mode: 'take' | 'help'; at: string } | null;
+    /** l'ultima richiesta rifiutata: quella persona non può richiedere fino a "until" (niente ping pong) */
+    declined?: { user_id: string; until: string } | null;
+  } | null;
   progress: { checked: number; total: number; cart: number; estimated: number };
 }
-export type TakeMode = 'take' | 'help' | 'release';
+/**
+ * take = la prendo io (solo se è libera, o se la richiesta è senza risposta da REQUEST_WAIT_MIN) · release = la lascio / smetto di aiutare
+ * request / request_help = chiedo a chi la fa di lasciarmela / di aiutarlo · accept / decline = risposta di chi la fa · cancel = ritiro la richiesta
+ */
+export type TakeMode = 'take' | 'help' | 'release' | 'request' | 'request_help' | 'accept' | 'decline' | 'cancel';
+export { REQUEST_WAIT_MIN } from './shopRules';
 /** chi può smarcare: nessuno l'ha presa, l'hai presa tu, o aiuti chi la fa */
 export function canActOn(shop: Shop, userId: string | null): boolean {
   const t = shop.taken_by;
@@ -310,8 +321,10 @@ export const localApi = {
   shopCheck: (id: string, user_id: string, key: string, checked: boolean, display_name?: string | null) =>
     post<Shop>(`/shops/${id}/check`, { user_id, key, checked, display_name }),
   /** take = la faccio io, help = vi aiuto (smarco anch'io), release = la lascio / smetto di aiutare */
+  // versione locale (un solo telefono): niente richieste, chiedere = prendere / aiutare
   shopTake: (id: string, user_id: string, display_name?: string | null, mode: TakeMode = 'take') =>
-    post<Shop>(`/shops/${id}/take`, { user_id, display_name, mode }),
+    post<Shop>(`/shops/${id}/take`, { user_id, display_name,
+      mode: mode === 'request' ? 'take' : mode === 'request_help' ? 'help' : mode === 'release' || mode === 'help' ? mode : 'take' }),
   shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
   shopPrice: (id: string, body: { user_id: string; key: string; price: number; kind: PriceKind; note?: string | null; display_name?: string | null }) =>
     post<Shop>(`/shops/${id}/price`, body),

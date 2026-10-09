@@ -12,7 +12,7 @@ export const PUSH_SUPPORTED = Platform.OS === 'android' && IS_CLOUD;
 export const NOTIFY_KINDS = [
   { id: 'lista', label: 'Lista condivisa con la famiglia' },
   { id: 'spesa', label: 'Spesa preparata da un familiare' },
-  { id: 'presa', label: 'Qualcuno sta facendo la spesa' },
+  { id: 'presa', label: 'Qualcuno prende o lascia la spesa' },
   { id: 'finita', label: 'Spesa finita (con il totale)' },
 ] as const;
 
