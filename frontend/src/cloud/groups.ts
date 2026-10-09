@@ -70,6 +70,13 @@ export async function leaveGroup(id: string): Promise<void> {
   check(await sb().rpc('leave_group', { g: id }));
 }
 
+export interface ArchivedGroup { id: string; name: string; emoji: string | null; event_date: string | null; archived_at: string; members: number }
+export async function myArchivedGroups(): Promise<ArchivedGroup[]> {
+  return (check(await sb().rpc('my_archived_groups')) ?? []) as ArchivedGroup[];
+}
+export async function restoreGroup(id: string): Promise<void> { check(await sb().rpc('restore_group', { g: id })); }
+export async function deleteGroup(id: string): Promise<void> { check(await sb().rpc('delete_group', { g: id })); }
+
 export async function setMuted(id: string, muted: boolean): Promise<void> {
   const me = await uid();
   check(await sb().from('group_members').update({ muted }).eq('group_id', id).eq('user_id', me));

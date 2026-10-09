@@ -110,7 +110,7 @@ export default function GruppoScreen() {
   });
   const leave = async () => {
     const last = members.length <= 1;
-    if (!(await ask(last ? 'Sei l\'ultimo: uscendo il gruppo e la sua lista spariscono. Esci?' : 'Esci dal gruppo? Quello che avevi preso e non comprato torna libero.', 'Esci'))) return;
+    if (!(await ask(last ? 'Sei l\'ultimo: il gruppo va in archivio (Profilo › Gruppi › Archiviati) con la lista e i conti, e lo puoi ripristinare. Archivio?' : 'Esci dal gruppo? Quello che avevi preso e non comprato torna libero.', last ? 'Archivia' : 'Esci'))) return;
     await run('leave', () => leaveGroup(group.id));
     router.replace('/');
   };

@@ -12,7 +12,7 @@ import { NotifySettings } from '@/components/NotifySettings';
 import { CategoryRules } from '@/components/CategoryRules';
 import { ProfileSection } from '@/components/ProfileSection';
 import { GroupSheet } from '@/components/GroupSheet';
-import { eventLabel, Group, myGroups } from '@/cloud/groups';
+import { ArchivedGroup, deleteGroup, eventLabel, Group, myArchivedGroups, myGroups, restoreGroup } from '@/cloud/groups';
 import { PUSH_SUPPORTED } from '@/push';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
@@ -52,7 +52,21 @@ export default function ProfiloScreen() {
   // gruppi evento (#14)
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupSheet, setGroupSheet] = useState(false);
-  useFocusEffect(useCallback(() => { if (IS_CLOUD) myGroups().then(setGroups).catch(() => {}); }, []));
+  const [archived, setArchived] = useState<ArchivedGroup[]>([]);
+  const loadGroups = useCallback(async () => {
+    if (!IS_CLOUD) return;
+    const [g, a] = await Promise.all([myGroups().catch(() => []), myArchivedGroups().catch(() => [])]);
+    setGroups(g); setArchived(a);
+  }, []);
+  useFocusEffect(useCallback(() => { loadGroups(); }, [loadGroups]));
+  // eliminare un gruppo: solo chi l'ha creato, con conferma (non si torna indietro)
+  const removeGroup = async (g: { id: string; name: string }) => {
+    const msg = `Eliminare per sempre «${g.name}» con la lista e i conti, per tutti? Non si torna indietro.`;
+    const ok = Platform.OS === 'web' ? (globalThis.confirm?.(msg) ?? false)
+      : await new Promise<boolean>((res) => Alert.alert('Elimina gruppo', msg,
+        [{ text: 'Annulla', style: 'cancel', onPress: () => res(false) }, { text: 'Elimina', style: 'destructive', onPress: () => res(true) }]));
+    if (ok) run(async () => { await deleteGroup(g.id); if (prefs.activeList === g.id) setPrefs({ activeList: null }); await loadGroups(); });
+  };
   // richieste di ingresso da accettare: la sezione Famiglia si apre da sola
   const [pendingCount, setPendingCount] = useState(0);
   const famId = family?.id;
@@ -349,10 +363,32 @@ export default function ProfiloScreen() {
                   <Text style={[s.memberName, { fontWeight: '700' }]} numberOfLines={1}>{g.name}</Text>
                   <Text style={s.notifyState}>{eventLabel(g.event_date)} · {g.members} {g.members === 1 ? 'persona' : 'persone'}{g.todo ? ` · ${g.todo} da prendere` : ''}{g.muted ? ' · 🔕' : ''}</Text>
                 </View>
+                {g.role === 'proprietario' && (
+                  <Pressable onPress={() => removeGroup(g)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Elimina ${g.name}`}>
+                    <Icon name="trash-outline" size={18} color={colors.danger} />
+                  </Pressable>
+                )}
                 <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
               </Pressable>
             ))}
             <PrimaryButton label="Nuovo gruppo" icon="add-outline" variant="secondary" onPress={() => setGroupSheet(true)} />
+            {archived.length > 0 && (
+              <>
+                <SectionTitle>Archiviati</SectionTitle>
+                {archived.map((g) => (
+                  <View key={g.id} style={[s.member, s.storeRow]}>
+                    <Text style={{ fontSize: 20, opacity: 0.6 }}>{g.emoji || '🛒'}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.memberName, { color: colors.textSecondary }]} numberOfLines={1}>{g.name}</Text>
+                      <Text style={s.notifyState}>archiviato il {new Date(g.archived_at).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })}</Text>
+                    </View>
+                    <Text onPress={() => run(async () => { await restoreGroup(g.id); await loadGroups(); })} style={s.reminderBtn}>Ripristina</Text>
+                    <Text onPress={() => removeGroup(g)} style={[s.reminderBtn, { color: colors.danger }]}>Elimina</Text>
+                  </View>
+                ))}
+                <Text style={s.help}>Un gruppo archiviato non si vede nella Lista ma resta qui con la sua lista e i conti. Eliminare è per sempre (lo può fare solo chi l'ha creato).</Text>
+              </>
+            )}
             <Text style={s.help}>Ognuno aggiunge prodotti e dice «Lo prendo io». Chi inviti vede solo la lista del gruppo, mai la tua famiglia.</Text>
           </ProfileSection>
         )}

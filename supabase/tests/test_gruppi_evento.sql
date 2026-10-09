@@ -94,10 +94,16 @@ insert into esito select 'my_groups: 1 membro, 2 da prendere', (select members =
 -- silenziare il gruppo: solo il proprio
 update public.group_members set muted = true where group_id = pg_temp.val('g')::uuid and user_id = :'A';
 insert into esito select 'Silenziato', (select muted from public.my_groups() where id = pg_temp.val('g')::uuid);
--- l'ultimo che esce chiude il gruppo
+-- l'ultimo che esce non cancella: archivia (si ripristina); eliminare solo dopo, dal proprietario
 select public.leave_group(pg_temp.val('g')::uuid);
+insert into esito select 'Uscito l''ultimo: archiviato, non cancellato',
+  not exists (select 1 from public.my_groups() where id = pg_temp.val('g')::uuid)
+  and exists (select 1 from public.my_archived_groups() where id = pg_temp.val('g')::uuid);
+select public.restore_group(pg_temp.val('g')::uuid);
+insert into esito select 'Ripristinato', exists (select 1 from public.my_groups() where id = pg_temp.val('g')::uuid);
+select public.delete_group(pg_temp.val('g')::uuid);
 reset role;
-insert into esito select 'Uscito l''ultimo: il gruppo non c''è più', not exists (select 1 from public.families where id = pg_temp.val('g')::uuid);
+insert into esito select 'Eliminato dal proprietario', not exists (select 1 from public.families where id = pg_temp.val('g')::uuid);
 insert into esito select 'Avvisi: ingresso e prodotti aggiunti',
   (select count(*) filter (where kind = 'gruppo_ingresso') = 1 and count(*) filter (where kind = 'gruppo_lista') = 3
    and count(*) filter (where kind = 'gruppo_rientro') = 1 from public.notif_test);
