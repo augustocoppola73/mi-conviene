@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, canActItem, canActOn, GroupReceipt, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
 import { shareLabel } from '@/groupShare';
+import { GroupReceiptEditor } from '@/components/GroupReceipt';
 import { IS_CLOUD } from '@/cloud/client';
 import { HelpSheet } from '@/components/HelpSheet';
 import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
@@ -282,14 +283,15 @@ export default function SpesaScreen() {
         <ScrollView contentContainerStyle={s.content}>
           <Text style={s.title}>🏁 Spesa finita</Text>
           <Text style={s.text}>Nel carrello circa {euro(finishing.cart)}. Ho imparato l'ordine dei reparti di questo negozio: la prossima volta la lista è già in ordine.</Text>
-          {(finishing.group_receipts ?? []).map((g) => (
+          {(finishing.group_receipts ?? []).map((g) => g.saved && g.expense_id ? (
+            <GroupReceiptEditor key={g.group_id} expenseId={g.expense_id} title={`${g.emoji || '👥'} Scontrino di «${g.group_name}»`}
+              lines={g.lines} amount={g.amount} />
+          ) : (
             <View key={g.group_id} style={[s.row, { alignItems: 'flex-start' }]}>
               <Text style={{ fontSize: 22 }}>{g.emoji || '👥'}</Text>
               <View style={{ flex: 1 }}>
                 <Text style={s.name}>Scontrino di «{g.group_name}»: {euro(g.amount)}</Text>
-                <Text style={s.muted}>{g.saved
-                  ? `${g.lines} ${g.lines === 1 ? 'prodotto' : 'prodotti'} presi per il gruppo: segnati come spesa pagata da te, per i conti del gruppo. Non entrano nel tuo Salvadanaio.`
-                  : 'Non sono riuscito a segnarla nel gruppo: aggiungila a mano nei conti del gruppo.'}</Text>
+                <Text style={s.muted}>Non sono riuscito a segnarlo nel gruppo: aggiungilo a mano nei Conti del gruppo.</Text>
               </View>
             </View>
           ))}

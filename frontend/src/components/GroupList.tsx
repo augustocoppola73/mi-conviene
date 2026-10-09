@@ -241,6 +241,9 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
             <Text style={s.title} numberOfLines={1}>{group.name}</Text>
             <Text style={s.meta}>{eventLabel(group.event_date)} · {group.add_policy === 'proprietario' ? (owner ? 'aggiungi tu, gli altri propongono' : 'proponi, decide chi l\'ha creato') : 'tutti aggiungono'}</Text>
           </View>
+          <Pressable onPress={() => router.push(`/gruppo/${group.id}?tab=conti`)} hitSlop={8} accessibilityLabel="Conti del gruppo" style={s.contiBtn}>
+            <Text style={s.link}>💶 Conti</Text>
+          </Pressable>
           <Pressable onPress={() => router.push(`/gruppo/${group.id}`)} hitSlop={8} accessibilityLabel="Impostazioni del gruppo">
             <Icon name="settings-outline" size={22} color={colors.textSecondary} />
           </Pressable>
@@ -305,4 +308,5 @@ const useStyles = makeStyles((c) => ({
   badge: { minWidth: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   badgeText: { color: '#fff', fontWeight: '800', fontSize: 13 },
   link: { color: c.primary, fontWeight: '700', fontSize: 13 },
+  contiBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: c.primary },
 }));

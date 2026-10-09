@@ -165,6 +165,17 @@ const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista da
   await Bu.call('shopCheck', gshop.id, 'x', 'latte', true, 'Ale');
   const gfin = await Bu.call('shopFinish', gshop.id, 'x');
   ok('scontrino del gruppo a fine spesa (chiusa dal familiare)', gfin.group_receipts?.length === 1 && gfin.group_receipts[0].amount === 3.2 && gfin.group_receipts[0].saved, JSON.stringify(gfin.group_receipts ?? gfin.__error));
+  // #16: lo scontrino nasce da confermare; corretto e confermato arriva nei conti
+  const rec = gfin.group_receipts?.[0];
+  ok('scontrino con i prodotti', rec?.lines?.[0]?.name === 'patatine' && !!rec.expense_id, JSON.stringify(rec));
+  ok('da confermare: non conta ancora', (await A.g('groupBalances', gid)).every((b) => b.spent === 0));
+  await A.g('confirmExpense', rec.expense_id, 4.1, [{ name: 'patatine', quantity: 2, unit: 'pz', price: 4.1 }]);
+  await Bu.g('addGroupExpense', gid, 2, 'Ghiaccio');
+  const bal = await A.g('groupBalances', gid);
+  ok('conti: una famiglia = un conto, speso 6,10 → in pari', bal.length === 1 && bal[0].spent === 6.1 && bal[0].balance === 0, JSON.stringify(bal));
+  await A.page.goto(`http://localhost:8790/gruppo/${gid}?tab=conti`); await A.page.waitForTimeout(3000);
+  ok('pagina Conti', await A.page.getByText('Chi dà a chi').count() === 0 && await A.page.getByText('Ghiaccio').count() > 0);
+  await A.page.screenshot({ path: process.argv[2] + '/conti.png', fullPage: true });
   // la pagina Lista in modalità gruppo
   await A.page.evaluate((gid) => { const p = JSON.parse(localStorage.getItem('margine_prefs') || '{}'); p.activeList = gid; localStorage.setItem('margine_prefs', JSON.stringify(p)); }, gid);
   await A.page.goto('http://localhost:8790/'); await A.page.waitForTimeout(3500);

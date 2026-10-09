@@ -124,7 +124,72 @@ export function eventLabel(date: string | null): string {
   return d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
+// ------------------------------------------------------------------ conti (#16)
+export interface ExpenseLine { name: string; quantity?: number; unit?: string | null; price: number }
+export interface GroupExpense {
+  id: string; group_id: string; paid_by: string | null; amount: number; note: string | null; spent_on: string; created_at: string;
+  status: 'da_confermare' | 'confermata'; store_name: string | null; lines: ExpenseLine[] | null; confirmed_at: string | null;
+}
+export interface Balance {
+  account: string; label: string; members: string[]; spent: number; share: number; settled: number; balance: number; excluded: boolean;
+}
+export interface Transfer { from: Balance; to: Balance; amount: number }
+
+export async function groupExpenses(g: string): Promise<GroupExpense[]> {
+  const rows = (check(await sb().from('group_expenses').select('*').eq('group_id', g).order('created_at', { ascending: false })) ?? []) as any[];
+  return rows.map((r) => ({ ...r, amount: Number(r.amount) }));
+}
+
+export async function confirmExpense(id: string, amount: number, lines?: ExpenseLine[] | null, note?: string | null): Promise<void> {
+  check(await sb().rpc('confirm_group_expense', { p_id: id, p_amount: Math.round(amount * 100) / 100, p_lines: lines ?? null, p_note: note ?? null }));
+}
+
+export async function deleteExpense(id: string): Promise<void> {
+  const { data, error } = await sb().from('group_expenses').delete().eq('id', id).select('id');
+  const e = msg(error); if (e) throw e;
+  if (!data?.length) throw new Error('La toglie chi l\'ha pagata o chi ha creato il gruppo');
+}
+
+export async function groupBalances(g: string): Promise<Balance[]> {
+  return ((check(await sb().rpc('group_balances', { g })) ?? []) as any[]).map((b) => ({
+    ...b, spent: Number(b.spent), share: Number(b.share), settled: Number(b.settled), balance: Number(b.balance),
+  }));
+}
+
+export async function settle(g: string, from: string, to: string, amount: number): Promise<void> {
+  check(await sb().rpc('settle_group', { g, p_from: from, p_to: to, p_amount: Math.round(amount * 100) / 100 }));
+}
+
+export async function setExcluded(g: string, u: string, excluded: boolean): Promise<void> {
+  check(await sb().rpc('set_split_excluded', { g, u, p_excluded: excluded }));
+}
+
+/** Chi dà a chi, con il minimo di passaggi: il più in debito paga il più in credito, e così via. */
+export function transfers(balances: Balance[]): Transfer[] {
+  const deb = balances.filter((b) => b.balance < -0.005).map((b) => ({ b, v: -b.balance })).sort((x, y) => y.v - x.v);
+  const cre = balances.filter((b) => b.balance > 0.005).map((b) => ({ b, v: b.balance })).sort((x, y) => y.v - x.v);
+  const out: Transfer[] = [];
+  let i = 0, j = 0;
+  while (i < deb.length && j < cre.length) {
+    const v = Math.round(Math.min(deb[i].v, cre[j].v) * 100) / 100;
+    if (v > 0) out.push({ from: deb[i].b, to: cre[j].b, amount: v });
+    deb[i].v -= v; cre[j].v -= v;
+    if (deb[i].v < 0.005) i++;
+    if (cre[j].v < 0.005) j++;
+  }
+  return out;
+}
+
+/** Ascolta scontrini e pareggi del gruppo. */
+export function watchAccounts(g: string, onChange: () => void): () => void {
+  const ch = sb().channel(`ga-${g}-${Math.random().toString(36).slice(2, 8)}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'group_expenses', filter: `group_id=eq.${g}` }, () => onChange())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'group_settlements', filter: `group_id=eq.${g}` }, () => onChange())
+    .subscribe();
+  return () => { sb().removeChannel(ch); };
+}
+
 // solo per le prove automatiche (build con EXPO_PUBLIC_E2E=1)
 if (process.env.EXPO_PUBLIC_E2E === '1') {
-  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem, myGroupItems, addGroupExpense };
+  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem, myGroupItems, addGroupExpense, groupExpenses, confirmExpense, deleteExpense, groupBalances, settle, setExcluded };
 }

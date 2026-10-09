@@ -40,7 +40,8 @@ export interface ListItem {
 }
 /** una parte di un prodotto che compro per un gruppo evento (#21) */
 /** #21: lo scontrino di un gruppo a fine spesa (diventa una spesa del gruppo pagata da te) */
-export interface GroupReceipt { group_id: string; group_name: string; emoji: string | null; amount: number; lines: number; saved: boolean }
+export interface GroupReceipt { group_id: string; group_name: string; emoji: string | null; amount: number;
+  lines: { name: string; quantity?: number; unit?: string | null; price: number }[]; saved: boolean; expense_id?: string | null }
 export interface GroupShare { group_item_id: string; group_id: string; group_name: string; emoji: string | null; quantity: number }
 export interface ClassifyResult {
   text: string; category_id: string; category_name: string; emoji: string; confidence: number;

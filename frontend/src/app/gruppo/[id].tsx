@@ -14,6 +14,7 @@ import {
   removeGroupItem, setMuted, updateGroupItem, watchList,
 } from '@/cloud/groups';
 import { GroupSheet } from '@/components/GroupSheet';
+import { GroupAccounts } from '@/components/GroupAccounts';
 import { QtyStepper } from '@/components/QtyStepper';
 import { Icon, PrimaryButton } from '@/components/ui';
 import { formatQty, qtyStep } from '@/format';
@@ -31,7 +32,8 @@ function ask(m: string, ok: string): Promise<boolean> {
 }
 
 export default function GruppoScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tab0 } = useLocalSearchParams<{ id: string; tab?: string }>();
+  const [tab, setTab] = useState<'lista' | 'conti'>(tab0 === 'conti' ? 'conti' : 'lista');
   const s = useStyles();
   const { colors } = useTheme();
   const { catalog, prefs } = useStore();
@@ -214,6 +216,17 @@ export default function GruppoScreen() {
           </View>
         )}
 
+        <View style={s.tabs}>
+          {(['lista', 'conti'] as const).map((t) => (
+            <Pressable key={t} onPress={() => setTab(t)} style={[s.tab, tab === t && s.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: tab === t }}>
+              <Text style={[s.tabText, tab === t && s.tabTextOn]}>{t === 'lista' ? '🛒 Lista' : '💶 Conti'}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {tab === 'conti' ? (
+          <GroupAccounts groupId={group.id} me={me} owner={owner} members={members} />
+        ) : (
+          <>
         <View style={s.addBox}>
           <TextInput value={text} onChangeText={setText} placeholder="Aggiungi un prodotto…" placeholderTextColor={colors.textSecondary}
             style={s.input} returnKeyType="done" onSubmitEditing={() => q && add(sugg[0] && sugg[0].name.toLowerCase() === q ? sugg[0] : null)} />
@@ -237,6 +250,8 @@ export default function GruppoScreen() {
         {done.map((it) => <Row key={it.id} it={it} />)}
         {missing.length > 0 && <Text style={s.section}>Mancavano · {missing.length}</Text>}
         {missing.map((it) => <Row key={it.id} it={it} />)}
+          </>
+        )}
       </ScrollView>
       <GroupSheet visible={editOpen} onClose={() => setEditOpen(false)} edit={group} onSaved={() => load()} />
     </SafeAreaView>
@@ -245,6 +260,11 @@ export default function GruppoScreen() {
 
 const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.background },
+  tabs: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  tabOn: { backgroundColor: c.primary, borderColor: c.primary },
+  tabText: { color: c.text, fontWeight: '700', fontSize: 14 },
+  tabTextOn: { color: c.primaryText },
   content: { width: '100%', maxWidth: 640, alignSelf: 'center', padding: spacing.lg, paddingBottom: 80, gap: spacing.sm },
   head: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   bigEmoji: { fontSize: 34 },
