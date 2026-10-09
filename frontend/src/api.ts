@@ -218,9 +218,19 @@ export interface ShopItem {
   in_promo?: boolean; promo_until?: string | null; variant?: VariantHint | null; seen?: { price: number; kind: PriceKind; note?: string | null } | null;
   /** spesa in più tappe: in quale tappa (0, 1) e in quale catena si prende */
   stop?: number; store_id?: string;
+  /** "Ti do una mano": da dove veniva prima di passare a chi aiuta (per restituirlo) */
+  helped_from?: { stop: number; store_id: string; price: number | null } | null;
 }
 /** una tappa della spesa in più negozi */
-export interface ShopStop { store_id: string; store_name: string; branch: string | null; lat?: number | null; lon?: number | null; parking?: Parking | null }
+export interface ShopStop {
+  store_id: string; store_name: string; branch: string | null; lat?: number | null; lon?: number | null; parking?: Parking | null;
+  /** "Ti do una mano": la tappa di un familiare che prende una parte della spesa in un altro negozio */
+  by?: { user_id: string; name: string | null; at: string } | null;
+  /** ha lasciato la sua parte dopo aver preso qualcosa */
+  released?: boolean;
+}
+import type { HelpOption } from './engine/split';
+export type { HelpOption };
 export interface Shop {
   id: string; user_id: string; display_name?: string | null; store_id: string; store_name: string; branch?: string | null;
   saving_id?: string | null; items: ShopItem[]; status: string; created_at: string; aisles: string[]; mine: boolean;
@@ -246,6 +256,16 @@ export { REQUEST_WAIT_MIN } from './shopRules';
 export function canActOn(shop: Shop, userId: string | null): boolean {
   const t = shop.taken_by;
   return !t || t.user_id === userId || !!t.helpers?.some((h) => h.user_id === userId);
+}
+/** "Ti do una mano": la tappa di cui sei il proprietario (indice), o -1 */
+export function myHelpStop(shop: Shop, userId: string | null): number {
+  return shop.stops?.findIndex((st) => !!userId && st.by?.user_id === userId && !st.released) ?? -1;
+}
+/** chi può smarcare questo prodotto: quelli di una tappa "di qualcuno" solo lui, gli altri come canActOn */
+export function canActItem(shop: Shop, item: ShopItem, userId: string | null): boolean {
+  const owner = item.stop != null ? shop.stops?.[item.stop]?.by : null;
+  if (owner) return owner.user_id === userId;
+  return canActOn(shop, userId);
 }
 export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null; stop?: number }
 export interface FamilyMember { user_id: string; display_name: string; /** riceve le notifiche (solo versione online) */ notifications?: boolean | null }
@@ -343,6 +363,14 @@ export const localApi = {
     post<Shop>(`/shops/${id}/take`, { user_id, display_name,
       mode: mode === 'request' ? 'take' : mode === 'request_help' ? 'help' : mode === 'release' || mode === 'help' ? mode : 'take' }),
   shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
+  /** "Ti do una mano" (#4): solo nella versione online (serve la famiglia e la posizione) */
+  shopHelpPlan: async (_id: string, _lat: number, _lon: number, _transport: Transport, _fuel: FuelType): Promise<HelpOption[]> => {
+    throw new Error('"Ti do una mano" funziona nella versione online');
+  },
+  shopHelpTake: async (_id: string, _opt: { store_id: string; store_name: string; branch?: any }, _keys: string[], _name?: string | null): Promise<Shop> => {
+    throw new Error('"Ti do una mano" funziona nella versione online');
+  },
+  shopHelpRelease: async (_id: string): Promise<Shop> => { throw new Error('"Ti do una mano" funziona nella versione online'); },
   shopPrice: (id: string, body: { user_id: string; key: string; price: number; kind: PriceKind; note?: string | null; display_name?: string | null }) =>
     post<Shop>(`/shops/${id}/price`, body),
   shopFinish: (id: string, user_id: string) =>

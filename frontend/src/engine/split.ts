@@ -158,3 +158,64 @@ export function splitPlan(ranked: any[], recommended: any, items: { product_id: 
     split_note: null,
   };
 }
+
+// ------------------------------------------------------------------ "Ti do una mano" (#4)
+/** Una proposta per chi aiuta: un negozio vicino a lui e i prodotti che lì costano uguale o meno. */
+export interface HelpOption {
+  store_id: string; store_name: string; branch: any | null; distance_km: number;
+  /** dal più conveniente al meno: i primi "suggested" sono già spuntati (la spesa si divide, non si sposta tutta) */
+  lines: (SplitLine & { key: string; was: number | null })[];
+  suggested: number;
+  /** quanto si risparmia con i prodotti suggeriti rispetto a farli prendere dove sono ora */
+  gain: number; fuel_cost: number; time_min: number;
+  reasoning: string;
+}
+
+/**
+ * La spesa di un familiare è in corso; tu sei altrove. Per ogni catena vicino a te prendo i prodotti ancora da
+ * prendere che lì costano uguale o meno, e tengo le proposte che valgono il viaggio (almeno 3 prodotti o 5 €).
+ * Ordine: risparmio meno carburante e tempo (il tempo pesa la metà: stai aiutando, e lei finisce prima).
+ * price(storeId, productId, quantity) → prezzo della riga in quel negozio (null se non c'è).
+ */
+export function helpOptions(
+  todo: { key: string; product_id: string; name: string; quantity: number; unit: string; category_id?: string | null; price: number | null }[],
+  stores: { id: string; name: string; distance_km: number; branch?: any }[],
+  price: (storeId: string, productId: string, quantity: number) => number | null,
+  opts: { transport: string; fuel: FuelInfo; max?: number },
+): HelpOption[] {
+  const out: (HelpOption & { score: number })[] = [];
+  for (const st of stores) {
+    const lines: HelpOption['lines'] = [];
+    let gain = 0;
+    for (const it of todo) {
+      if (it.product_id.startsWith('custom:')) continue;
+      const p = price(st.id, it.product_id, it.quantity);
+      if (p == null) continue;
+      const was = it.price;
+      if (was != null && p > was + 0.005) continue;  // qui costa di più: resta a chi fa la spesa
+      lines.push({ key: it.key, product_id: it.product_id, name: it.name, quantity: it.quantity, unit: it.unit, line_price: p, category_id: it.category_id ?? null, was });
+      gain += was != null ? was - p : 0;
+    }
+    const value = lines.reduce((t, l) => t + l.line_price, 0);
+    if (lines.length < MIN_STOP_ITEMS && value < MIN_STOP_EURO) continue;
+    // si divide la fatica: di base circa metà di quello che resta, partendo da ciò che lì conviene di più
+    lines.sort((x, y) => ((y.was ?? y.line_price) - y.line_price) - ((x.was ?? x.line_price) - x.line_price));
+    const suggested = Math.min(lines.length, Math.max(MIN_STOP_ITEMS, Math.ceil(todo.length / 2)));
+    gain = lines.slice(0, suggested).reduce((t, l) => t + (l.was != null ? l.was - l.line_price : 0), 0);
+    const km = st.distance_km * 2;
+    const timeMin = (km / C.transport_speed[opts.transport]) * 60 + STOP_EXTRA_MIN;
+    const fuelCost = opts.transport === 'car' ? km * (C.fuel_consumption_l_100km / 100) * opts.fuel.price_per_liter : 0;
+    const timeCost = (timeMin / 60) * C.time_value;
+    const g = pyRound(gain, 2);
+    out.push({
+      store_id: st.id, store_name: st.name, branch: st.branch ?? null, distance_km: st.distance_km, lines, suggested,
+      gain: g, fuel_cost: pyRound(fuelCost, 2), time_min: Math.round(timeMin),
+      score: g - fuelCost - 0.5 * C.time_weight * timeCost,
+      reasoning: g >= 0.05
+        ? `Da ${st.name}, a ${String(st.distance_km).replace('.', ',')} km da te: ${suggested} prodotti, ${euro(g)} in meno.`
+        : `Da ${st.name}, a ${String(st.distance_km).replace('.', ',')} km da te: ${suggested} prodotti allo stesso prezzo, e la spesa finisce prima.`,
+    });
+  }
+  out.sort((a, b) => b.score - a.score || a.distance_km - b.distance_km);
+  return out.slice(0, opts.max ?? 3).map(({ score: _s, ...o }) => o);
+}

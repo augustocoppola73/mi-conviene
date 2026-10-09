@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, canActOn, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
+import { api, canActItem, canActOn, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
+import { IS_CLOUD } from '@/cloud/client';
+import { HelpSheet } from '@/components/HelpSheet';
 import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
 import { ProductSearch } from '@/components/ProductSearch';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
@@ -148,10 +150,21 @@ export default function SpesaScreen() {
   };
   const canAct = shop ? canActOn(shop, userId) : false;
   const addStop = useRef(0); // spesa in due negozi: le cose aggiunte in negozio vanno nella tappa in corso
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpRelease = async () => {
+    if (!shop) return;
+    if (!(await ask('Lasci la tua parte?', `Quello che non hai ancora preso torna nella lista di ${shop.taken_by?.name ?? 'chi fa la spesa'}.`, 'Lascia'))) return;
+    try { const sh = await api.shopHelpRelease(shop.id); setShop(applyPending(sh)); save(sh); } catch (e) { tell('Spesa', (e as Error).message); }
+  };
 
   const toggle = (it: ShopItem) => {
     if (!shop || !userId) return;
-    if (!canAct) { tell('Spesa', `La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: per smarcare chiedi di prenderla o di aiutare.`); return; }
+    if (!canActItem(shop, it, userId)) {
+      const owner = it.stop != null ? shop.stops?.[it.stop]?.by : null;
+      tell('Spesa', owner ? `Questo lo prende ${owner.name ?? 'un familiare'} da ${shop.stops![it.stop!].store_name}.`
+        : `La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: per smarcare chiedi di prenderla o di aiutare.`);
+      return;
+    }
     if (!shop.taken_by && !it.checked) {
       // spesa libera: prima di smarcare la prendi (con conferma), poi la spunta parte da sola
       take('take').then((ok) => { if (ok) toggleNow(it); });
@@ -308,11 +321,16 @@ export default function SpesaScreen() {
   };
   // spesa in due negozi: la lista divisa per tappa
   const stops = shop.stops && shop.stops.length > 1 ? shop.stops : null;
-  const sections = stops
+  const myStop = myHelpStop(shop, userId);  // "Ti do una mano": la mia parte, se ne ho una
+  const sections = (stops
     ? stops.map((st, k) => ({ st, k, groups: byAisle(todo.filter((i) => (i.stop ?? 0) === k)), left: todo.filter((i) => (i.stop ?? 0) === k).length }))
-    : [{ st: null, k: 0, groups: byAisle(todo), left: todo.length }];
-  // dove sei adesso: la prima tappa con qualcosa da prendere (lì vanno le cose aggiunte in negozio)
-  const currentStop = stops ? (sections.find((x) => x.left > 0)?.k ?? stops.length - 1) : 0;
+    : [{ st: null, k: 0, groups: byAisle(todo), left: todo.length }])
+    .filter((x) => !(x.st?.by && x.left === 0 && x.k !== myStop))   // parte di un altro già finita: non serve più
+    .sort((a, b) => Number(b.k === myStop) - Number(a.k === myStop));  // chi aiuta vede prima la sua parte
+  // dove sei adesso: la mia parte se aiuto, altrimenti la prima tappa (non di altri) con qualcosa da prendere
+  const currentStop = myStop >= 0 ? myStop
+    : stops ? (sections.find((x) => x.left > 0 && !x.st?.by)?.k ?? 0) : 0;
+  const myLeft = myStop >= 0 ? todo.filter((i) => (i.stop ?? 0) === myStop).length : 0;
   addStop.current = currentStop;
   const cart = Math.round(done.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
   const estimated = Math.round(shop.items.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
@@ -333,7 +351,17 @@ export default function SpesaScreen() {
         </View>
       </View>
       <View style={s.takenBox}>
-        <TakenPanel shop={shop} userId={userId} onAct={take} />
+        {myStop >= 0 ? (
+          <>
+            <Text style={s.takenText}>🤝 Stai dando una mano a {shop.taken_by?.name ?? 'chi fa la spesa'}: prendi la tua parte da {shop.stops![myStop].store_name}</Text>
+            <Text style={s.muted}>{shop.taken_by?.name ?? 'Chi fa la spesa'} pensa al resto da {shop.stops![0]?.store_name ?? shop.store_name}. Le vostre spunte si vedono in diretta.</Text>
+          </>
+        ) : (
+          <TakenPanel shop={shop} userId={userId} onAct={take}
+            onHelp={IS_CLOUD && todo.length > 0 ? () => setHelpOpen(true) : undefined} />
+        )}
+        <HelpSheet shop={shop} visible={helpOpen} onClose={() => setHelpOpen(false)}
+          onDone={(sh) => { setShop(applyPending(sh)); save(sh); setHelpOpen(false); }} />
       </View>
       <View style={s.progressBox}>
         <View style={s.progressTrack}><View style={[s.progressFill, { width: `${Math.round(pct * 100)}%` }]} /></View>
@@ -350,9 +378,14 @@ export default function SpesaScreen() {
             {sec.st && (
               <View style={[s.stopHead, sec.k === currentStop && sec.left > 0 && s.stopHeadNow]}>
                 <Text style={s.stopTitle}>
-                  {sec.left === 0 ? '✅' : sec.k === currentStop ? '📍' : '⏭️'} Tappa {sec.k + 1} · {sec.st.store_name}
+                  {sec.st.by
+                    ? `🤝 ${sec.k === myStop ? 'La tua parte' : `Ci pensa ${sec.st.by.name ?? 'un familiare'}`} · ${sec.st.store_name}`
+                    : `${sec.left === 0 ? '✅' : sec.k === currentStop ? '📍' : '⏭️'} Tappa ${sec.k + 1} · ${sec.st.store_name}`}
                   <Text style={s.muted}>  {sec.left === 0 ? 'fatto' : `${sec.left} da prendere`}</Text>
                 </Text>
+                {sec.k === myStop && (
+                  <Pressable onPress={helpRelease} hitSlop={6} style={s.stopNav}><Text style={s.stopNavText}>Lascia la mia parte</Text></Pressable>
+                )}
                 {!!sec.st.branch && <Text style={s.muted} numberOfLines={1}>{sec.st.branch}</Text>}
                 <ParkingLine parking={sec.st.parking} size={12} />
                 {sec.st.lat != null && sec.st.lon != null && sec.left > 0 && (
@@ -367,7 +400,7 @@ export default function SpesaScreen() {
               <View key={cat} style={{ gap: 6 }}>
                 <Text style={s.group}>{catById.get(cat)?.emoji ?? '🛒'} {catById.get(cat)?.name ?? 'Altro'}</Text>
                 {list.map((i) => (
-                  <Pressable key={i.key} onPress={() => toggle(i)} style={s.row} accessibilityRole="checkbox" accessibilityState={{ checked: false }}>
+                  <Pressable key={i.key} onPress={() => toggle(i)} style={[s.row, !canActItem(shop, i, userId) && { opacity: 0.6 }]} accessibilityRole="checkbox" accessibilityState={{ checked: false }}>
                     <Icon name="ellipse-outline" size={26} color={colors.primary} />
                     <View style={{ flex: 1 }}>
                       <Text style={s.name}>{i.name}</Text>
@@ -381,7 +414,7 @@ export default function SpesaScreen() {
                         </Text>
                       )}
                     </View>
-                    {canAct && !i.product_id.startsWith('custom:') && (
+                    {canActItem(shop, i, userId) && !i.product_id.startsWith('custom:') && (
                       <Pressable onPress={() => openPrice(i)} hitSlop={8} style={s.priceBtn} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
                         <Text style={s.priceBtnText}>€</Text>
                       </Pressable>
@@ -431,7 +464,8 @@ export default function SpesaScreen() {
           </View>
         )}
 
-        {canAct && <PrimaryButton label="Ho finito la spesa" icon="flag-outline" onPress={finish} style={{ marginTop: spacing.xl }} />}
+        {myStop >= 0 && myLeft === 0 && <Text style={s.allDone}>✅ La tua parte è fatta: grazie per la mano!</Text>}
+        {canAct && myStop < 0 && <PrimaryButton label="Ho finito la spesa" icon="flag-outline" onPress={finish} style={{ marginTop: spacing.xl }} />}
         {(canAct || shop.mine) && (
           <Pressable onPress={() => setConfirmCancel(true)} style={{ alignSelf: 'center', padding: spacing.md }}>
             <Text style={[s.muted, { color: colors.danger }]}>Annulla la spesa (la lista torna com'era)</Text>
@@ -520,7 +554,7 @@ const useStyles = makeStyles((c) => ({
 }));
 
 /** Chi fa la spesa, in chiaro, con le sole azioni possibili in quel momento. */
-function TakenPanel({ shop, userId, onAct }: { shop: Shop; userId: string | null; onAct: (m: TakeMode) => void }) {
+function TakenPanel({ shop, userId, onAct, onHelp }: { shop: Shop; userId: string | null; onAct: (m: TakeMode) => void; onHelp?: () => void }) {
   const s = useStyles();
   const { colors } = useTheme();
   const t = shop.taken_by;
@@ -591,6 +625,11 @@ function TakenPanel({ shop, userId, onAct }: { shop: Shop; userId: string | null
         <View style={s.takeActions}>
           <TakeBtn label="Chiedi di prenderla" onPress={() => onAct('request')} />
           <TakeBtn label="Siamo insieme: aiuto" secondary onPress={() => onAct('request_help')} />
+        </View>
+      )}
+      {onHelp && (
+        <View style={s.takeActions}>
+          <TakeBtn label="🤝 Ti do una mano da un altro negozio" onPress={onHelp} />
         </View>
       )}
     </>

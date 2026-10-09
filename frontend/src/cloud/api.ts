@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type * as T from '../api';
 import { REQUEST_WAIT_MIN } from '../shopRules';
-import { splitPlan } from '../engine/split';
+import { helpOptions, splitPlan } from '../engine/split';
 import {
   buildPriceBook, computeVirtualReceipt, fuelInfo, FuelStation, HistoryShop, habitualFromHistory, lastSimilarShop, optimizeList, PriceBook,
   RealPrice, savingValue, suggestBudget, UserPrice, verifiedFuelSaving, verifiedSaving,
@@ -201,15 +201,23 @@ async function updateShop(id: string, change: (row: any) => void): Promise<any> 
     const row = await shopRow(id);
     change(row);
     const stamp = nowIso();
-    const res = check(await sb().from('shops').update({ items: row.items, taken_by: row.taken_by ?? null, updated_at: stamp })
+    const res = check(await sb().from('shops').update({ items: row.items, taken_by: row.taken_by ?? null, stops: row.stops ?? null, updated_at: stamp })
       .eq('id', id).eq('updated_at', row.updated_at).select('*')) as any[];
     if (res.length) return res[0];
   }
   throw new Error('La spesa è stata modificata da un altro: riprova');
 }
 
-/** Spesa presa in carico da un altro: si guarda soltanto (a meno di aiutare o prenderla). */
-function guardAct(shop: any, me: string) {
+/**
+ * Spesa presa in carico da un altro: si guarda soltanto (a meno di aiutare o prenderla).
+ * "Ti do una mano": i prodotti di una tappa con un proprietario ("by") li smarca solo lui, e lui solo quelli.
+ */
+function guardAct(shop: any, me: string, item?: any) {
+  const owner = item && item.stop != null ? shop.stops?.[item.stop]?.by : null;
+  if (owner) {
+    if (owner.user_id !== me) throw new Error(`Questo lo prende ${owner.name || 'un familiare'} da ${shop.stops[item.stop].store_name}`);
+    return;
+  }
   const t = shop.taken_by;
   if (t && t.user_id !== me && !(t.helpers || []).some((h: any) => h.user_id === me)) {
     throw new Error(`La sta facendo ${t.name || 'un familiare'}: chiedi di aiutare per smarcare anche tu`);
@@ -602,7 +610,7 @@ export const cloudApi = {
     const me = await uid();
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
-      guardAct(shop, me);
+      guardAct(shop, me, shop.items.find((i: any) => i.key === key));
       let found = false;
       for (const i of shop.items) {
         if (i.key === key) {
@@ -693,9 +701,9 @@ export const cloudApi = {
   shopPrice: async (id: string, body: { user_id: string; key: string; price: number; kind: T.PriceKind; note?: string | null; display_name?: string | null; promo_until?: string | null }): Promise<T.Shop> => {
     const me = await uid();
     const current = await shopRow(id);
-    guardAct(current, me);
     const item = current.items.find((i: any) => i.key === body.key);
     if (!item) throw new Error('Prodotto non trovato');
+    guardAct(current, me, item);
     if (!item.product_id.startsWith('custom:')) {
       const kg = item.unit === 'kg';
       await saveObserved([{ product_id: item.product_id, text: item.name, net_price: body.price,
@@ -709,6 +717,81 @@ export const cloudApi = {
       Object.assign(it, { seen: { price: body.price, kind: body.kind, note: body.note ?? null }, checked: true,
         checked_at: it.checked_at || nowIso(), checked_by: body.display_name ?? null, checked_by_id: me });
       if (body.kind !== 'variante') it.price = body.price;
+    });
+    return shopOut(row, me);
+  },
+
+  /** "Ti do una mano" (#4): proposte di negozi vicino a te per una parte della spesa in corso di un familiare. */
+  shopHelpPlan: async (id: string, lat: number, lon: number, transport: T.Transport, fuelType: T.FuelType): Promise<T.HelpOption[]> => {
+    const me = await uid();
+    const shop = await shopRow(id);
+    if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+    if (shop.taken_by?.user_id === me) throw new Error('Questa spesa la stai già facendo tu');
+    const book = await priceBook();
+    const todo = shop.items.filter((i: any) => !i.checked && !(i.stop != null && shop.stops?.[i.stop]?.by));
+    if (!todo.length) throw new Error('Non resta niente da prendere');
+    let near;
+    try { near = nearestPerChain(await storesAround(lat, lon, kv), lat, lon); } catch { throw new Error('OpenStreetMap non raggiungibile: riprova tra poco'); }
+    const [stores, loc] = storesFor(near);
+    if (loc.mode !== 'reale') throw new Error('Nessun supermercato vicino a te');
+    const [stations, parkings] = await Promise.all([stationsNear(lat, lon).catch(() => [] as FuelStation[]), parkingsAround(lat, lon, kv).catch(() => null)]);
+    const fuel = fuelInfo(fuelType || 'benzina', stations, lat, lon);
+    if (parkings) withParking(stores.map((st) => (st.branch ? Object.assign(st.branch, { chain: st.id }) : null)), parkings);
+    return helpOptions(todo, stores, (sid, pid, q) => shopItem(book, { product_id: pid, quantity: q }, sid).price, { transport, fuel }) as T.HelpOption[];
+  },
+
+  /** prendo io questi prodotti da quel negozio: diventano una tappa mia, spariscono dalla lista di chi fa la spesa */
+  shopHelpTake: async (id: string, opt: { store_id: string; store_name: string; branch?: any }, keys: string[], display_name?: string | null): Promise<T.Shop> => {
+    const me = await uid();
+    const name = display_name || (await myProfile().catch(() => null as any))?.display_name || null;
+    const book = await priceBook();
+    const row = await updateShop(id, (shop) => {
+      if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+      if (!shop.taken_by || shop.taken_by.user_id === me) throw new Error('Puoi dare una mano a una spesa che sta facendo un altro');
+      if (shop.stops?.some((st: any) => st.by?.user_id === me)) throw new Error('Hai già una parte di questa spesa');
+      if (!shop.stops?.length) {
+        shop.stops = [{ store_id: shop.store_id, store_name: shop.store_name, branch: shop.branch ?? null, lat: null, lon: null }];
+      }
+      const k = shop.stops.length;
+      const b = opt.branch;
+      shop.stops.push({ store_id: opt.store_id, store_name: opt.store_name,
+        branch: b ? [b.name, b.address].filter(Boolean).join(' · ') : null, lat: b?.lat ?? null, lon: b?.lon ?? null,
+        parking: b?.parking ?? null, by: { user_id: me, name, at: nowIso() } });
+      let moved = 0;
+      for (const it of shop.items) {
+        if (!keys.includes(it.key) || it.checked) continue;
+        const from = it.stop ?? 0;
+        if (shop.stops[from]?.by) continue;  // già di qualcun altro
+        it.helped_from = { stop: from, store_id: it.store_id ?? shop.store_id, price: it.price };
+        it.stop = k;
+        it.store_id = opt.store_id;
+        it.price = shopItem(book, it, opt.store_id).price;
+        moved++;
+      }
+      if (!moved) throw new Error('Questi prodotti li ha già presi qualcuno');
+    });
+    return shopOut(row, me);
+  },
+
+  /** lascio la mia parte: quello che non ho ancora preso torna a chi fa la spesa */
+  shopHelpRelease: async (id: string): Promise<T.Shop> => {
+    const me = await uid();
+    const row = await updateShop(id, (shop) => {
+      const k = shop.stops?.findIndex((st: any) => st.by?.user_id === me) ?? -1;
+      if (k < 0) return;
+      let kept = 0;
+      for (const it of shop.items) {
+        if ((it.stop ?? 0) !== k) continue;
+        if (it.checked) { kept++; continue; }
+        const f = it.helped_from || { stop: 0, store_id: shop.store_id, price: it.price };
+        Object.assign(it, { stop: f.stop, store_id: f.store_id, price: f.price });
+        delete it.helped_from;
+      }
+      if (kept) shop.stops[k].released = true;  // quello che ho già preso resta registrato
+      else {
+        shop.stops.splice(k, 1);
+        for (const it of shop.items) if ((it.stop ?? 0) > k) it.stop -= 1;
+      }
     });
     return shopOut(row, me);
   },

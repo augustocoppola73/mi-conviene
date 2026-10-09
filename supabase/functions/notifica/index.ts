@@ -62,14 +62,16 @@ function message(kind: string, who: string, b: any): { title: string; body: stri
       : { title: `✅ ${who} ti ha lasciato la spesa da ${b.store}`, body: 'Ora la fai tu: tocca per aprirla', url: '/spesa' };
     case 'rifiutata': return { title: `👌 ${who} continua la spesa da ${b.store}`, body: 'Puoi seguirla in diretta', url: '/spesa' };
     case 'lasciata': return { title: `🔓 ${who} ha lasciato la spesa da ${b.store}`, body: 'È libera: tocca se vuoi prenderla tu', url: '/spesa' };
+    case 'aiuto': return { title: `🤝 ${who} prende ${prodotti} da ${b.store}`, body: 'Li ha tolti dalla tua lista: tocca per vedere quali', url: '/spesa' };
+    case 'aiuto_lasciato': return { title: `↩️ ${who} ha lasciato la sua parte da ${b.store}`, body: 'Quello che non ha preso torna nella tua lista', url: '/spesa' };
   }
   return null;
 }
-const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1 };
+const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1, aiuto: 0, aiuto_lasciato: 0 };
 // avvisi personali (a una persona sola): niente pausa e non si possono spegnere, sono il modo in cui vi parlate
 const DIRECT = new Set(['richiesta', 'accettata', 'rifiutata']);
 // avvisi che seguono l'interruttore di un altro tipo nel Profilo
-const PREF_OF: Record<string, string> = { lasciata: 'presa' };
+const PREF_OF: Record<string, string> = { lasciata: 'presa', aiuto: 'presa', aiuto_lasciato: 'presa' };
 
 Deno.serve(async (req) => {
   try {
