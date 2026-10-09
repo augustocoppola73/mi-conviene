@@ -23,7 +23,8 @@ async function user(sub, email) {
   page.on('requestfailed', (r) => console.log('   FAIL', r.method(), r.url().slice(0, 140), r.failure()?.errorText));
   await page.goto('http://localhost:8790/');
   await page.waitForFunction(() => !!globalThis.__mc, null, { timeout: 30000 });
-  return { page, errs, call: (fn, ...args) => page.evaluate(([fn, args]) => globalThis.__mc[fn](...args).then((r) => r, (e) => ({ __error: String(e.message || e) })), [fn, args]) };
+  return { page, errs, call: (fn, ...args) => page.evaluate(([fn, args]) => globalThis.__mc[fn](...args).then((r) => r, (e) => ({ __error: String(e.message || e) })), [fn, args]),
+    g: (fn, ...args) => page.evaluate(([fn, args]) => globalThis.__mcg[fn](...args).then((r) => r ?? null, (e) => ({ __error: String(e.message || e) })), [fn, args]) };
 }
 const A = await user('11111111-1111-1111-1111-111111111111', 'a@test.it');
 const Bu = await user('22222222-2222-2222-2222-222222222222', 'b@test.it');
@@ -115,6 +116,42 @@ await A.call('inviteRevoke', inv2.code); ok('inviteRevoke', !(await A.call('invi
 await Bu.call('familyPushList', fam.code, 'x', items.slice(0, 2));
 const pulled = await A.call('familyPullList', fam.code); ok('lista di famiglia', pulled.items?.length === 2, pulled.__error || '');
 const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista dalla famiglia', rcB.recipes?.[0]?.id === rc.id, rcB.recipes?.[0]?.name);
+
+// gruppi evento (#14)
+{
+  const gid = await A.g('createGroup', 'Festa di sabato', '🎉', null);
+  ok('createGroup', typeof gid === 'string', JSON.stringify(gid));
+  const g = await A.g('groupInfo', gid);
+  ok('groupInfo: proprietario e lista', g?.role === 'proprietario' && !!g.list_id, JSON.stringify(g));
+  const ginv = await A.call('inviteCreate', gid);
+  const pv = await Bu.call('invitePreview', ginv.code);
+  ok('anteprima invito gruppo', pv.valid && pv.kind === 'evento' && !pv.needs_approval && pv.name === 'Festa di sabato', JSON.stringify(pv));
+  const j = await Bu.call('inviteJoin', ginv.code, 'Ale');
+  ok('B entra subito nel gruppo', j.status === 'joined' && j.group_id === gid, JSON.stringify(j));
+  ok('B resta nella famiglia', (await Bu.call('familyByUser', 'x')).members?.length === 2);
+  await Bu.g('addGroupItem', g.list_id, { product_id: 'custom:patatine', name: 'patatine', quantity: 2, unit: 'pz', category_id: null });
+  await A.g('addGroupItem', g.list_id, { product_id: 'latte', name: 'Latte', quantity: 1, unit: 'L', category_id: 'latticini' });
+  let items = await A.g('groupItems', g.list_id);
+  ok('lista condivisa', items.length === 2, JSON.stringify(items.map((i) => i.name)));
+  const pat = items.find((i) => i.name === 'patatine');
+  await A.g('updateGroupItem', pat.id, { assigned_to: '11111111-1111-1111-1111-111111111111' });
+  const steal = await Bu.g('updateGroupItem', pat.id, { assigned_to: '22222222-2222-2222-2222-222222222222' });
+  ok('B non ruba le patatine di A', !!steal?.__error, steal?.__error || '');
+  ok('B non toglie le patatine prese da A', (await Bu.g('removeGroupItem', pat.id)) === false);
+  const lat = items.find((i) => i.name === 'Latte');
+  await Bu.g('updateGroupItem', lat.id, { status: 'preso' });
+  items = await A.g('groupItems', g.list_id);
+  ok('B spunta il latte: preso da B', items.find((i) => i.name === 'Latte')?.assigned_to === '22222222-2222-2222-2222-222222222222');
+  ok('my_groups di B', (await Bu.g('myGroups')).some((x) => x.id === gid && x.members === 2 && x.todo === 1));
+  // la pagina del gruppo si apre
+  await A.page.goto(`http://localhost:8790/gruppo/${gid}`); await A.page.waitForTimeout(3000);
+  ok('pagina gruppo', await A.page.getByText('Festa di sabato').count() > 0 && await A.page.getByText('patatine').count() > 0);
+  await A.page.screenshot({ path: process.argv[2] + '/gruppo.png' });
+  await Bu.g('leaveGroup', gid);
+  ok('B uscito', !(await Bu.g('myGroups')).some((x) => x.id === gid));
+  await A.g('leaveGroup', gid);
+  ok('gruppo chiuso', (await A.g('groupInfo', gid)) === null);
+}
 
 // spesa in corso
 const shop = await A.call('shopCreate', { user_id: U, store_id: sv.store_id, saving_id: sv.id, items: [...items, items[0]], display_name: 'Augusto' });

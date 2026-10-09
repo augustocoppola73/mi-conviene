@@ -30,6 +30,7 @@ import { quietPosition } from '@/location';
 import { LocationControl } from '@/components/LocationControl';
 import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
+import { ListPicker } from '@/components/ListPicker';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 function notify(title: string, message: string) {
@@ -152,6 +153,7 @@ export default function ListaScreen() {
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.kicker}>Mi Conviene · Ciao{prefs.displayName.trim() ? ` ${prefs.displayName.trim()}` : ''} 👋</Text>
         <Text style={s.title}>Cosa devi comprare?</Text>
+        <ListPicker />
         <ActiveShopBanner />
         {lastResult && (
           <Pressable onPress={() => router.push('/risultati')} style={({ pressed }) => [s.lastResult, pressed && { opacity: 0.7 }]}>

@@ -1,4 +1,4 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,8 @@ import { LocationControl } from '@/components/LocationControl';
 import { NotifySettings } from '@/components/NotifySettings';
 import { CategoryRules } from '@/components/CategoryRules';
 import { ProfileSection } from '@/components/ProfileSection';
+import { GroupSheet } from '@/components/GroupSheet';
+import { eventLabel, Group, myGroups } from '@/cloud/groups';
 import { PUSH_SUPPORTED } from '@/push';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
@@ -47,6 +49,10 @@ export default function ProfiloScreen() {
   }, [userId]);
 
   useFocusEffect(useCallback(() => { loadFamily(); }, [loadFamily]));
+  // gruppi evento (#14)
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupSheet, setGroupSheet] = useState(false);
+  useFocusEffect(useCallback(() => { if (IS_CLOUD) myGroups().then(setGroups).catch(() => {}); }, []));
   // richieste di ingresso da accettare: la sezione Famiglia si apre da sola
   const [pendingCount, setPendingCount] = useState(0);
   const famId = family?.id;
@@ -326,6 +332,23 @@ export default function ProfiloScreen() {
 
         </ProfileSection>
 
+        {IS_CLOUD && (
+          <ProfileSection id="gruppi" icon="happy-outline" title="Gruppi" summary={groups.length ? groups.map((g) => `${g.emoji || '🛒'} ${g.name}`).join(', ') : 'Liste con amici: feste, cene, coinquilini'}>
+            {groups.map((g) => (
+              <Pressable key={g.id} onPress={() => router.push(`/gruppo/${g.id}`)} style={[s.member, s.storeRow]}>
+                <Text style={{ fontSize: 20 }}>{g.emoji || '🛒'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.memberName, { fontWeight: '700' }]} numberOfLines={1}>{g.name}</Text>
+                  <Text style={s.notifyState}>{eventLabel(g.event_date)} · {g.members} {g.members === 1 ? 'persona' : 'persone'}{g.todo ? ` · ${g.todo} da prendere` : ''}{g.muted ? ' · 🔕' : ''}</Text>
+                </View>
+                <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
+              </Pressable>
+            ))}
+            <PrimaryButton label="Nuovo gruppo" icon="add-outline" variant="secondary" onPress={() => setGroupSheet(true)} />
+            <Text style={s.help}>Ognuno aggiunge prodotti e dice «Lo prendo io». Chi inviti vede solo la lista del gruppo, mai la tua famiglia.</Text>
+          </ProfileSection>
+        )}
+
         {PUSH_SUPPORTED && (
           <ProfileSection id="notifiche" icon="notifications-outline" title="Notifiche" summary={myNotifyOff ? 'Non attive su questo telefono' : 'Avvisi dalla famiglia'} attention={myNotifyOff}>
             <NotifySettings embedded />
@@ -341,6 +364,7 @@ export default function ProfiloScreen() {
         <Text style={s.footer}>Mi Conviene · i prezzi sono stime, controlla sempre in negozio.</Text>
       </ScrollView>
 
+      <GroupSheet visible={groupSheet} onClose={() => setGroupSheet(false)} />
       <Modal visible={joinOpen} transparent animationType="fade" onRequestClose={() => setJoinOpen(false)}>
         <View style={s.modalBg}>
           <Card style={s.modal}>

@@ -64,16 +64,22 @@ function message(kind: string, who: string, b: any): { title: string; body: stri
     case 'lasciata': return { title: `🔓 ${who} ha lasciato la spesa da ${b.store}`, body: 'È libera: tocca se vuoi prenderla tu', url: '/spesa' };
     case 'ingresso': return { title: `🙋 ${b.name || 'Qualcuno'} chiede di entrare in famiglia`, body: 'Tocca per accettare o rifiutare', url: '/profilo' };
     case 'ingresso_ok': return { title: '✅ Sei nella famiglia', body: `${who} ti ha accettato: ora vedete la stessa spesa`, url: '/' };
+    case 'gruppo_lista': return { title: `${b.group_emoji || '🛒'} ${who} ha aggiunto ${b.item || 'un prodotto'} a «${b.group_name || 'gruppo'}»`,
+      body: 'Tocca per vedere la lista e dire cosa prendi tu', url: `/gruppo/${b.family_id}` };
+    case 'gruppo_ingresso': return { title: `${b.group_emoji || '👋'} ${b.name || who} è entrato in «${b.group_name || 'gruppo'}»`,
+      body: 'Ora vede la lista del gruppo', url: `/gruppo/${b.family_id}` };
     case 'aiuto': return { title: `🤝 ${who} prende ${prodotti} da ${b.store}`, body: 'Li ha tolti dalla tua lista: tocca per vedere quali', url: '/spesa' };
     case 'aiuto_lasciato': return { title: `↩️ ${who} ha lasciato la sua parte da ${b.store}`, body: 'Quello che non ha preso torna nella tua lista', url: '/spesa' };
   }
   return null;
 }
-const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1, aiuto: 0, aiuto_lasciato: 0, ingresso: 0 };
+const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1, aiuto: 0, aiuto_lasciato: 0, ingresso: 0, gruppo_lista: 10, gruppo_ingresso: 0 };
 // avvisi personali (a una persona sola): niente pausa e non si possono spegnere, sono il modo in cui vi parlate
 const DIRECT = new Set(['richiesta', 'accettata', 'rifiutata', 'ingresso_ok']);
 // avvisi alla famiglia che non si possono spegnere (riguardano chi entra in casa)
 const ALWAYS = new Set(['ingresso']);
+// avvisi dei gruppi evento (#14): ai membri del gruppo, tranne chi l'ha silenziato
+const GROUP = new Set(['gruppo_lista', 'gruppo_ingresso']);
 // avvisi che seguono l'interruttore di un altro tipo nel Profilo
 const PREF_OF: Record<string, string> = { lasciata: 'presa', aiuto: 'presa', aiuto_lasciato: 'presa' };
 
@@ -94,6 +100,12 @@ Deno.serve(async (req) => {
       // solo alla persona interessata, se è davvero nella stessa famiglia
       const { data } = await admin.from('profiles').select('id, prefs').eq('id', body.to).eq('family_id', family_id);
       to = data ?? [];
+    } else if (GROUP.has(kind)) {
+      const { data: last } = await admin.from('notify_log').select('at').eq('family_id', family_id).eq('kind', kind).maybeSingle();
+      if (last && Date.now() - new Date(last.at).getTime() < (THROTTLE_MIN[kind] ?? 2) * 60_000) return json({ ok: true, skipped: 'throttle' });
+      await admin.from('notify_log').upsert({ family_id, kind, at: new Date().toISOString() });
+      const { data } = await admin.from('group_members').select('user_id').eq('group_id', family_id).eq('muted', false).neq('user_id', actor);
+      to = (data ?? []).map((m: any) => ({ id: m.user_id, prefs: {} }));
     } else {
       // niente raffiche: la stessa cosa nella stessa famiglia al massimo ogni qualche minuto
       const { data: last } = await admin.from('notify_log').select('at').eq('family_id', family_id).eq('kind', kind).maybeSingle();
@@ -105,7 +117,7 @@ Deno.serve(async (req) => {
     if (!to.length) return json({ ok: true, sent: 0 });
 
     const { data: me } = await admin.from('profiles').select('display_name').eq('id', actor).maybeSingle();
-    const who = me?.display_name?.trim() || 'Un familiare';
+    const who = me?.display_name?.trim() || (GROUP.has(kind) ? 'Qualcuno' : 'Un familiare');
     if (kind === 'finita' && body.saving_id) {
       const { data: sv } = await admin.from('savings').select('data').eq('id', body.saving_id).maybeSingle();
       body.total = sv?.data?.estimated_spend ?? sv?.data?.total_cost ?? null;

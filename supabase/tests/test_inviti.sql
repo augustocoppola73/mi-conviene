@@ -94,7 +94,7 @@ insert into esito select 'Moira NON invita nella festa (non è proprietaria)', p
 select pg_temp.come(:'L');
 insert into esito select 'Laura (solo festa) NON vede il salvadanaio di famiglia', not exists (select 1 from public.savings where user_id = :'M');
 reset role;
-insert into esito select 'Avvisi: richiesta di ingresso e accettazione', (select string_agg(kind, ',' order by at) from public.notif_test) = 'ingresso,ingresso_ok';
+insert into esito select 'Avvisi: richiesta di ingresso e accettazione', (select string_agg(kind, ',' order by at) from public.notif_test where kind like 'ingresso%') = 'ingresso,ingresso_ok';
 
 select (case when ok then '✓ ' else '✗ ' end) || prova from esito;
 select case when bool_and(ok) then 'TUTTE LE PROVE OK ✓' else 'PROVE FALLITE: ' || count(*) filter (where not ok) end from esito;
