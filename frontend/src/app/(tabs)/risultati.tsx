@@ -23,7 +23,8 @@ function shortDate(iso: string | null) {
 export default function RisultatiScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { lastResult, setLastResult, userId, items, prefs, clearItems } = useStore();
+  const { lastResult, setLastResult, userId, items, prefs, setPrefs, catalog, clearItems } = useStore();
+  const [ruleMsg, setRuleMsg] = useState<string | null>(null);
   const [carBusy, setCarBusy] = useState(false);
   const [shopError, setShopError] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
@@ -36,6 +37,7 @@ export default function RisultatiScreen() {
   // ogni nuova ricerca è una nuova spesa da confermare
   useEffect(() => {
     setConfirmed(null);
+    setRuleMsg(null);
     setExpanded(null);
     setAddedAmount(null);
     setAskOpen(false);
@@ -63,6 +65,23 @@ export default function RisultatiScreen() {
   const lim = location.distance_limit;
   const how = lim?.transport === 'walk' ? 'a piedi' : 'in bici';
   const kmTxt = (x: number) => `${String(x).replace('.', ',')} km`;
+  // regole per reparto create da qui (#20): "📌 Sempre qui"
+  const rules = prefs.categoryRules ?? {};
+  const catOf = (id: string) => catalog?.categories.find((c) => c.id === id);
+  const toggleRule = (cat: string, store: string, storeName: string) => {
+    const next = { ...rules };
+    const name = catOf(cat)?.name ?? cat;
+    if (next[cat] === store) { delete next[cat]; setRuleMsg(`Regola tolta: ${name} di nuovo dove conviene.`); }
+    else { next[cat] = store; setRuleMsg(`📌 ${name} sempre da ${storeName}: vale dalla prossima ricerca.`); }
+    setPrefs({ categoryRules: next });
+  };
+  const usedRules = split ? Object.entries(rules).filter(([, st]) => split.stops.some((x) => x.store_id === st)) : [];
+  const dropUsedRules = () => {
+    const next = { ...rules };
+    for (const [c] of usedRules) delete next[c];
+    setPrefs({ categoryRules: next });
+    setRuleMsg('Regole tolte: dalla prossima ricerca divido dove conviene.');
+  };
   const tryCar = async () => {
     if (!userId) return;
     setCarBusy(true);
@@ -383,9 +402,31 @@ export default function RisultatiScreen() {
                   {st.lines.length} {st.lines.length === 1 ? 'prodotto' : 'prodotti'}: {st.lines.map((l) => l.name).join(', ')}
                 </Text>
                 {st.by_rule > 0 && <Text style={s.altMeta}>📌 {st.by_rule} per le tue regole</Text>}
+                {confirmed !== 'split' && (
+                  <View style={s.ruleRow}>
+                    <Text style={s.altMeta}>Sempre qui:</Text>
+                    {[...new Set(st.lines.map((l) => l.category_id).filter((c): c is string => !!c && c !== 'altro'))].map((c) => {
+                      const on = rules[c] === st.store_id;
+                      return (
+                        <Pressable key={c} onPress={() => toggleRule(c, st.store_id, st.store_name)} hitSlop={4}
+                          style={[s.ruleChip, on && s.ruleChipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}
+                          accessibilityLabel={`${catOf(c)?.name ?? c} sempre da ${st.store_name}`}>
+                          <Text style={[s.ruleChipText, on && s.ruleChipTextOn]}>{on ? '📌 ' : ''}{catOf(c)?.emoji ?? ''} {catOf(c)?.name ?? c}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
             ))}
-            {split.rules_cost > 0 && <Text style={s.altMeta}>📌 Le tue regole costano {euro(split.rules_cost)} in più rispetto a dividere liberamente.</Text>}
+            {split.rules_cost > 0 && (
+              <Text style={s.altMeta}>
+                📌 Le tue regole ({usedRules.map(([c, st]) => `${catOf(c)?.name ?? c} → ${split.stops.find((x) => x.store_id === st)?.store_name ?? st}`).join(', ')}) oggi costano{' '}
+                <Text style={{ fontWeight: '700' }}>{euro(split.rules_cost)}</Text> in più rispetto a dividere liberamente.{'  '}
+                <Text onPress={dropUsedRules} style={{ color: colors.primary, fontWeight: '700' }}>Togli</Text>
+              </Text>
+            )}
+            {ruleMsg && <Text style={[s.altMeta, { color: colors.primary }]}>{ruleMsg}</Text>}
             {confirmed === 'split' ? (
               <Text style={s.confirmNote}>
                 {addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
@@ -584,6 +625,11 @@ const useStyles = makeStyles((c) => ({
   reason: { flex: 1, color: c.text, fontSize: 14, lineHeight: 20 },
   budgetBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: spacing.md, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
   budgetText: { fontSize: 13, fontWeight: '600' },
+  ruleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 4 },
+  ruleChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
+  ruleChipOn: { backgroundColor: c.primarySoft, borderColor: c.primary },
+  ruleChipText: { color: c.textSecondary, fontSize: 12 },
+  ruleChipTextOn: { color: c.text, fontWeight: '700' },
   splitCard: { marginTop: spacing.lg, gap: spacing.sm, borderColor: c.primary, borderWidth: 2 },
   splitTotal: { color: c.text, fontSize: 24, fontWeight: '800' },
   splitSave: { color: c.success, fontSize: 14, fontWeight: '700' },

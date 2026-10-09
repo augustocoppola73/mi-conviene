@@ -7,7 +7,7 @@ import { NOTIFY_KINDS, PUSH_SUPPORTED, registerPush, sendTestNotification } from
 import { spacing, useTheme } from '../theme';
 import { Card, PrimaryButton, SectionTitle } from './ui';
 
-export function NotifySettings() {
+export function NotifySettings({ embedded }: { embedded?: boolean } = {}) {
   const { colors } = useTheme();
   const [notify, setNotify] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState<string | null>(null);
@@ -41,10 +41,11 @@ export function NotifySettings() {
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
 
+  const Box = embedded ? View : Card;
   return (
     <>
-      <SectionTitle>Notifiche</SectionTitle>
-      <Card style={{ gap: spacing.sm }}>
+      {!embedded && <SectionTitle>Notifiche</SectionTitle>}
+      <Box style={{ gap: spacing.sm }}>
         <Text style={{ color: colors.textSecondary, fontSize: 13 }}>Ti avviso quando qualcuno della famiglia…</Text>
         {NOTIFY_KINDS.map((k) => (
           <View key={k.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -55,7 +56,7 @@ export function NotifySettings() {
         ))}
         <PrimaryButton label="Prova le notifiche" icon="notifications-outline" variant="secondary" onPress={test} loading={busy} />
         {msg && <Text style={{ color: colors.textSecondary, fontSize: 13 }}>{msg}</Text>}
-      </Card>
+      </Box>
     </>
   );
 }
