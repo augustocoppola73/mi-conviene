@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { api, Bootstrap, FuelType, ListItem, MenuEntry, OptimizeResult, Product, Transport } from './api';
+import { api, Bootstrap, FavoriteStore, FuelType, ListItem, MenuEntry, OptimizeResult, Product, Transport } from './api';
 import type { GeoPoint } from './location';
 import { getUserId } from './user';
 
@@ -11,9 +11,11 @@ const PREFS_KEY = 'margine_prefs';
 
 export interface Prefs {
   transport: Transport;
+  /** vecchio "abituale" (uno solo): resta per leggere i dati salvati, ora valgono i preferiti */
   habitualStoreId: string | null;
-  /** il punto vendita preciso dell'abituale (non tutta la catena): vale solo quando sei lì vicino */
   habitualBranch: { name: string; address: string | null; lat: number; lon: number } | null;
+  /** #19: i supermercati preferiti, punti vendita precisi (valgono quando sei lì vicino) */
+  favorites: FavoriteStore[];
   budget: number | null;
   minSavingsThreshold: number;
   displayName: string;
@@ -35,6 +37,7 @@ const DEFAULT_PREFS: Prefs = {
   transport: 'car',
   habitualStoreId: null,
   habitualBranch: null,
+  favorites: [],
   budget: null, // nessun limite finché non lo scegli (o accetti quello suggerito)
   minSavingsThreshold: 3,
   displayName: '',
@@ -94,6 +97,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const saved = { ...DEFAULT_PREFS, ...JSON.parse(p) } as Prefs;
           // prima la posizione si aggiornava a mano: chi l'aveva attivata passa a quella automatica
           if (saved.location && saved.locationMode == null) saved.locationMode = saved.location.label ? 'address' : 'gps';
+          // #19: l'abituale di prima diventa il primo preferito
+          if (!saved.favorites?.length && saved.habitualStoreId && saved.habitualBranch) {
+            saved.favorites = [{ store_id: saved.habitualStoreId, branch: saved.habitualBranch }];
+          }
+          if (!Array.isArray(saved.favorites)) saved.favorites = [];
           setPrefsState(saved);
         }
         setUserId(uid);

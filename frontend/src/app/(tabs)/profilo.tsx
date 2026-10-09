@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, Family, NearbyStore } from '@/api';
+import { api, Family, FavoriteStore, NearbyStore } from '@/api';
 import { attachEmail, confirmEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
 import { normCode, shareNotifyReminder } from '@/invite';
 import { FamilyInvites, MyJoinRequestCard, removeMember } from '@/components/FamilyInvites';
@@ -54,14 +54,17 @@ export default function ProfiloScreen() {
     setNearbyError(null);
     api.storesNearby(loc.lat, loc.lon).then((r) => setNearby(r.stores)).catch((e: Error) => setNearbyError(e.message));
   }, [loc]));
-  // il punto vendita abituale è quello preciso scelto qui (stessa posizione entro ~100 m)
-  const isHabitual = (n: NearbyStore) => {
-    const b = prefs.habitualBranch;
-    return !!b && prefs.habitualStoreId === n.chain && Math.abs(b.lat - n.lat) < 0.001 && Math.abs(b.lon - n.lon) < 0.0013;
-  };
-  const pickHabitual = (n: NearbyStore) => setPrefs(isHabitual(n)
-    ? { habitualStoreId: null, habitualBranch: null }
-    : { habitualStoreId: n.chain, habitualBranch: { name: n.name, address: n.address, lat: n.lat, lon: n.lon } });
+  // un preferito è un punto vendita preciso scelto qui (stessa posizione entro ~100 m)
+  const sameBranch = (f: FavoriteStore, n: { chain: string; lat: number; lon: number }) =>
+    f.store_id === n.chain && Math.abs(f.branch.lat - n.lat) < 0.001 && Math.abs(f.branch.lon - n.lon) < 0.0013;
+  const isFavorite = (n: NearbyStore) => prefs.favorites.some((f) => sameBranch(f, n));
+  const toggleFavorite = (n: NearbyStore) => setPrefs({
+    favorites: isFavorite(n)
+      ? prefs.favorites.filter((f) => !sameBranch(f, n))
+      : [...prefs.favorites, { store_id: n.chain, branch: { name: n.name, address: n.address, lat: n.lat, lon: n.lon } }],
+    habitualStoreId: null, habitualBranch: null,   // il vecchio abituale non serve più
+  });
+  const removeFavorite = (i: number) => setPrefs({ favorites: prefs.favorites.filter((_, k) => k !== i), habitualStoreId: null, habitualBranch: null });
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -128,14 +131,14 @@ export default function ProfiloScreen() {
         <LocationControl />
         {loc && (
           <Card style={{ marginTop: spacing.sm }}>
-            <Text style={s.help}>Punti vendita più vicini a te, uno per catena. Tocca la ⭐ del tuo supermercato abituale:</Text>
+            <Text style={s.help}>Punti vendita più vicini a te, uno per catena. Tocca la ⭐ dei supermercati dove vai di solito (anche più di uno):</Text>
             {nearbyError && <Text style={[s.help, { color: colors.danger }]}>{nearbyError}</Text>}
             {!nearby && !nearbyError && <Text style={s.help}>Cerco i negozi vicini…</Text>}
             {nearby?.map((n) => (
-              <Pressable key={n.osm_id} onPress={() => pickHabitual(n)} style={[s.member, s.storeRow]}>
-                <Icon name={isHabitual(n) ? 'star' : 'star-outline'} size={18} color={isHabitual(n) ? colors.primary : colors.textSecondary} />
+              <Pressable key={n.osm_id} onPress={() => toggleFavorite(n)} style={[s.member, s.storeRow]}>
+                <Icon name={isFavorite(n) ? 'star' : 'star-outline'} size={18} color={isFavorite(n) ? colors.primary : colors.textSecondary} />
                 <StoreDot storeId={n.chain} size={12} />
-                <Text style={[s.memberName, { flex: 1 }, isHabitual(n) && { fontWeight: '700' }]} numberOfLines={1}>
+                <Text style={[s.memberName, { flex: 1 }, isFavorite(n) && { fontWeight: '700' }]} numberOfLines={1}>
                   {n.name}{n.address ? ` · ${n.address}` : ''}
                 </Text>
                 <Text style={s.help}>{km(n.distance_km)}</Text>
@@ -144,23 +147,30 @@ export default function ProfiloScreen() {
           </Card>
         )}
 
-        <SectionTitle>Supermercato abituale</SectionTitle>
+        <SectionTitle>Supermercati preferiti</SectionTitle>
         <Card>
-          {prefs.habitualBranch ? (
+          {prefs.favorites.length ? (
             <>
-              <View style={s.member}>
-                <Icon name="star" size={18} color={colors.primary} />
-                {prefs.habitualStoreId && <StoreDot storeId={prefs.habitualStoreId} size={12} />}
-                <Text style={[s.memberName, { flex: 1, fontWeight: '700' }]} numberOfLines={2}>
-                  {prefs.habitualBranch.name}{prefs.habitualBranch.address ? ` · ${prefs.habitualBranch.address}` : ''}
-                </Text>
-              </View>
-              <Text style={s.help}>È il tuo negozio di zona. Quando sei lontano da qui, l'app ti consiglia il più conveniente dove ti trovi.</Text>
-              <PrimaryButton label="Nessun abituale" variant="secondary" onPress={() => setPrefs({ habitualStoreId: null, habitualBranch: null })} style={{ marginTop: spacing.sm }} />
+              {prefs.favorites.map((f, i) => (
+                <View key={`${f.store_id}-${f.branch.lat}`} style={[s.member, s.storeRow]}>
+                  <Icon name="star" size={18} color={colors.primary} />
+                  <StoreDot storeId={f.store_id} size={12} />
+                  <Text style={[s.memberName, { flex: 1, fontWeight: '700' }]} numberOfLines={2}>
+                    {f.branch.name}{f.branch.address ? ` · ${f.branch.address}` : ''}
+                  </Text>
+                  <Pressable onPress={() => removeFavorite(i)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Togli ${f.branch.name} dai preferiti`}>
+                    <Icon name="close-circle-outline" size={20} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+              ))}
+              <Text style={s.help}>
+                Ogni volta ti confronto con il più conveniente dei tuoi preferiti per quella lista, viaggio compreso: cambi negozio solo se risparmi più della soglia.
+                Quando sei lontano da qui, ti consiglio il migliore dove ti trovi.
+              </Text>
             </>
           ) : (
             <Text style={s.help}>
-              {loc ? 'Nessuno. Sceglilo toccando la ⭐ nella lista dei negozi qui sopra.' : 'Nessuno. Attiva la posizione qui sopra (meglio da casa) e scegli il tuo negozio dalla lista.'}
+              {loc ? 'Nessuno. Sceglili toccando la ⭐ nella lista dei negozi qui sopra.' : 'Nessuno. Attiva la posizione qui sopra (meglio da casa) e scegli i tuoi negozi dalla lista.'}
             </Text>
           )}
         </Card>

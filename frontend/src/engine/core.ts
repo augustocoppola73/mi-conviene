@@ -202,12 +202,12 @@ function storeConfidence(receipt: { lines: unknown[]; real_lines: number }) {
   return share >= 0.7 ? 'green' : share >= 0.3 ? 'yellow' : 'red';
 }
 
-export function computeSavings(ranked: any[], recommended: any, habitual: any | null) {
+export function computeSavings(ranked: any[], recommended: any, habitual: any | null, word = 'abituale') {
   let referenceCost: number;
   let reference: any;
   if (habitual) {
     referenceCost = habitual.total_cost;
-    reference = { type: 'habitual', label: `rispetto a ${habitual.store_name}, il tuo abituale`, store_id: habitual.store_id };
+    reference = { type: 'habitual', label: `rispetto a ${habitual.store_name}, il tuo ${word}`, store_id: habitual.store_id };
   } else {
     referenceCost = median(ranked.map((r) => r.total_cost));
     reference = { type: 'median', label: 'rispetto alla spesa tipica in zona (mediana delle catene)', store_id: null };
@@ -222,6 +222,8 @@ export function computeSavings(ranked: any[], recommended: any, habitual: any | 
 
 export interface OptimizeRequest {
   items: ListItem[]; budget?: number | null; transport: string; habitual_store_id?: string | null;
+  /** i supermercati preferiti (#19): il riferimento è il migliore di questi, viaggio incluso */
+  favorite_store_ids?: string[] | null;
   min_savings_threshold: number; fuel_type: string; lat?: number | null; lon?: number | null;
   refuel?: boolean; refuel_liters?: number | null;
 }
@@ -251,18 +253,24 @@ export function optimizeList(book: PriceBook, req: OptimizeRequest, stores: Stor
   ranked.sort((a, b) => a.score - b.score);
   const best = ranked[0];
   let recommended = best;
-  const habitual = ranked.find((r) => r.store_id === req.habitual_store_id) ?? null;
+  // preferiti: vale il migliore oggi per questa lista, viaggio compreso (la classifica è già per punteggio)
+  const favIds = req.favorite_store_ids ?? (req.habitual_store_id ? [req.habitual_store_id] : []);
+  const favRows = ranked.filter((r) => favIds.includes(r.store_id));
+  const habitual = favRows[0] ?? null;
+  const many = favRows.length > 1;
   let reasoning: string;
   if (habitual && habitual !== best) {
     const delta = pyRound(habitual.effective_cost - best.effective_cost, 2);
     if (delta < req.min_savings_threshold) {
       recommended = habitual;
-      reasoning = `Resta da ${habitual.store_name}: andando da ${best.store_name} risparmieresti solo ${euro(Math.max(delta, 0))}, sotto la tua soglia di ${euro(req.min_savings_threshold)}.`;
+      reasoning = `Resta da ${habitual.store_name}${many ? ' (oggi il migliore dei tuoi preferiti, viaggio incluso)' : ''}: andando da ${best.store_name} risparmieresti solo ${euro(Math.max(delta, 0))}, sotto la tua soglia di ${euro(req.min_savings_threshold)}.`;
     } else {
-      reasoning = `Ti conviene ${best.store_name}: risparmi ${euro(delta)} rispetto a ${habitual.store_name}, viaggio incluso.`;
+      reasoning = `Ti conviene ${best.store_name}: risparmi ${euro(delta)} rispetto a ${habitual.store_name}${many ? ', il migliore dei tuoi preferiti' : ''}, viaggio incluso.`;
     }
   } else if (habitual) {
-    reasoning = `Il tuo ${habitual.store_name} è già la scelta migliore per questa lista.`;
+    reasoning = many
+      ? `Tra i tuoi preferiti oggi conviene ${habitual.store_name}, viaggio incluso: è anche la scelta migliore per questa lista.`
+      : `Il tuo ${habitual.store_name} è già la scelta migliore per questa lista.`;
   } else {
     const second = ranked.length > 1 ? ranked[1] : null;
     const diff = second ? pyRound(second.effective_cost - best.effective_cost, 2) : 0;
@@ -289,7 +297,7 @@ export function optimizeList(book: PriceBook, req: OptimizeRequest, stores: Stor
     }
   }
   return {
-    ranked, recommended, reasoning, budget_status: budgetStatus, savings: computeSavings(ranked, recommended, habitual), fuel,
+    ranked, recommended, reasoning, budget_status: budgetStatus, savings: computeSavings(ranked, recommended, habitual, req.favorite_store_ids ? 'preferito' : 'abituale'), fuel,
     price_coverage: { real_lines: recommended.receipt.real_lines, total_lines: recommended.receipt.lines.length },
   };
 }

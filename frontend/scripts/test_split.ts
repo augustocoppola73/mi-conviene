@@ -66,5 +66,17 @@ const opts = { transport: 'car', fuel, min_savings_threshold: 3 };
   const r = splitPlan([a, b], a, items, opts);
   ok(r.split?.stops.find((s) => s.store_id === 'b')?.lines.some((l) => l.product_id === 'olio') === true, "l'olio che A non ha va da B");
 }
+// 7. #19: una coppia di preferiti che costa poco di più (sotto soglia) vince sulla coppia migliore
+{
+  const a = store('a', 2, 43.55, { carne: 20, pasta: 1, latte: 1, olio: 9, pane: 2, mele: 3 });
+  const b = store('b', 2.5, 43.56, { carne: 12, pasta: 1.5, latte: 1.4, olio: 5, pane: 2.4, mele: 3.5 });
+  const c = store('c', 2.2, 43.555, { carne: 12.8, pasta: 1.5, latte: 1.4, olio: 5.5, pane: 2.4, mele: 3.5 });
+  const free = splitPlan([a, b, c], a, items, opts);
+  ok(free.split?.stops.some((s) => s.store_id === 'b') === true, 'senza preferiti: A + B');
+  const fav = splitPlan([a, b, c], a, items, { ...opts, favorites: ['a', 'c'] });
+  ok(fav.split?.stops.map((s) => s.store_id).sort().join() === 'a,c', `con preferiti A e C: ${fav.split?.stops.map((s) => s.store_id)}`);
+  const far = splitPlan([a, b, store('c', 2.2, 43.555, { carne: 19, pasta: 1.5, latte: 1.4, olio: 8.9, pane: 2.4, mele: 3.5 })], a, items, { ...opts, favorites: ['a', 'c'] });
+  ok(far.split?.stops.some((s) => s.store_id === 'b') === true, 'se la coppia dei preferiti costa troppo di più resta A + B');
+}
 console.log(fails ? `\n${fails} PROVE FALLITE` : '\nTUTTE LE PROVE OK ✓');
 process.exit(fails ? 1 : 0);

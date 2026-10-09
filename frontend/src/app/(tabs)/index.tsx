@@ -29,6 +29,7 @@ import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
 import { quietPosition } from '@/location';
 import { LocationControl } from '@/components/LocationControl';
 import { useStore } from '@/store';
+import { optimizeRequest } from '@/optimizeRequest';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 function notify(title: string, message: string) {
@@ -116,21 +117,7 @@ export default function ListaScreen() {
         const fresh = await quietPosition(4000);
         if (fresh) { loc = fresh; setPrefs({ location: fresh }); }
       }
-      const r = await api.optimize({
-        user_id: userId,
-        items,
-        budget: prefs.budget,
-        transport: prefs.transport,
-        habitual_store_id: prefs.habitualBranch ? prefs.habitualStoreId : null,
-        habitual_branch: prefs.habitualBranch,
-        min_savings_threshold: prefs.minSavingsThreshold,
-        fuel_type: prefs.fuelType,
-        ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
-        refuel: prefs.transport === 'car' && prefs.refuel,
-        refuel_liters: prefs.refuelLiters,
-        max_stores: 2, // l'app prova anche due negozi e lo propone solo se conviene davvero
-        category_rules: prefs.categoryRules,
-      });
+      const r = await api.optimize(optimizeRequest(userId, items, prefs, loc));
       setLastResult(r);
       router.push('/risultati');
     } catch (e) {

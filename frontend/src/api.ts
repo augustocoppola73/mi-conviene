@@ -102,7 +102,15 @@ export interface LocationInfo {
   mode: 'reale' | 'esempio'; missing_chains: string[]; radius_km?: number; error?: string; habitual_missing?: string;
   /** sei lontano dal tuo punto vendita abituale: qui la stessa catena è un altro negozio */
   habitual_far?: string;
+  /** #19: preferiti usati qui (catene) e quelli lontani o esclusi (nomi da mostrare) */
+  favorites_here?: string[];
+  favorites_far?: string[];
+  /** a piedi / in bici: negozi oltre il limite esclusi; none_within = nessuno entro il limite (li ho tenuti tutti) */
+  distance_limit?: { km: number; transport: Transport; excluded: string[]; none_within?: boolean };
 }
+/** a piedi o in bici: "se prendi l'auto da X risparmi Y, carburante compreso" */
+export interface CarHint { store_id: string; store_name: string; distance_km: number; saving: number; fuel_cost: number }
+export interface FavoriteStore { store_id: string; branch: { name: string; address: string | null; lat: number; lon: number } }
 export interface FuelStop {
   station_id: string; brand: string; address: string; city: string; lat: number; lon: number; price: number;
   detour_km: number; detour_min: number; detour_cost: number; liters: number; median: number;
@@ -133,6 +141,7 @@ export interface OptimizeResult {
   split?: SplitPlan | null;
   /** perché non conviene dividere (es. "risparmieresti solo 1,20 €") */
   split_note?: string | null;
+  car_hint?: CarHint | null;
 }
 export interface FuelInfo {
   fuel_type: FuelType; price_per_liter: number; source: 'mimit' | 'stima';
@@ -143,6 +152,8 @@ export interface OptimizeRequest {
   habitual_store_id?: string | null; min_savings_threshold: number; fuel_type?: FuelType;
   /** dov'è il punto vendita abituale: se il negozio di quella catena qui vicino è un altro, non vale come abituale */
   habitual_branch?: { lat: number; lon: number; name?: string | null } | null;
+  /** #19: tutti i preferiti (la versione online usa questi; habitual_* resta per quella sul computer) */
+  favorites?: FavoriteStore[] | null;
   lat?: number; lon?: number; refuel?: boolean; refuel_liters?: number | null;
   /** 2 = prova anche a dividere la spesa in due negozi */
   max_stores?: 1 | 2;

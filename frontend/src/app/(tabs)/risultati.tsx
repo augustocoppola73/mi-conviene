@@ -9,6 +9,7 @@ import { PaperReceipt } from '@/components/PaperReceipt';
 import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, km } from '@/format';
 import { useStore } from '@/store';
+import { optimizeRequest } from '@/optimizeRequest';
 import { openNavigation } from '@/navigate';
 import { ParkingLine } from '@/components/ParkingLine';
 import { BrandLogo, fuelDomain } from '@/components/BrandLogo';
@@ -22,8 +23,8 @@ function shortDate(iso: string | null) {
 export default function RisultatiScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { lastResult, userId, items, prefs, clearItems } = useStore();
-  const habitualId = prefs.habitualBranch ? prefs.habitualStoreId : null;
+  const { lastResult, setLastResult, userId, items, prefs, clearItems } = useStore();
+  const [carBusy, setCarBusy] = useState(false);
   const [shopError, setShopError] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [refStore, setRefStore] = useState<string | null>(null); // negozio di confronto scelto alla conferma
@@ -54,7 +55,21 @@ export default function RisultatiScreen() {
     );
   }
 
-  const { recommended, ranked, reasoning, budget_status, fuel, price_coverage, savings, last_similar, location, split, split_note } = lastResult;
+  const { recommended, ranked, reasoning, budget_status, fuel, price_coverage, savings, last_similar, location, split, split_note, car_hint } = lastResult;
+  // preferiti validi qui (#19); la versione sul computer conosce solo l'abituale
+  const favIds: string[] = location.favorites_here
+    ?? (location.habitual_far || !prefs.favorites[0] ? [] : [prefs.favorites[0].store_id]);
+  const isFav = (id: string) => favIds.includes(id);
+  const lim = location.distance_limit;
+  const how = lim?.transport === 'walk' ? 'a piedi' : 'in bici';
+  const kmTxt = (x: number) => `${String(x).replace('.', ',')} km`;
+  const tryCar = async () => {
+    if (!userId) return;
+    setCarBusy(true);
+    try { setLastResult(await api.optimize(optimizeRequest(userId, items, prefs, prefs.location, 'car'))); }
+    catch (e) { globalThis.alert?.((e as Error).message); }
+    finally { setCarBusy(false); }
+  };
   const lastToday = last_similar ? ranked.find((r) => r.store_id === last_similar.store_id) : undefined;
   const others = ranked.filter((r) => r.store_id !== recommended.store_id);
   // parcheggio: se il consigliato non ha il parcheggio clienti e un'alternativa quasi uguale sì, lo segnalo (scegli tu)
@@ -82,8 +97,9 @@ export default function RisultatiScreen() {
   const refLabel = refRow ? `rispetto a ${refRow.store_name}` : savings.reference.label;
 
   const openConfirm = () => {
-    const habitualHere = !location.habitual_far && ranked.some((r) => r.store_id === habitualId) ? habitualId : null;
-    setRefStore(habitualHere && habitualHere !== recommended.store_id ? habitualHere : habitualHere ? recommended.store_id : null);
+    // di solito saresti andato nel migliore dei tuoi preferiti (quello usato per il confronto)
+    const favHere = savings.reference.type === 'habitual' ? savings.reference.store_id : null;
+    setRefStore(favHere ?? null);
     setAskOpen(true);
   };
 
@@ -230,6 +246,16 @@ export default function RisultatiScreen() {
             <Icon name="bulb-outline" size={18} color={colors.primary} />
             <Text style={s.reason}>{reasoning}</Text>
           </View>
+          {car_hint && lim && (
+            <Pressable onPress={tryCar} disabled={carBusy} style={s.savingBox} accessibilityRole="button">
+              <Icon name="car-outline" size={16} color={colors.primary} />
+              <Text style={[s.lastText, { color: colors.text }]}>
+                Se prendi l'auto: da <Text style={{ fontWeight: '700' }}>{car_hint.store_name}</Text> ({kmTxt(car_hint.distance_km)}) risparmi{' '}
+                <Text style={{ fontWeight: '700', color: colors.success }}>{euro(car_hint.saving)}</Text>, carburante compreso ({euro(car_hint.fuel_cost)}).
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>{carBusy ? '  Calcolo…' : '  Vedi in auto ›'}</Text>
+              </Text>
+            </Pressable>
+          )}
           {!split && split_note && (
             <View style={s.savingBox}>
               <Icon name="git-branch-outline" size={16} color={colors.textSecondary} />
@@ -286,7 +312,7 @@ export default function RisultatiScreen() {
               {estimatedSaving > 0
                 ? `Risparmi ${euro(estimatedSaving)} ${savings.reference.label}`
                 : savings.reference.type === 'habitual'
-                  ? 'Resti nel tuo supermercato abituale: nessun risparmio da aggiungere'
+                  ? 'Resti nel tuo supermercato preferito: nessun risparmio da aggiungere'
                   : 'Nessun risparmio rispetto alla spesa tipica in zona'}
               {estimatedSaving > 0 && savings.price_basis !== 'reale' ? ' · stima, da verificare con lo scontrino' : ''}
             </Text>
@@ -429,9 +455,23 @@ export default function RisultatiScreen() {
             </Card>
           ))}
         </View>
-        {location.habitual_far && (
+        {location.habitual_far && !location.favorites_far && (
           <Text style={s.missing}>
             📍 Sei lontano dal tuo {location.habitual_far}: qui ti consiglio il negozio più conveniente della zona, senza preferire la catena abituale.
+          </Text>
+        )}
+        {location.favorites_far && (
+          <Text style={s.missing}>
+            {favIds.length
+              ? `⭐ Non ho usato come riferimento ${location.favorites_far.join(', ')}: ${lim ? `oltre ${kmTxt(lim.km)} ${how} o ` : ''}non qui vicino.`
+              : `📍 Sei lontano dai tuoi preferiti (${location.favorites_far.join(', ')}): ti consiglio il negozio più conveniente dove ti trovi.`}
+          </Text>
+        )}
+        {lim && (lim.none_within || lim.excluded.length > 0) && (
+          <Text style={s.missing}>
+            {lim.none_within
+              ? `🚶 Nessun supermercato entro ${kmTxt(lim.km)} ${how}: ti mostro i più vicini. Forse conviene l'auto.`
+              : `🚶 Sei ${how}: considero solo i negozi entro ${kmTxt(lim.km)}. Esclusi: ${lim.excluded.join(', ')}.`}
           </Text>
         )}
         {location.mode === 'reale' && (location.missing_chains.length > 0 || location.habitual_missing) && (
@@ -457,7 +497,7 @@ export default function RisultatiScreen() {
                 <Pressable key={r.store_id} onPress={() => setRefStore(r.store_id)} style={[s.refChip, refStore === r.store_id && s.refChipOn]}>
                   <StoreDot storeId={r.store_id} size={12} />
                   <Text style={[s.refText, refStore === r.store_id && s.refTextOn]}>
-                    {r.store_name}{r.store_id === habitualId && !location.habitual_far ? ' (abituale)' : ''}
+                    {r.store_name}{isFav(r.store_id) ? ' (preferito)' : ''}
                   </Text>
                 </Pressable>
               ))}

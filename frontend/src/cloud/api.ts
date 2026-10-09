@@ -29,6 +29,8 @@ const COLLECTION = (WIKIBOOKS as { recipes: Recipe[] }).recipes;
 const LICENSE = (WIKIBOOKS as { license: string }).license;
 const BUDGET_HISTORY_LIMIT = 50;
 const HABITUAL_SAME_STORE_KM = 1.0;   // entro 1 km è lo stesso punto vendita
+/** #19: a piedi e in bici non si consigliano negozi lontani (km di strada, solo andata) */
+const DISTANCE_LIMIT_KM: Partial<Record<string, number>> = { walk: 1.2, bike: 5 };
 const nowIso = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 const r2 = (x: number) => pyRound(x, 2);
@@ -305,31 +307,71 @@ export const cloudApi = {
       fuelObservedAt().catch(() => null),
       hasPos ? parkingsAround(req.lat!, req.lon!, kv).catch(() => null) : Promise.resolve(null),
     ]);
-    let stores; let location: any;
+    // preferiti (#19): dalla richiesta nuova, oppure dal vecchio "abituale"
+    const favs: T.FavoriteStore[] = (req.favorites ?? (req.habitual_store_id && req.habitual_branch
+      ? [{ store_id: req.habitual_store_id, branch: { name: req.habitual_branch.name ?? '', address: null, lat: req.habitual_branch.lat, lon: req.habitual_branch.lon } }]
+      : [])).filter((f) => STORE_INDEX[f.store_id] && f.branch);
+    const favName = (f: T.FavoriteStore) => `${STORE_INDEX[f.store_id].name}${f.branch.name && f.branch.name !== STORE_INDEX[f.store_id].name ? ` (${f.branch.name})` : ''}`;
+    let stores: any[]; let location: any;
+    let favHere: string[] = [];
+    const favFar: string[] = [];
     if (hasPos) {
       try {
-        [stores, location] = storesFor(nearestPerChain(await storesAround(req.lat!, req.lon!, kv), req.lat!, req.lon!));
+        const all = await storesAround(req.lat!, req.lon!, kv);
+        const near = nearestPerChain(all, req.lat!, req.lon!);
+        // il preferito è un punto vendita preciso: se è in zona prende il posto del più vicino della sua catena
+        for (const f of favs) {
+          const m = all.filter((x) => x.chain === f.store_id)
+            .map((x) => ({ x, d: haversineKm(f.branch.lat, f.branch.lon, x.lat, x.lon) }))
+            .sort((p, q) => p.d - q.d)[0];
+          if (!m || m.d > HABITUAL_SAME_STORE_KM) { favFar.push(favName(f)); continue; }
+          const dist = pyRound(Math.max(haversineKm(req.lat!, req.lon!, m.x.lat, m.x.lon) * C.road_factor, 0.1), 1);
+          const cur = near[f.store_id];
+          if (!favHere.includes(f.store_id) || (cur && dist < cur.distance_km)) near[f.store_id] = { ...m.x, distance_km: dist };
+          if (!favHere.includes(f.store_id)) favHere.push(f.store_id);
+        }
+        [stores, location] = storesFor(near);
       } catch {
         [stores, location] = storesFor(null, 'OpenStreetMap non raggiungibile');
       }
     } else {
       [stores, location] = storesFor(null);
     }
-    if (req.habitual_store_id && !stores.some((s) => s.id === req.habitual_store_id)) {
-      location.habitual_missing = STORE_INDEX[req.habitual_store_id].name;
+    if (location.mode !== 'reale') favHere = favs.map((f) => f.store_id);   // distanze di esempio: valgono le catene
+    // a piedi / in bici: niente negozi oltre il limite (se non ce n'è nessuno entro, li tengo e lo dico)
+    const limit = location.mode === 'reale' ? DISTANCE_LIMIT_KM[req.transport] : undefined;
+    let beyond: any[] = [];
+    const allStores = stores;
+    if (limit) {
+      const within = stores.filter((x) => x.distance_km <= limit);
+      beyond = stores.filter((x) => x.distance_km > limit);
+      if (within.length) {
+        stores = within;
+        location.distance_limit = { km: limit, transport: req.transport, excluded: beyond.map((x) => `${x.name} (${String(x.distance_km).replace('.', ',')} km)`) };
+        for (const x of beyond) if (favHere.includes(x.id)) { favHere = favHere.filter((id) => id !== x.id); favFar.push(`${x.name}, a ${String(x.distance_km).replace('.', ',')} km`); }
+      } else {
+        location.distance_limit = { km: limit, transport: req.transport, excluded: [], none_within: true };
+        beyond = [];
+      }
     }
-    // l'abituale è un punto vendita preciso: se qui la stessa catena è un altro negozio, non vale come abituale
-    let habitualId = req.habitual_store_id ?? null;
-    const hb = req.habitual_branch;
-    const here = habitualId ? stores.find((s) => s.id === habitualId) : undefined;
-    if (hb && here?.branch && haversineKm(hb.lat, hb.lon, here.branch.lat, here.branch.lon) > HABITUAL_SAME_STORE_KM) {
-      location.habitual_far = `${STORE_INDEX[habitualId!].name}${hb.name ? ` (${hb.name})` : ''}`;
-      habitualId = null;
-    }
+    location.favorites_here = favHere;
+    if (favFar.length) location.favorites_far = favFar;
     const fuelType = req.fuel_type || 'benzina';
     const fuel = fuelInfo(fuelType, stations, req.lat, req.lon, date);
-    const result: any = optimizeList(book, { ...req, habitual_store_id: habitualId, fuel_type: fuelType }, stores, fuel, stations);
+    const result: any = optimizeList(book, { ...req, habitual_store_id: null, favorite_store_ids: favHere, fuel_type: fuelType }, stores, fuel, stations);
     result.location = location;
+    // a piedi / in bici: se in auto un negozio più lontano conviene anche pagando il carburante, lo dico (non cambio la scelta)
+    result.car_hint = null;
+    if (beyond.length) {
+      const car: any = optimizeList(book, { ...req, transport: 'car', refuel: false, habitual_store_id: null, favorite_store_ids: [], fuel_type: fuelType },
+        allStores, fuel, stations);
+      const far = car.ranked.filter((r: any) => beyond.some((x) => x.id === r.store_id))
+        .sort((p: any, q: any) => p.effective_cost - q.effective_cost)[0];
+      const gain = far ? pyRound(result.recommended.total_cost - far.effective_cost, 2) : 0;
+      if (far && gain >= Math.max(req.min_savings_threshold, 0.5)) {
+        result.car_hint = { store_id: far.store_id, store_name: far.store_name, distance_km: far.travel.distance_km, saving: gain, fuel_cost: far.travel.fuel_cost };
+      }
+    }
     if (parkings) {
       for (const r of result.ranked) if (r.branch) r.branch.parking = parkingFor({ lat: r.branch.lat, lon: r.branch.lon, chain: r.store_id }, parkings);
     }
@@ -338,6 +380,7 @@ export const cloudApi = {
       const withCat = req.items.map((i) => ({ ...i, category_id: i.category_id ?? PRODUCT_INDEX[i.product_id]?.category_id ?? null }));
       Object.assign(result, splitPlan(result.ranked, result.recommended, withCat, {
         transport: req.transport, fuel, min_savings_threshold: req.min_savings_threshold, rules: req.category_rules ?? null,
+        favorites: favHere,
       }));
     }
     const last: any = lastSimilarShop(req.items.map((i) => i.product_id), shops);

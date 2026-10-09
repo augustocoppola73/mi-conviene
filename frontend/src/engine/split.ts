@@ -110,14 +110,24 @@ function bestPair(cands: Cand[], items: any[], rules: CategoryRules, transport: 
  * Restituisce il piano in due tappe se conviene davvero (risparmio ≥ soglia), altrimenti una nota sul perché no.
  */
 export function splitPlan(ranked: any[], recommended: any, items: { product_id: string; category_id?: string | null }[],
-  opts: { transport: string; fuel: FuelInfo; min_savings_threshold: number; rules?: CategoryRules | null })
+  opts: { transport: string; fuel: FuelInfo; min_savings_threshold: number; rules?: CategoryRules | null; favorites?: string[] | null })
   : { split: SplitPlan | null; split_note: string | null } {
   const rules = opts.rules || {};
-  const cands = ranked.map(candidate).filter(Boolean).slice(0, SPLIT_CANDIDATES) as Cand[];
+  const favs = new Set(opts.favorites ?? []);
+  // i migliori in classifica, più i preferiti anche se sono più in basso
+  const top = ranked.slice(0, SPLIT_CANDIDATES);
+  const pool = [...top, ...ranked.slice(SPLIT_CANDIDATES).filter((r) => favs.has(r.store_id))];
+  const cands = pool.map(candidate).filter(Boolean) as Cand[];
   if (cands.length < 2 || items.length < 2) return { split: null, split_note: null };
   const singleUnknown = recommended.receipt.unknown_products?.length ?? 0;
-  const found = bestPair(cands, items, rules, opts.transport, opts.fuel, singleUnknown);
+  let found = bestPair(cands, items, rules, opts.transport, opts.fuel, singleUnknown);
   if (!found) return { split: null, split_note: null };
+  // #19: se una coppia di preferiti costa poco di più (sotto la soglia), meglio quella
+  const favCands = cands.filter((c) => favs.has(c.store_id));
+  if (favCands.length >= 2 && !found.ordered.every((s) => favs.has(s.c.store_id))) {
+    const fav = bestPair(favCands, items, rules, opts.transport, opts.fuel, singleUnknown);
+    if (fav && fav.total - found.total < opts.min_savings_threshold) found = fav;
+  }
   // confronto alla pari: i prodotti che il negozio unico non ha (e che il giro in due invece prende) li conto al prezzo del giro
   const missingAtSingle = new Set<string>(recommended.receipt.unknown_products ?? []);
   const extra = found.ordered.flatMap((s) => s.lines).filter((l) => missingAtSingle.has(l.product_id)).reduce((t, l) => t + l.line_price, 0);

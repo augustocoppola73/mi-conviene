@@ -73,6 +73,26 @@ const sg = await A.call('suggest', { user_id: U, items, budget: 40, spent: 25, s
 ok('suggest', !sg.__error && (sg.ready.length + sg.almost.length) > 0, sg.__error || `${sg.ready.length} pronte, ${sg.almost.length} quasi: ${sg.ready.concat(sg.almost).slice(0, 3).map((r) => r.name).join(', ')}`);
 const pr = await A.call('recipePropose', { user_id: U, count: 5, servings: 2, budget: 30 }); ok('recipePropose', pr.recipes?.length > 0, pr.__error || pr.recipes.map((r) => r.name).join(', '));
 
+// preferiti e limite a piedi (#19)
+{
+  const near = (await A.call('storesNearby', 43.55, 10.31)).stores;
+  const fav = (c) => { const n = near.find((x) => x.chain === c); return { store_id: c, branch: { name: n.name, address: n.address, lat: n.lat, lon: n.lon } }; };
+  const base = { user_id: U, items, budget: null, min_savings_threshold: 3, fuel_type: 'benzina', lat: 43.55, lon: 10.31 };
+  const two = await A.call('optimize', { ...base, transport: 'car', favorites: [fav('penny'), fav('conad')] });
+  ok('due preferiti usati', two.location?.favorites_here?.length === 2 && two.savings.reference.type === 'habitual', two.__error || `${two.location?.favorites_here} · ${two.reasoning}`);
+  ok('riferimento = il migliore dei preferiti', ['penny', 'conad'].includes(two.savings.reference.store_id)
+    && two.ranked.findIndex((r) => r.store_id === two.savings.reference.store_id) <= Math.max(...['penny', 'conad'].map((c) => two.ranked.findIndex((r) => r.store_id === c))), two.savings.reference.label);
+  const walk = await A.call('optimize', { ...base, transport: 'walk', favorites: [fav('carrefour'), fav('pam')] });
+  ok('a piedi solo entro 1,2 km', !walk.__error && walk.location.distance_limit?.km === 1.2 && walk.ranked.every((r) => r.travel.distance_km <= 1.2), walk.__error || walk.ranked.map((r) => `${r.store_id} ${r.travel.distance_km}`).join(', '));
+  ok('preferito lontano escluso a piedi', walk.location.favorites_far?.some((n) => n.includes('Carrefour')) && walk.location.favorites_here.join() === 'pam', JSON.stringify(walk.location.favorites_far));
+  console.log('    car_hint:', JSON.stringify(walk.car_hint), '·', walk.reasoning);
+  ok('suggerimento auto coerente', walk.car_hint == null || (walk.car_hint.saving >= 3 && walk.car_hint.distance_km > 1.2));
+  const bike = await A.call('optimize', { ...base, transport: 'bike' });
+  ok('in bici entro 5 km', bike.ranked.every((r) => r.travel.distance_km <= 5) && bike.location.distance_limit?.km === 5);
+  const old = await A.call('optimize', { ...base, transport: 'car', habitual_store_id: 'pam', habitual_branch: fav('pam').branch });
+  ok('vecchio abituale ancora valido', old.location?.favorites_here?.join() === 'pam', JSON.stringify(old.location?.favorites_here));
+}
+
 // famiglia
 const fam = await A.call('familyCreate', U, 'Augusto'); ok('familyCreate', !!fam.id && fam.my_role === 'proprietario', fam.__error || JSON.stringify(fam));
 // inviti (#13): il vecchio codice non fa entrare; invito → richiesta → accetta
