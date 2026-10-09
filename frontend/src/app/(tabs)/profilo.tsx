@@ -92,7 +92,9 @@ export default function ProfiloScreen() {
 
   // riepiloghi delle sezioni chiuse (#20)
   const themeMode = useThemeMode();
-  const summaryTu = `${prefs.displayName.trim() || 'Senza nome'} · tema ${themeMode === 'auto' ? 'come il telefono' : themeMode === 'dark' ? 'scuro' : 'chiaro'}`;
+  const [myEmail, setMyEmail] = useState<string | null>(null);
+  useFocusEffect(useCallback(() => { if (IS_CLOUD) sb().auth.getUser().then(({ data }) => setMyEmail(data.user?.email ?? null)).catch(() => {}); }, []));
+  const summaryTu = `${prefs.displayName.trim() || 'Senza nome'} · ${IS_CLOUD ? (myEmail || 'senza email') : `tema ${themeMode === 'auto' ? 'come il telefono' : themeMode === 'dark' ? 'scuro' : 'chiaro'}`}`;
   const tr = TRANSPORTS.find((t) => t.id === prefs.transport)?.label ?? '';
   const summarySpesa = `${prefs.budget ? `budget €${prefs.budget}` : 'nessun budget'} · soglia €${prefs.minSavingsThreshold} · ${tr.toLowerCase()}${prefs.transport === 'car' ? `, ${prefs.fuelType}` : ''}`;
   const chainName = (id: string) => catalog?.stores.find((x) => x.id === id)?.name ?? id;
@@ -113,7 +115,7 @@ export default function ProfiloScreen() {
         <Text style={s.kicker}>Le tue preferenze</Text>
         <Text style={s.title}>Profilo</Text>
 
-        <ProfileSection id="tu" icon="person-outline" title="Tu" summary={summaryTu}>
+        <ProfileSection id="tu" icon="person-outline" title={IS_CLOUD ? 'Tu e account' : 'Tu'} summary={summaryTu}>
           <SectionTitle>Come ti chiami?</SectionTitle>
           <TextInput
             value={prefs.displayName}
@@ -131,6 +133,12 @@ export default function ProfiloScreen() {
           <SectionTitle>Aspetto</SectionTitle>
           <ThemePicker />
 
+          {IS_CLOUD && (
+            <>
+              <SectionTitle>Account</SectionTitle>
+              <AccountCard embedded />
+            </>
+          )}
         </ProfileSection>
 
         <ProfileSection id="spesa" icon="cart-outline" title="La spesa" summary={summarySpesa}>
@@ -352,12 +360,6 @@ export default function ProfiloScreen() {
         {PUSH_SUPPORTED && (
           <ProfileSection id="notifiche" icon="notifications-outline" title="Notifiche" summary={myNotifyOff ? 'Non attive su questo telefono' : 'Avvisi dalla famiglia'} attention={myNotifyOff}>
             <NotifySettings embedded />
-          </ProfileSection>
-        )}
-
-        {IS_CLOUD && (
-          <ProfileSection id="account" icon="key-outline" title="Account" summary="Email, collega un altro telefono, esci">
-            <AccountCard embedded />
           </ProfileSection>
         )}
 
