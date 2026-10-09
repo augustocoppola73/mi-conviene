@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -31,6 +31,10 @@ import { LocationControl } from '@/components/LocationControl';
 import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
 import { ListPicker } from '@/components/ListPicker';
+import { GroupListPanel, useGroupList } from '@/components/GroupList';
+import { IS_CLOUD } from '@/cloud/client';
+import { mergeShopping } from '@/groupShare';
+import { updateGroupItem } from '@/cloud/groups';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 function notify(title: string, message: string) {
@@ -44,8 +48,21 @@ export default function ListaScreen() {
   const insets = useSafeAreaInsets();
   const {
     catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems,
-    prefs, setPrefs, userId, setLastResult, lastResult,
+    prefs, setPrefs, userId, setLastResult, lastResult, groupMine, reloadGroupMine,
   } = useStore();
+
+  // #21: la lista che si sta compilando: la mia, o quella di un gruppo (stessa ricerca, categorie, offerte)
+  const groupMode = IS_CLOUD && !!prefs.activeList;
+  const gl = useGroupList(groupMode ? prefs.activeList : null);
+  useFocusEffect(useCallback(() => { reloadGroupMine(); }, [reloadGroupMine]));
+  const L = groupMode
+    ? { toggle: gl.facade.toggle, addCustom: gl.facade.addCustom, updateQty: gl.facade.updateQty, itemFor: gl.facade.itemFor, has: gl.facade.has }
+    : {
+        toggle: toggleItem, addCustom: (n: string, c: string) => addCustom(n, c), updateQty,
+        itemFor: (id: string) => items.find((i) => i.product_id === id), has: (id: string) => items.some((i) => i.product_id === id),
+      };
+  const myGroupTodo = gl.items.filter((i) => i.status === 'da_prendere' && i.assigned_to === gl.me).length;
+  const shopCount = items.length + groupMine.length;
 
   const [offers, setOffers] = useState<Offer[]>([]);
   const [openCategory, setOpenCategory] = useState<Category | null>(null);
@@ -109,7 +126,7 @@ export default function ListaScreen() {
   }, [userId]);
 
   const findBest = async () => {
-    if (!userId || !items.length) return;
+    if (!userId || (!items.length && !groupMine.length)) return;
     setLoading(true);
     try {
       // posizione automatica: prima di confrontare la rinfresco (se non arriva in fretta, uso l'ultima)
@@ -118,7 +135,8 @@ export default function ListaScreen() {
         const fresh = await quietPosition(4000);
         if (fresh) { loc = fresh; setPrefs({ location: fresh }); }
       }
-      const r = await api.optimize(optimizeRequest(userId, items, prefs, loc));
+      const mine = await reloadGroupMine();   // i prodotti che prendo per i gruppi: un solo giro (#21)
+      const r = await api.optimize(optimizeRequest(userId, mergeShopping(items, mine), prefs, loc));
       setLastResult(r);
       router.push('/risultati');
     } catch (e) {
@@ -152,7 +170,7 @@ export default function ListaScreen() {
     <SafeAreaView style={s.screen} edges={['top']}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.kicker}>Mi Conviene · Ciao{prefs.displayName.trim() ? ` ${prefs.displayName.trim()}` : ''} 👋</Text>
-        <Text style={s.title}>Cosa devi comprare?</Text>
+        <Text style={s.title}>{groupMode && gl.group ? `Lista ${gl.group.emoji || ''} ${gl.group.name}` : 'Cosa devi comprare?'}</Text>
         <ListPicker />
         <ActiveShopBanner />
         {lastResult && (
@@ -169,12 +187,17 @@ export default function ListaScreen() {
           <ProductSearch
             products={catalog.products}
             categories={catalog.categories}
-            onToggleProduct={toggleItem}
-            onAddCustom={(name, cat) => addCustom(name, cat)}
-            itemFor={(id) => items.find((i) => i.product_id === id)}
-            onUpdateQty={updateQty}
+            onToggleProduct={L.toggle}
+            onAddCustom={(name, cat) => L.addCustom(name, cat)}
+            itemFor={L.itemFor}
+            onUpdateQty={L.updateQty}
           />
         </View>
+        {groupMode && (
+          <View style={{ marginTop: spacing.lg }}>
+            <GroupListPanel gl={gl} />
+          </View>
+        )}
 
         {offers.length > 0 && (
           <>
@@ -201,11 +224,11 @@ export default function ListaScreen() {
                       </Text>
                     </View>
                     {(() => {
-                      const on = items.some((i) => i.product_id === o.product_id);
+                      const on = L.has(o.product_id);
                       return (
                         <Pressable
                           accessibilityLabel={on ? `Togli ${o.product_name}` : `Aggiungi ${o.product_name}`}
-                          onPress={() => toggleItem(o.product_id)}
+                          onPress={() => L.toggle(o.product_id)}
                           style={[s.addBtn, on && { backgroundColor: colors.primary }]}>
                           <Icon name={on ? 'checkmark' : 'add'} size={20} color={on ? colors.primaryText : colors.textSecondary} />
                         </Pressable>
@@ -218,7 +241,7 @@ export default function ListaScreen() {
           </>
         )}
 
-        {flyers.length > 0 && (
+        {!groupMode && flyers.length > 0 && (
           <>
             <SectionTitle>📰 Volantini di oggi</SectionTitle>
             <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
@@ -259,6 +282,8 @@ export default function ListaScreen() {
           ))}
         </HScroll>
 
+        {groupMode ? null : (
+          <>
         <Pressable onPress={loadHabitual} style={s.habitualBtn} disabled={loadingHabitual}>
           {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Icon name="repeat" size={18} color={colors.primary} />}
           <Text style={s.habitualText}>Carica la mia spesa abituale</Text>
@@ -286,6 +311,7 @@ export default function ListaScreen() {
             removeItem={removeItem}
           />
         )}
+        {groupMine.length > 0 && <MyGroupShares />}
         {items.length >= 1 && <SmartSuggestions items={items} />}
 
         <SectionTitle>Budget</SectionTitle>
@@ -374,10 +400,17 @@ export default function ListaScreen() {
 
         <SectionTitle>Dove sei?</SectionTitle>
         <LocationControl />
+          </>
+        )}
 
       </ScrollView>
 
-      {items.length > 0 && (
+      {groupMode ? (
+        <View style={[s.ctaWrap, { paddingBottom: spacing.md }]} pointerEvents="box-none">
+          <PrimaryButton label={myGroupTodo ? `Vai alla mia lista · ${myGroupTodo === 1 ? '1 lo prendi tu' : `${myGroupTodo} li prendi tu`}` : 'Torna alla mia lista'}
+            icon="basket-outline" onPress={() => { reloadGroupMine(); setPrefs({ activeList: null }); }} style={s.cta} />
+        </View>
+      ) : shopCount > 0 && (
         <View style={[s.ctaWrap, { paddingBottom: spacing.md }]} pointerEvents="box-none">
           <PrimaryButton label="Trova la spesa migliore" icon="sparkles" onPress={findBest} loading={loading} style={s.cta} />
         </View>
@@ -393,10 +426,10 @@ export default function ListaScreen() {
             keyExtractor={(p) => p.id}
             ItemSeparatorComponent={() => <View style={s.sep} />}
             renderItem={({ item: p }) => {
-              const inList = items.find((i) => i.product_id === p.id);
+              const inList = L.itemFor(p.id);
               return (
                 <View style={s.sheetRow}>
-                  <Pressable onPress={() => toggleItem(p.id)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+                  <Pressable onPress={() => L.toggle(p.id)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
                     accessibilityHint={inList ? 'In lista: tocca per toglierlo' : 'Tocca per aggiungerlo'}>
                     <View style={[s.addBtn, inList && { backgroundColor: colors.primary }]}>
                       <Icon name={inList ? 'checkmark' : 'add'} color={inList ? colors.primaryText : colors.textSecondary} />
@@ -408,7 +441,7 @@ export default function ListaScreen() {
                   </Pressable>
                   {inList && (
                     <QtyStepper compact quantity={inList.quantity} unit={p.unit} step={qtyStep(p.default_qty, p.unit)}
-                      onChange={(n) => updateQty(p.id, n)} />
+                      onChange={(n) => L.updateQty(p.id, n)} />
                   )}
                 </View>
               );
@@ -532,6 +565,9 @@ const useStyles = makeStyles((c) => ({
   lastRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, paddingHorizontal: spacing.xs },
   lastText: { flex: 1, color: c.textSecondary, fontSize: 13, lineHeight: 18 },
   suggestUse: { color: c.primary, fontWeight: '700', fontSize: 14 },
+  shareBox: { borderWidth: 1, borderColor: c.border, borderRadius: radius.md, padding: spacing.sm, gap: 4, backgroundColor: c.surface },
+  shareHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  shareRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingLeft: 30 },
   ctaWrap: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.lg, alignItems: 'center' },
   cta: { width: '100%', maxWidth: 608, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   overlay: { flex: 1, backgroundColor: c.overlay },
@@ -544,3 +580,42 @@ const useStyles = makeStyles((c) => ({
   sheetRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md, gap: spacing.md },
   sep: { height: 1, backgroundColor: c.border },
 }));
+
+/** #21: nella mia lista, i prodotti che prendo per i gruppi (con l'etichetta del gruppo). */
+function MyGroupShares() {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const { groupMine, reloadGroupMine, setPrefs, productById } = useStore();
+  const byGroup = new Map<string, typeof groupMine>();
+  for (const g of groupMine) byGroup.set(g.group_id, [...(byGroup.get(g.group_id) ?? []), g]);
+  const leave = async (id: string) => {
+    try { await updateGroupItem(id, { assigned_to: null }); } catch (e) { notify('Gruppo', (e as Error).message); }
+    reloadGroupMine();
+  };
+  return (
+    <View style={{ marginTop: spacing.lg, gap: spacing.sm }}>
+      {[...byGroup.entries()].map(([gid, list]) => (
+        <View key={gid} style={s.shareBox}>
+          <Pressable onPress={() => setPrefs({ activeList: gid })} style={s.shareHead} accessibilityRole="button">
+            <Text style={{ fontSize: 18 }}>{list[0].group_emoji || '👥'}</Text>
+            <Text style={[s.itemName, { flex: 1, fontWeight: '700' }]} numberOfLines={1}>Per «{list[0].group_name}» · {list.length}</Text>
+            <Text style={s.clear}>Apri</Text>
+          </Pressable>
+          {list.map((g) => {
+            const p = productById(g.product_id);
+            return (
+              <View key={g.id} style={s.shareRow}>
+                <Text style={[s.itemName, { flex: 1 }]} numberOfLines={1}>{g.name || p?.name || g.product_id}</Text>
+                <Text style={s.muted}>{formatQty(g.quantity, g.unit || p?.unit || 'pz')}</Text>
+                <Pressable onPress={() => leave(g.id)} hitSlop={6} accessibilityLabel={`Non lo prendo più: ${g.name}`}>
+                  <Icon name="close-circle-outline" size={18} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      ))}
+      <Text style={s.muted}>Li prendi tu per il gruppo: entrano nel calcolo della spesa migliore e, a fine spesa, vanno nei conti del gruppo (non nel tuo Salvadanaio).</Text>
+    </View>
+  );
+}

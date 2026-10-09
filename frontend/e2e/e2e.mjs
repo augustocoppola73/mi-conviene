@@ -147,6 +147,29 @@ const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista da
   await A.page.goto(`http://localhost:8790/gruppo/${gid}`); await A.page.waitForTimeout(3000);
   ok('pagina gruppo', await A.page.getByText('Festa di sabato').count() > 0 && await A.page.getByText('patatine').count() > 0);
   await A.page.screenshot({ path: process.argv[2] + '/gruppo.png' });
+  // #21: la mia parte del gruppo entra nella mia spesa; a fine spesa diventa lo scontrino del gruppo
+  await A.g('updateGroupItem', pat.id, { assigned_to: '11111111-1111-1111-1111-111111111111' }).catch(() => {});
+  const mineG = await A.g('myGroupItems');
+  ok('myGroupItems: le patatine (2) di A', mineG.some((x) => x.name === 'patatine' && x.quantity === 2 && x.group_id === gid), JSON.stringify(mineG));
+  const share = mineG.filter((x) => x.group_id === gid).map((x) => ({ group_item_id: x.id, group_id: gid, group_name: x.group_name, emoji: x.group_emoji, quantity: x.quantity }));
+  const gshop = await A.call('shopCreate', { user_id: U, store_id: 'conad', items: [
+    { product_id: 'latte', quantity: 1 },
+    { product_id: 'custom:patatine', quantity: 2, name: 'patatine', category_id: 'altro', unit: 'pz', groups: share },
+  ] });
+  ok('spesa con la parte del gruppo', gshop.items?.find((i) => i.key === 'custom:patatine')?.groups?.length === 1, gshop.__error || '');
+  await A.call('shopPrice', gshop.id, { user_id: U, key: 'custom:patatine', price: 3.2, kind: 'normale', display_name: 'Augusto' });
+  await A.call('shopCheck', gshop.id, U, 'custom:patatine', true, 'Augusto');
+  await new Promise((r) => setTimeout(r, 800));
+  ok('spuntate in negozio → prese nel gruppo', (await Bu.g('groupItems', g.list_id)).find((i) => i.name === 'patatine')?.status === 'preso');
+  await A.call('shopCheck', gshop.id, U, 'latte', true, 'Augusto');
+  const gfin = await A.call('shopFinish', gshop.id, U);
+  ok('scontrino del gruppo a fine spesa', gfin.group_receipts?.length === 1 && gfin.group_receipts[0].amount > 0 && gfin.group_receipts[0].saved, JSON.stringify(gfin.group_receipts ?? gfin.__error));
+  // la pagina Lista in modalità gruppo
+  await A.page.evaluate((gid) => { const p = JSON.parse(localStorage.getItem('margine_prefs') || '{}'); p.activeList = gid; localStorage.setItem('margine_prefs', JSON.stringify(p)); }, gid);
+  await A.page.goto('http://localhost:8790/'); await A.page.waitForTimeout(3500);
+  ok('scheda Lista sul gruppo', await A.page.getByText('Lista 🎉 Festa di sabato').count() > 0);
+  await A.page.screenshot({ path: process.argv[2] + '/lista_gruppo.png', fullPage: false });
+  await A.page.evaluate(() => { const p = JSON.parse(localStorage.getItem('margine_prefs') || '{}'); p.activeList = null; localStorage.setItem('margine_prefs', JSON.stringify(p)); });
   await Bu.g('leaveGroup', gid);
   ok('B uscito', !(await Bu.g('myGroups')).some((x) => x.id === gid));
   await A.g('leaveGroup', gid);

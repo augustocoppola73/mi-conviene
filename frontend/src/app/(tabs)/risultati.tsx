@@ -10,6 +10,7 @@ import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@
 import { euro, km } from '@/format';
 import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
+import { groupSpend, mergeShopping } from '@/groupShare';
 import { openNavigation } from '@/navigate';
 import { ParkingLine } from '@/components/ParkingLine';
 import { BrandLogo, fuelDomain } from '@/components/BrandLogo';
@@ -23,7 +24,7 @@ function shortDate(iso: string | null) {
 export default function RisultatiScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { lastResult, setLastResult, userId, items, prefs, setPrefs, catalog, clearItems } = useStore();
+  const { lastResult, setLastResult, userId, items, prefs, setPrefs, catalog, clearItems, groupMine, reloadGroupMine } = useStore();
   const [ruleMsg, setRuleMsg] = useState<string | null>(null);
   const [carBusy, setCarBusy] = useState(false);
   const [shopError, setShopError] = useState<string | null>(null);
@@ -85,7 +86,7 @@ export default function RisultatiScreen() {
   const tryCar = async () => {
     if (!userId) return;
     setCarBusy(true);
-    try { setLastResult(await api.optimize(optimizeRequest(userId, items, prefs, prefs.location, 'car'))); }
+    try { setLastResult(await api.optimize(optimizeRequest(userId, mergeShopping(items, groupMine), prefs, prefs.location, 'car'))); }
     catch (e) { globalThis.alert?.((e as Error).message); }
     finally { setCarBusy(false); }
   };
@@ -126,21 +127,25 @@ export default function RisultatiScreen() {
     if (!userId) return;
     setSaving(true);
     try {
-      const h = await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: recommended.total_cost });
-      const amount = addToPiggyBank ? Math.round((shopSaving + fuelSaving) * 100) / 100 : 0;
+      // #21: i prodotti presi per i gruppi vanno nella stessa spesa ma NON nel Salvadanaio (sono dei conti del gruppo)
+      const merged = mergeShopping(items, groupMine);
+      const gSpend = groupSpend(recommended.receipt.lines, merged);
+      const share = recommended.receipt.total > 0 ? Math.max(0, 1 - gSpend / recommended.receipt.total) : 1;
+      const h = await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: Math.round((recommended.total_cost - gSpend) * 100) / 100 });
+      const amount = addToPiggyBank ? Math.round((shopSaving * share + fuelSaving) * 100) / 100 : 0;
       // la voce va comunque nel Salvadanaio (anche a zero) per poterla verificare con lo scontrino vero
-      const listAtConfirm = items;
+      const listAtConfirm = merged;
       const entry = await api.addSaving({
         user_id: userId,
         store_id: recommended.store_id,
         // stima totale = spesa + pieno sulla strada (la parte pieno si azzera se alla verifica dici che non l'hai fatto)
         amount,
-        note: addToPiggyBank ? refLabel : 'spesa registrata senza risparmio',
+        note: (addToPiggyBank ? refLabel : 'spesa registrata senza risparmio') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
         reference_type: refRow ? 'habitual' : savings.reference.type,
         price_basis: savings.price_basis,
         history_id: h.id,
-        estimated_spend: recommended.receipt.total,
-        estimated_total: recommended.total_cost,
+        estimated_spend: Math.round((recommended.receipt.total - gSpend) * 100) / 100,
+        estimated_total: Math.round((recommended.total_cost - gSpend) * 100) / 100,
         snapshot: recommended, // lo scontrino virtuale di oggi, per rivederlo nello storico
         ...(stop && addToPiggyBank ? {
           fuel_saving: fuelSaving, fuel_liters: stop.liters, fuel_median: stop.median,
@@ -156,9 +161,11 @@ export default function RisultatiScreen() {
           user_id: userId, store_id: recommended.store_id, saving_id: entry.id,
           branch: recommended.branch ? [recommended.branch.name, recommended.branch.address].filter(Boolean).join(' · ') : null,
           display_name: prefs.displayName || null,
-          items: listAtConfirm.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null, unit: i.unit ?? null })),
+          items: listAtConfirm.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null, unit: i.unit ?? null,
+            groups: i.groups })),
         });
         clearItems();
+        reloadGroupMine();
         setShopError(null);
       } catch (e) {
         setShopError((e as Error).message);
@@ -176,16 +183,19 @@ export default function RisultatiScreen() {
     try {
       const names = split.stops.map((st) => st.store_name).join(' e ');
       const first = split.stops[0];
-      const h = await api.addHistory({ user_id: userId, items, store_id: first.store_id, total_cost: split.total_cost });
+      const merged = mergeShopping(items, groupMine);
+      const gSpend = groupSpend(split.stops.flatMap((st) => st.lines), merged);
+      const share = split.items_total > 0 ? Math.max(0, 1 - gSpend / split.items_total) : 1;
+      const h = await api.addHistory({ user_id: userId, items, store_id: first.store_id, total_cost: Math.round((split.total_cost - gSpend) * 100) / 100 });
       const entry = await api.addSaving({
-        user_id: userId, store_id: first.store_id, store_name: names, amount: splitSaving,
-        note: splitSaving > 0 ? `${savings.reference.label} · spesa in due negozi` : 'spesa in due negozi',
+        user_id: userId, store_id: first.store_id, store_name: names, amount: Math.round(splitSaving * share * 100) / 100,
+        note: (splitSaving > 0 ? `${savings.reference.label} · spesa in due negozi` : 'spesa in due negozi') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
         reference_type: savings.reference.type, price_basis: savings.price_basis, history_id: h.id,
-        estimated_spend: split.items_total, estimated_total: split.total_cost,
+        estimated_spend: Math.round((split.items_total - gSpend) * 100) / 100, estimated_total: Math.round((split.total_cost - gSpend) * 100) / 100,
         snapshot: { store_id: first.store_id, store_name: names, split: true, stops: split.stops, travel: split.travel, total_cost: split.total_cost,
           receipt: { lines: split.stops.flatMap((st) => st.lines), total: split.items_total } },
       });
-      setAddedAmount(splitSaving);
+      setAddedAmount(Math.round(splitSaving * share * 100) / 100);
       setConfirmed('split');
       const stopOf = new Map(split.stops.flatMap((st, k) => st.lines.map((l) => [l.product_id, k] as const)));
       try {
@@ -196,10 +206,11 @@ export default function RisultatiScreen() {
           stops: split.stops.map((st) => ({ store_id: st.store_id, store_name: st.store_name,
             branch: st.branch ? [st.branch.name, st.branch.address].filter(Boolean).join(' · ') : null,
             lat: st.branch?.lat ?? null, lon: st.branch?.lon ?? null, parking: st.branch?.parking ?? null })),
-          items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null,
-            unit: i.unit ?? null, stop: stopOf.get(i.product_id) ?? 0 })),
+          items: merged.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null,
+            unit: i.unit ?? null, stop: stopOf.get(i.product_id) ?? 0, groups: i.groups })),
         });
         clearItems();
+        reloadGroupMine();
         setShopError(null);
       } catch (e) { setShopError((e as Error).message); }
     } finally { setSaving(false); }

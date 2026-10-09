@@ -4,6 +4,8 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { api, Bootstrap, FavoriteStore, FuelType, ListItem, MenuEntry, OptimizeResult, Product, Transport } from './api';
 import type { GeoPoint } from './location';
 import { getUserId } from './user';
+import { IS_CLOUD } from './cloud/client';
+import { MyGroupItem, myGroupItems } from './cloud/groups';
 
 // Chiavi con prefisso storico "margine_": rinominarle cancellerebbe i dati salvati.
 const LIST_KEY = 'margine_list';
@@ -31,6 +33,8 @@ export interface Prefs {
   nearOnlyPriced: boolean;
   /** le mie regole per la spesa in due negozi: categoria → catena */
   categoryRules: Record<string, string>;
+  /** #21: la lista mostrata nella scheda Lista: null = la mia, altrimenti l'id del gruppo */
+  activeList: string | null;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -49,6 +53,7 @@ const DEFAULT_PREFS: Prefs = {
   menu: [],
   nearOnlyPriced: false,
   categoryRules: {},
+  activeList: null,
 };
 
 interface StoreValue {
@@ -70,6 +75,14 @@ interface StoreValue {
   setPrefs: (patch: Partial<Prefs>) => void;
   lastResult: OptimizeResult | null;
   setLastResult: (r: OptimizeResult | null) => void;
+  /** #21: i prodotti che prendo io nei gruppi (entrano nella mia spesa) */
+  groupMine: MyGroupItem[];
+  reloadGroupMine: () => Promise<MyGroupItem[]>;
+}
+
+/** id di un prodotto scritto a mano: "custom:coca-cola" */
+export function customId(name: string): string {
+  return 'custom:' + name.trim().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -153,7 +166,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addCustom = useCallback((name: string, categoryId: string, quantity = 1, unit = 'pz') => {
     const clean = name.trim();
     if (!clean) return;
-    const id = 'custom:' + clean.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const id = customId(clean);
     setItemsState((prev) =>
       prev.some((i) => i.product_id === id)
         ? prev // già in lista: la quantità si cambia dalla lista, niente aggiunte silenziose
@@ -186,6 +199,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const setPrefs = useCallback((patch: Partial<Prefs>) => setPrefsState((p) => ({ ...p, ...patch })), []);
 
+  const [groupMine, setGroupMine] = useState<MyGroupItem[]>([]);
+  const reloadGroupMine = useCallback(async () => {
+    if (!IS_CLOUD) return [];
+    try {
+      // quelli già nella mia spesa in corso non li conto due volte
+      const [r, act] = await Promise.all([myGroupItems(), api.shopActive('').catch(() => null)]);
+      const busy = new Set(act?.shop?.mine ? act.shop.items.flatMap((i) => (i.groups ?? []).map((g) => g.group_item_id)) : []);
+      const free = r.filter((g) => !busy.has(g.id));
+      setGroupMine(free);
+      return free;
+    } catch { return []; }
+  }, []);
+  useEffect(() => { if (hydrated && userId) reloadGroupMine(); }, [hydrated, userId, reloadGroupMine]);
+
   const value: StoreValue = {
     hydrated,
     userId,
@@ -205,6 +232,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPrefs,
     lastResult,
     setLastResult,
+    groupMine,
+    reloadGroupMine,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

@@ -68,6 +68,8 @@ function message(kind: string, who: string, b: any): { title: string; body: stri
       body: 'Tocca per vedere la lista e dire cosa prendi tu', url: `/gruppo/${b.family_id}` };
     case 'gruppo_ingresso': return { title: `${b.group_emoji || '👋'} ${b.name || who} è entrato in «${b.group_name || 'gruppo'}»`,
       body: 'Ora vede la lista del gruppo', url: `/gruppo/${b.family_id}` };
+    case 'gruppo_proposta': return { title: `${b.group_emoji || '🙋'} ${who} propone ${b.item || 'un prodotto'} per «${b.group_name || 'gruppo'}»`,
+      body: 'Tocca per aggiungerlo alla lista o dire di no', url: '/' };
     case 'gruppo_rientro': return { title: `${b.group_emoji || '🔁'} ${b.name || who} è rientrato in «${b.group_name || 'gruppo'}» da un altro telefono`,
       body: 'Se non è stato lui, dillo a chi ha creato il gruppo', url: `/gruppo/${b.family_id}` };
     case 'aiuto': return { title: `🤝 ${who} prende ${prodotti} da ${b.store}`, body: 'Li ha tolti dalla tua lista: tocca per vedere quali', url: '/spesa' };
@@ -75,13 +77,13 @@ function message(kind: string, who: string, b: any): { title: string; body: stri
   }
   return null;
 }
-const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1, aiuto: 0, aiuto_lasciato: 0, ingresso: 0, gruppo_lista: 10, gruppo_ingresso: 0, gruppo_rientro: 0 };
+const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1, aiuto: 0, aiuto_lasciato: 0, ingresso: 0, gruppo_lista: 10, gruppo_ingresso: 0, gruppo_rientro: 0, gruppo_proposta: 2 };
 // avvisi personali (a una persona sola): niente pausa e non si possono spegnere, sono il modo in cui vi parlate
 const DIRECT = new Set(['richiesta', 'accettata', 'rifiutata', 'ingresso_ok']);
 // avvisi alla famiglia che non si possono spegnere (riguardano chi entra in casa)
 const ALWAYS = new Set(['ingresso']);
 // avvisi dei gruppi evento (#14): ai membri del gruppo, tranne chi l'ha silenziato
-const GROUP = new Set(['gruppo_lista', 'gruppo_ingresso', 'gruppo_rientro']);
+const GROUP = new Set(['gruppo_lista', 'gruppo_ingresso', 'gruppo_rientro', 'gruppo_proposta']);
 // avvisi che seguono l'interruttore di un altro tipo nel Profilo
 const PREF_OF: Record<string, string> = { lasciata: 'presa', aiuto: 'presa', aiuto_lasciato: 'presa' };
 

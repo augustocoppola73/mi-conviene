@@ -4,9 +4,17 @@ import { check, sb, uid } from './client';
 export interface Group {
   id: string; name: string; emoji: string | null; event_date: string | null;
   role: 'proprietario' | 'membro'; members: number; todo: number; muted: boolean; list_id: string | null;
+  /** chi aggiunge alla lista: tutti, o solo il proprietario (gli altri propongono) */
+  add_policy: AddPolicy; proposals: number;
+}
+export type AddPolicy = 'tutti' | 'proprietario';
+/** un prodotto che prendo io per un gruppo: compare nella mia lista di casa (#21) */
+export interface MyGroupItem {
+  id: string; group_id: string; group_name: string; group_emoji: string | null;
+  product_id: string; name: string | null; quantity: number; unit: string | null; category_id: string | null;
 }
 export interface GroupMember { user_id: string; display_name: string | null; role: 'proprietario' | 'membro'; joined_at: string }
-export type ItemStatus = 'da_prendere' | 'preso' | 'mancava';
+export type ItemStatus = 'proposto' | 'da_prendere' | 'preso' | 'mancava';
 export interface GroupItem {
   id: string; list_id: string; product_id: string; name: string | null; quantity: number; unit: string | null;
   category_id: string | null; added_by: string | null; assigned_to: string | null; status: ItemStatus;
@@ -15,6 +23,7 @@ export interface GroupItem {
 
 const msg = (e: { message: string } | null, fallback?: string) => {
   if (!e) return null;
+  if (e.message.includes('group_list_items_unico') || e.message.includes('duplicate key')) return new Error('C\'è già nella lista del gruppo');
   return new Error(e.message.includes('row-level security') ? (fallback || 'Non hai il permesso') : e.message);
 };
 
@@ -26,13 +35,35 @@ export async function groupInfo(id: string): Promise<Group | null> {
   return (await myGroups()).find((g) => g.id === id) ?? null;
 }
 
-export async function createGroup(name: string, emoji: string | null, date: string | null): Promise<string> {
-  const r = check(await sb().rpc('create_group', { p_name: name, p_emoji: emoji, p_date: date })) as any;
+export async function createGroup(name: string, emoji: string | null, date: string | null, policy: AddPolicy = 'tutti'): Promise<string> {
+  const r = check(await sb().rpc('create_group', { p_name: name, p_emoji: emoji, p_date: date, p_policy: policy })) as any;
   return r.id as string;
 }
 
-export async function updateGroup(id: string, name: string, emoji: string | null, date: string | null): Promise<void> {
-  check(await sb().rpc('update_group', { g: id, p_name: name, p_emoji: emoji, p_date: date }));
+export async function updateGroup(id: string, name: string, emoji: string | null, date: string | null, policy?: AddPolicy): Promise<void> {
+  check(await sb().rpc('update_group', { g: id, p_name: name, p_emoji: emoji, p_date: date, p_policy: policy ?? null }));
+}
+
+/** i prodotti che prendo io nei miei gruppi, ancora da comprare */
+export async function myGroupItems(): Promise<MyGroupItem[]> {
+  return ((check(await sb().rpc('my_group_items')) ?? []) as MyGroupItem[]).map((i) => ({ ...i, quantity: Number(i.quantity) }));
+}
+
+/** dopo la spesa: la parte del gruppo diventa una spesa pagata da me (per i conti, #16) */
+export async function addGroupExpense(groupId: string, amount: number, note: string): Promise<void> {
+  const me = await uid();
+  const { error } = await sb().from('group_expenses').insert({ group_id: groupId, paid_by: me, amount: Math.round(amount * 100) / 100, note: note.slice(0, 120) });
+  const e = msg(error); if (e) throw e;
+}
+
+/** nome "uguale" per i prodotti scritti a mano: "Coca" ~ "coca cola" */
+export function similarName(a: string, b: string): boolean {
+  const n = (x: string) => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const x = n(a), y = n(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [s, l] = x.length <= y.length ? [x, y] : [y, x];
+  return s.length >= 3 && (l.startsWith(s) || l.split(' ').includes(s));
 }
 
 export async function leaveGroup(id: string): Promise<void> {
@@ -95,5 +126,5 @@ export function eventLabel(date: string | null): string {
 
 // solo per le prove automatiche (build con EXPO_PUBLIC_E2E=1)
 if (process.env.EXPO_PUBLIC_E2E === '1') {
-  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem };
+  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem, myGroupItems, addGroupExpense };
 }

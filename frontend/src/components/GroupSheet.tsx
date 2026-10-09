@@ -3,7 +3,8 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { createGroup, isAnonymous, updateGroup } from '../cloud/groups';
+import { AddPolicy, createGroup, isAnonymous, updateGroup } from '../cloud/groups';
+import { useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { PrimaryButton } from './ui';
 
@@ -20,16 +21,20 @@ function nextDays(n: number) {
   return out;
 }
 
-export function GroupSheet({ visible, onClose, edit, onSaved }: {
+export function GroupSheet({ visible, onClose, edit, onSaved, noNavigate }: {
   visible: boolean; onClose: () => void;
-  edit?: { id: string; name: string; emoji: string | null; event_date: string | null } | null;
+  edit?: { id: string; name: string; emoji: string | null; event_date: string | null; add_policy?: AddPolicy } | null;
   onSaved?: (id: string) => void;
+  /** dalla scheda Lista: resta lì (il gruppo diventa la lista scelta) */
+  noNavigate?: boolean;
 }) {
   const s = useStyles();
   const { colors } = useTheme();
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState<string | null>('🎉');
   const [date, setDate] = useState<string | null>(null);
+  const [policy, setPolicy] = useState<AddPolicy>('tutti');
+  const { setPrefs } = useStore();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [anon, setAnon] = useState(false);
@@ -38,18 +43,19 @@ export function GroupSheet({ visible, onClose, edit, onSaved }: {
   useEffect(() => {
     if (!visible) return;
     setErr(null);
-    setName(edit?.name ?? ''); setEmoji(edit ? edit.emoji : '🎉'); setDate(edit?.event_date ?? null);
+    setName(edit?.name ?? ''); setEmoji(edit ? edit.emoji : '🎉'); setDate(edit?.event_date ?? null); setPolicy(edit?.add_policy ?? 'tutti');
     if (!edit) isAnonymous().then(setAnon).catch(() => {});
   }, [visible]);
 
   const save = async () => {
     setBusy(true); setErr(null);
     try {
-      if (edit) { await updateGroup(edit.id, name, emoji, date); onSaved?.(edit.id); onClose(); return; }
-      const id = await createGroup(name, emoji, date);
+      if (edit) { await updateGroup(edit.id, name, emoji, date, policy); onSaved?.(edit.id); onClose(); return; }
+      const id = await createGroup(name, emoji, date, policy);
       onClose();
+      setPrefs({ activeList: id });   // la scheda Lista passa al gruppo nuovo
       onSaved?.(id);
-      router.push(`/gruppo/${id}`);
+      if (!noNavigate) router.push('/');
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   const extra = date && !days.some((d) => d.iso === date);
@@ -97,6 +103,19 @@ export function GroupSheet({ visible, onClose, edit, onSaved }: {
                 </View>
                 <Text style={s.hint}>
                   {date ? 'L\'invito vale fino al giorno dopo. Dopo l\'evento il gruppo resta da consultare.' : 'Per chi fa la spesa insieme sempre (coinquilini, amici): l\'invito vale 30 giorni.'}
+                </Text>
+                <Text style={s.label}>Chi aggiunge prodotti alla lista?</Text>
+                <View style={s.row}>
+                  <Pressable onPress={() => setPolicy('tutti')} style={[s.chip, policy === 'tutti' && s.on]}>
+                    <Text style={[s.chipText, policy === 'tutti' && s.onText]}>Tutti</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setPolicy('proprietario')} style={[s.chip, policy === 'proprietario' && s.on]}>
+                    <Text style={[s.chipText, policy === 'proprietario' && s.onText]}>Solo io (gli altri propongono)</Text>
+                  </Pressable>
+                </View>
+                <Text style={s.hint}>
+                  {policy === 'tutti' ? 'Ognuno aggiunge quello che serve. Lo stesso prodotto non si aggiunge due volte: si aumenta la quantità.'
+                    : 'Gli altri propongono ("Luca propone: birra") e tu decidi se aggiungerlo.'}
                 </Text>
                 {err && <Text style={s.err}>{err}</Text>}
                 <PrimaryButton label={edit ? 'Salva' : 'Crea il gruppo'} icon={edit ? 'checkmark-outline' : 'people-outline'}

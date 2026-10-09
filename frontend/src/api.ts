@@ -35,7 +35,13 @@ export interface ListItem {
   product_id: string; quantity: number;
   /** solo per i prodotti scritti a mano (product_id "custom:...") */
   name?: string; category_id?: string; unit?: string;
+  /** #21: parte della quantità che prendo per dei gruppi (il resto è mio / della famiglia) */
+  groups?: GroupShare[];
 }
+/** una parte di un prodotto che compro per un gruppo evento (#21) */
+/** #21: lo scontrino di un gruppo a fine spesa (diventa una spesa del gruppo pagata da te) */
+export interface GroupReceipt { group_id: string; group_name: string; emoji: string | null; amount: number; lines: number; saved: boolean }
+export interface GroupShare { group_item_id: string; group_id: string; group_name: string; emoji: string | null; quantity: number }
 export interface ClassifyResult {
   text: string; category_id: string; category_name: string; emoji: string; confidence: number;
   similar: { product_id: string; name: string; category_id: string; score: number }[];
@@ -231,6 +237,8 @@ export interface ShopItem {
   stop?: number; store_id?: string;
   /** "Ti do una mano": da dove veniva prima di passare a chi aiuta (per restituirlo) */
   helped_from?: { stop: number; store_id: string; price: number | null } | null;
+  /** #21: quanto ne prendo per dei gruppi (lo scontrino del gruppo) */
+  groups?: GroupShare[];
 }
 /** una tappa della spesa in più negozi */
 export interface ShopStop {
@@ -278,7 +286,8 @@ export function canActItem(shop: Shop, item: ShopItem, userId: string | null): b
   if (owner) return owner.user_id === userId;
   return canActOn(shop, userId);
 }
-export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null; stop?: number }
+export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null; stop?: number;
+  groups?: GroupShare[] }
 export interface FamilyMember { user_id: string; display_name: string; /** riceve le notifiche (solo versione online) */ notifications?: boolean | null;
   role?: 'proprietario' | 'membro' }
 /** id e ruolo ci sono solo nella versione online (gruppi, #3) */
@@ -398,7 +407,7 @@ export const localApi = {
   shopPrice: (id: string, body: { user_id: string; key: string; price: number; kind: PriceKind; note?: string | null; display_name?: string | null }) =>
     post<Shop>(`/shops/${id}/price`, body),
   shopFinish: (id: string, user_id: string) =>
-    post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number }>(`/shops/${id}/finish`, { user_id }),
+    post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number; group_receipts?: GroupReceipt[] }>(`/shops/${id}/finish`, { user_id }),
   shopCancel: (id: string, user_id: string) => post<{ items: ShopItem[] }>(`/shops/${id}/cancel`, { user_id }),
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>

@@ -1,79 +1,63 @@
-/** Scheda Lista: "La mia lista ▾" → la mia lista, i gruppi (con quanto c'è da prendere), + Nuovo gruppo (#14). */
-import { router, useFocusEffect } from 'expo-router';
+/** Scheda Lista (#21): in alto "🧺 La mia lista · 🎉 Festa di sabato · ＋ Nuovo gruppo": la lista che stai compilando. */
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { IS_CLOUD } from '../cloud/client';
-import { eventLabel, Group, myGroups } from '../cloud/groups';
-import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { Group, myGroups } from '../cloud/groups';
+import { useStore } from '../store';
+import { makeStyles, radius, spacing } from '../theme';
 import { GroupSheet } from './GroupSheet';
-import { Icon } from './ui';
+import { HScroll } from './HScroll';
 
 export function ListPicker() {
   const s = useStyles();
-  const { colors } = useTheme();
+  const { prefs, setPrefs, items, groupMine } = useStore();
   const [groups, setGroups] = useState<Group[]>([]);
-  const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   useFocusEffect(useCallback(() => {
-    if (IS_CLOUD) myGroups().then(setGroups).catch(() => {});
-  }, []));
+    if (!IS_CLOUD) return;
+    myGroups().then((g) => {
+      setGroups(g);
+      if (prefs.activeList && !g.some((x) => x.id === prefs.activeList)) setPrefs({ activeList: null });   // gruppo chiuso o uscito
+    }).catch(() => {});
+  }, [prefs.activeList]));
   if (!IS_CLOUD) return null;
-  const todo = groups.reduce((t, g) => t + g.todo, 0);
+  const sel = prefs.activeList;
+  const mineCount = items.length + groupMine.length;
 
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} style={({ pressed }) => [s.pill, pressed && { opacity: 0.7 }]} accessibilityRole="button"
-        accessibilityLabel="Scegli la lista">
-        <Icon name="list-outline" size={16} color={colors.primary} />
-        <Text style={s.pillText}>La mia lista</Text>
-        {groups.length > 0 && <Text style={s.count}>{groups.length} {groups.length === 1 ? 'gruppo' : 'gruppi'}{todo ? ` · ${todo} da prendere` : ''}</Text>}
-        <Icon name="chevron-down" size={16} color={colors.primary} />
-      </Pressable>
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={s.backdrop} onPress={() => setOpen(false)}>
-          <View style={s.box}>
-            <Pressable onPress={() => setOpen(false)} style={[s.row, s.current]}>
-              <Text style={s.emoji}>🧺</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={s.name}>La mia lista</Text>
-                <Text style={s.meta}>la tua spesa (e quella che condividi in famiglia)</Text>
-              </View>
-              <Icon name="checkmark" size={18} color={colors.primary} />
-            </Pressable>
-            {groups.map((g) => (
-              <Pressable key={g.id} onPress={() => { setOpen(false); router.push(`/gruppo/${g.id}`); }} style={s.row}>
-                <Text style={s.emoji}>{g.emoji || '🛒'}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.name} numberOfLines={1}>{g.name}</Text>
-                  <Text style={s.meta}>{eventLabel(g.event_date)} · {g.members} {g.members === 1 ? 'persona' : 'persone'}{g.todo ? ` · ${g.todo} da prendere` : ''}</Text>
-                </View>
-                <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
-              </Pressable>
-            ))}
-            <Pressable onPress={() => { setOpen(false); setCreating(true); }} style={s.row}>
-              <Text style={s.emoji}>➕</Text>
-              <Text style={[s.name, { color: colors.primary, fontWeight: '700' }]}>Nuovo gruppo</Text>
-            </Pressable>
-            <Text style={s.meta}>Un gruppo è una lista con amici: una festa, una cena, i coinquilini. Ognuno dice cosa prende.</Text>
-          </View>
+      <HScroll contentContainerStyle={s.row}>
+        <Pressable onPress={() => setPrefs({ activeList: null })} style={[s.chip, !sel && s.on]} accessibilityRole="tab" accessibilityState={{ selected: !sel }}>
+          <Text style={[s.text, !sel && s.onText]}>🧺 La mia lista{mineCount ? ` · ${mineCount}` : ''}</Text>
         </Pressable>
-      </Modal>
-      <GroupSheet visible={creating} onClose={() => setCreating(false)} />
+        {groups.map((g) => {
+          const on = sel === g.id;
+          return (
+            <Pressable key={g.id} onPress={() => setPrefs({ activeList: g.id })} style={[s.chip, on && s.on]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+              <Text style={[s.text, on && s.onText]} numberOfLines={1}>{g.emoji || '🛒'} {g.name}{g.todo ? ` · ${g.todo}` : ''}</Text>
+              {g.role === 'proprietario' && g.proposals > 0 && <View style={s.dot} />}
+            </Pressable>
+          );
+        })}
+        <Pressable onPress={() => setCreating(true)} style={[s.chip, s.add]} accessibilityRole="button">
+          <Text style={s.addText}>＋ Nuovo gruppo</Text>
+        </Pressable>
+      </HScroll>
+      <GroupSheet visible={creating} onClose={() => setCreating(false)} onSaved={(id) => setPrefs({ activeList: id })} noNavigate />
     </>
   );
 }
 
 const useStyles = makeStyles((c) => ({
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: spacing.sm, paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: radius.pill, backgroundColor: c.primarySoft },
-  pillText: { color: c.text, fontWeight: '700', fontSize: 14 },
-  count: { color: c.textSecondary, fontSize: 12 },
-  backdrop: { flex: 1, backgroundColor: c.overlay, justifyContent: 'flex-start', paddingTop: 90, paddingHorizontal: spacing.lg },
-  box: { backgroundColor: c.surface, borderRadius: radius.lg, padding: spacing.md, gap: 4, width: '100%', maxWidth: 480, alignSelf: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.sm, borderRadius: radius.md },
-  current: { backgroundColor: c.primarySoft },
-  emoji: { fontSize: 24, width: 32, textAlign: 'center' },
-  name: { color: c.text, fontSize: 16 },
-  meta: { color: c.textSecondary, fontSize: 12, marginTop: 2 },
+  row: { gap: spacing.sm, paddingVertical: spacing.sm },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, maxWidth: 220 },
+  on: { backgroundColor: c.primary, borderColor: c.primary },
+  text: { color: c.text, fontSize: 14, fontWeight: '600' },
+  onText: { color: c.primaryText },
+  add: { borderStyle: 'dashed', borderColor: c.primary },
+  addText: { color: c.primary, fontSize: 14, fontWeight: '700' },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.danger },
 }));

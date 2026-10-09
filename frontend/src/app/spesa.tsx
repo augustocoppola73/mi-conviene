@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, canActItem, canActOn, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
+import { api, canActItem, canActOn, GroupReceipt, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
+import { shareLabel } from '@/groupShare';
 import { IS_CLOUD } from '@/cloud/client';
 import { HelpSheet } from '@/components/HelpSheet';
 import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
@@ -48,12 +49,12 @@ const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('it-IT', { hour: 
 export default function SpesaScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { userId, catalog, prefs, addItem, addCustom, setItems, items: listItems } = useStore();
+  const { userId, catalog, prefs, addItem, addCustom, setItems, items: listItems, reloadGroupMine } = useStore();
   const [shop, setShop] = useState<Shop | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [offline, setOffline] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number } | null>(null);
+  const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number; group_receipts?: GroupReceipt[] } | null>(null);
   const [putBack, setPutBack] = useState<Set<string>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [pricing, setPricing] = useState<ShopItem | null>(null);
@@ -237,9 +238,13 @@ export default function SpesaScreen() {
     if (!finishing) return;
     for (const m of finishing.missing) {
       if (!putBack.has(m.key)) continue;
-      if (m.product_id.startsWith('custom:')) addCustom(m.name, m.category_id, m.quantity, m.unit);
-      else addItem(m.product_id, m.quantity);
+      // la parte per i gruppi resta nel gruppo (a te): nella tua lista torna solo la tua
+      const q = Math.round((m.quantity - (m.groups ?? []).reduce((t, g) => t + g.quantity, 0)) * 1000) / 1000;
+      if (q <= 0) continue;
+      if (m.product_id.startsWith('custom:')) addCustom(m.name, m.category_id, q, m.unit);
+      else addItem(m.product_id, q);
     }
+    reloadGroupMine();
     setShop(null);
     save(null);
     setFinishing(null);
@@ -252,12 +257,16 @@ export default function SpesaScreen() {
       // la lista torna com'era (si aggiunge a quello che hai scritto nel frattempo)
       const byId = new Map(listItems.map((i) => [i.product_id, i]));
       for (const i of r.items) {
+        // i prodotti per i gruppi restano nel gruppo (a te): nella tua lista torna solo la tua parte
+        const q = Math.round((i.quantity - (i.groups ?? []).reduce((t, g) => t + g.quantity, 0)) * 1000) / 1000;
+        if (q <= 0) continue;
         if (!byId.has(i.product_id)) {
           byId.set(i.product_id, i.product_id.startsWith('custom:')
-            ? { product_id: i.product_id, quantity: i.quantity, name: i.name, category_id: i.category_id, unit: i.unit }
-            : { product_id: i.product_id, quantity: i.quantity });
+            ? { product_id: i.product_id, quantity: q, name: i.name, category_id: i.category_id, unit: i.unit }
+            : { product_id: i.product_id, quantity: q });
         }
       }
+      reloadGroupMine();
       setItems([...byId.values()]);
       setShop(null);
       save(null);
@@ -273,6 +282,17 @@ export default function SpesaScreen() {
         <ScrollView contentContainerStyle={s.content}>
           <Text style={s.title}>🏁 Spesa finita</Text>
           <Text style={s.text}>Nel carrello circa {euro(finishing.cart)}. Ho imparato l'ordine dei reparti di questo negozio: la prossima volta la lista è già in ordine.</Text>
+          {(finishing.group_receipts ?? []).map((g) => (
+            <View key={g.group_id} style={[s.row, { alignItems: 'flex-start' }]}>
+              <Text style={{ fontSize: 22 }}>{g.emoji || '👥'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.name}>Scontrino di «{g.group_name}»: {euro(g.amount)}</Text>
+                <Text style={s.muted}>{g.saved
+                  ? `${g.lines} ${g.lines === 1 ? 'prodotto' : 'prodotti'} presi per il gruppo: segnati come spesa pagata da te, per i conti del gruppo. Non entrano nel tuo Salvadanaio.`
+                  : 'Non sono riuscito a segnarla nel gruppo: aggiungila a mano nei conti del gruppo.'}</Text>
+              </View>
+            </View>
+          ))}
           {!!finishing.missing.length && (
             <>
               <Text style={s.group}>Non presi: li rimetto nella prossima lista?</Text>
@@ -408,6 +428,7 @@ export default function SpesaScreen() {
                         {formatQty(i.quantity, i.unit)}{i.price != null ? ` · ~${euro(i.price)}` : ''}
                         {i.in_promo ? ` · in offerta${i.promo_until ? ` fino al ${i.promo_until.slice(8, 10)}/${i.promo_until.slice(5, 7)}` : ''}` : ''}
                       </Text>
+                      {!!shareLabel(i) && <Text style={[s.muted, { color: colors.primary, fontWeight: '700' }]}>{shareLabel(i)}</Text>}
                       {i.variant && (
                         <Text style={[s.muted, { color: colors.primary }]}>
                           💡 l'ultima volta qui: {i.variant.note || 'altra marca'} a {euro(i.variant.price)}
@@ -451,7 +472,7 @@ export default function SpesaScreen() {
               <Pressable key={i.key} onPress={() => toggle(i)} style={[s.row, s.rowDone]} accessibilityRole="checkbox" accessibilityState={{ checked: true }}>
                 <Icon name="checkmark-circle" size={26} color={colors.success} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[s.name, s.nameDone]}>{i.name}</Text>
+                  <Text style={[s.name, s.nameDone]}>{i.name}{i.groups?.length ? ` ${i.groups.map((g) => g.emoji || '👥').join('')}` : ''}</Text>
                   <Text style={s.muted}>
                     {formatQty(i.quantity, i.unit)}
                     {i.checked_by_id && i.checked_by_id !== userId ? ` · preso da ${i.checked_by ?? 'un familiare'}` : ''}
