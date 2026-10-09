@@ -268,8 +268,17 @@ export function canActItem(shop: Shop, item: ShopItem, userId: string | null): b
   return canActOn(shop, userId);
 }
 export interface ShopItemIn { product_id: string; quantity: number; name?: string | null; category_id?: string | null; unit?: string | null; stop?: number }
-export interface FamilyMember { user_id: string; display_name: string; /** riceve le notifiche (solo versione online) */ notifications?: boolean | null }
-export interface Family { code: string; created_at: string; members: FamilyMember[] }
+export interface FamilyMember { user_id: string; display_name: string; /** riceve le notifiche (solo versione online) */ notifications?: boolean | null;
+  role?: 'proprietario' | 'membro' }
+/** id e ruolo ci sono solo nella versione online (gruppi, #3) */
+export interface Family { id?: string; code: string; created_at: string; members: FamilyMember[]; my_role?: 'proprietario' | 'membro' }
+export type GroupKind = 'famiglia' | 'evento';
+export interface InvitePreview { valid: boolean; reason?: string; kind?: GroupKind; name?: string | null; emoji?: string | null;
+  invited_by?: string; needs_approval?: boolean; expires_at?: string }
+export interface OpenInvite { code: string; expires_at: string; uses: number; max_uses: number | null; created_by_name: string | null }
+export interface JoinRequest { user_id: string; display_name: string | null; created_at: string }
+export interface JoinResult { status: 'joined' | 'pending' | 'already' | 'invalid'; reason?: string; kind?: GroupKind; group_id?: string }
+export interface MyJoinRequest { group_id: string; kind: GroupKind; status: 'attesa' | 'accettata' | 'rifiutata'; invited_by: string | null; created_at: string }
 export interface FamilyList { code: string; items: ListItem[]; updated_by?: string; updated_at?: string }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -286,6 +295,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const post = <T>(path: string, body: unknown) => request<T>(path, { method: 'POST', body: JSON.stringify(body) });
+
+const ONLINE = "Gli inviti funzionano nella versione online";
 
 export const localApi = {
   bootstrap: () => request<Bootstrap>('/bootstrap'),
@@ -380,6 +391,16 @@ export const localApi = {
   familyJoin: (user_id: string, display_name: string, code: string) =>
     post<Family>('/family/join', { user_id, display_name, code }),
   familyLeave: (user_id: string) => post('/family/leave', { user_id }),
+  /** inviti e approvazioni (#13): solo nella versione online */
+  inviteCreate: (async (_group: string) => { throw new Error(ONLINE); }) as (group: string) => Promise<{ code: string; expires_at: string }>,
+  invitesOpen: (async (_group: string) => { throw new Error(ONLINE); }) as (group: string) => Promise<OpenInvite[]>,
+  inviteRevoke: (async (_code: string) => { throw new Error(ONLINE); }) as (code: string) => Promise<void>,
+  invitePreview: (async (_code: string) => { throw new Error(ONLINE); }) as (code: string) => Promise<InvitePreview>,
+  inviteJoin: (async (_code: string, _name?: string) => { throw new Error(ONLINE); }) as (code: string, name?: string) => Promise<JoinResult>,
+  joinRequests: (async (_group: string) => { throw new Error(ONLINE); }) as (group: string) => Promise<JoinRequest[]>,
+  joinDecide: (async (_group: string, _user: string, _accept: boolean) => { throw new Error(ONLINE); }) as (group: string, user: string, accept: boolean) => Promise<void>,
+  myJoinRequest: (async () => null) as () => Promise<MyJoinRequest | null>,
+  memberRemove: (async (_group: string, _user: string) => { throw new Error(ONLINE); }) as (group: string, user: string) => Promise<void>,
   familyByUser: (userId: string) => request<Family | Record<string, never>>(`/family/by-user/${userId}`),
   familyPushList: (code: string, user_id: string, items: ListItem[]) =>
     post<FamilyList>('/family/list', { code, user_id, items }),

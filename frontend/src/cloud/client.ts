@@ -42,8 +42,8 @@ function returnUrl(): string | undefined {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return undefined;
   let url = window.location.origin;
   try {
-    const invite = localStorage.getItem('mc_invito_famiglia');
-    if (invite) url += `/?famiglia=${encodeURIComponent(invite)}`;
+    const invite = localStorage.getItem('mc_invito');
+    if (invite) url += `/?invito=${encodeURIComponent(invite)}`;
   } catch { /* niente invito */ }
   return url;
 }
@@ -81,20 +81,19 @@ export async function redeemDeviceCode(code: string): Promise<void> {
   if (e2) throw new Error('Codice non valido o scaduto');
 }
 
-/** Invito in famiglia: si entra con il codice famiglia e la propria email (nessuna email da aspettare). */
-export async function joinFamilyWithEmail(family: string, email: string, name?: string): Promise<void> {
-  const { data, error } = await sb().functions.invoke('collega', { body: { action: 'join', family, email: email.trim(), name } });
-  if (error) throw new Error(await functionError(error, 'Non riesco a entrare'));
-  if (data?.error) throw new Error(data.error);
-  const { error: e2 } = await sb().auth.verifyOtp({ token_hash: data.token_hash, type: 'magiclink' });
-  if (e2) throw new Error('Non riesco a entrare: riprova');
+/** Account senza registrazione: aggiunge l'email. Arriva un codice a 6 cifre da confermare con confirmEmail. */
+export async function attachEmail(email: string): Promise<void> {
+  const { error } = await sb().auth.updateUser({ email: email.trim().toLowerCase() });
+  if (error) {
+    const m = error.message.toLowerCase();
+    throw new Error(m.includes('already') || m.includes('registered') ? 'Questa email è già usata da un altro account'
+      : m.includes('rate') ? 'Troppe richieste: riprova tra qualche minuto' : error.message);
+  }
 }
 
-/** Account senza registrazione: aggiunge l'email (così lo ritrovi con codice famiglia + email). */
-export async function attachEmail(email: string): Promise<void> {
-  const { data, error } = await sb().functions.invoke('collega', { body: { action: 'attach_email', email: email.trim() } });
-  if (error) throw new Error(await functionError(error, 'Email non salvata'));
-  if (data?.error) throw new Error(data.error);
+export async function confirmEmail(email: string, token: string): Promise<void> {
+  const { error } = await sb().auth.verifyOtp({ email: email.trim().toLowerCase(), token: token.trim(), type: 'email_change' });
+  if (error) throw new Error('Codice non valido o scaduto');
   await sb().auth.refreshSession();
 }
 

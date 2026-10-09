@@ -74,10 +74,24 @@ ok('suggest', !sg.__error && (sg.ready.length + sg.almost.length) > 0, sg.__erro
 const pr = await A.call('recipePropose', { user_id: U, count: 5, servings: 2, budget: 30 }); ok('recipePropose', pr.recipes?.length > 0, pr.__error || pr.recipes.map((r) => r.name).join(', '));
 
 // famiglia
-const fam = await A.call('familyCreate', U, 'Augusto'); ok('familyCreate', fam.code?.length === 6, fam.__error || fam.code);
-const fb = await Bu.call('familyJoin', 'x', 'Ale', fam.code.toLowerCase()); ok('familyJoin', fb.members?.length === 2, fb.__error || JSON.stringify(fb.members));
-ok('familyJoin codice errato', (await Bu.call('familyJoin', 'x', 'Ale', 'ZZZZZZ')).__error === 'Codice famiglia non trovato');
-const fa = await A.call('familyByUser', U); ok('familyByUser', fa.members?.length === 2 && fa.members.some((m) => m.display_name === 'Augusto'));
+const fam = await A.call('familyCreate', U, 'Augusto'); ok('familyCreate', !!fam.id && fam.my_role === 'proprietario', fam.__error || JSON.stringify(fam));
+// inviti (#13): il vecchio codice non fa entrare; invito → richiesta → accetta
+ok('codice famiglia vecchio rifiutato', !!(await Bu.call('familyJoin', 'x', 'Ale', fam.code)).__error);
+const inv = await A.call('inviteCreate', fam.id); ok('inviteCreate', inv.code?.length === 8, inv.__error || inv.code);
+const pv = await Bu.call('invitePreview', inv.code.toLowerCase());
+ok('invitePreview', pv.valid && pv.kind === 'famiglia' && pv.needs_approval && pv.invited_by === 'Augusto', JSON.stringify(pv));
+ok('invito sbagliato', (await Bu.call('inviteJoin', 'ZZZZ2222', 'Ale')).status === 'invalid');
+const jb = await Bu.call('inviteJoin', inv.code, 'Ale'); ok('inviteJoin → in attesa', jb.status === 'pending', jb.__error || JSON.stringify(jb));
+ok('invito usato una volta', !(await Bu.call('invitePreview', inv.code)).valid);
+ok('B non vede ancora la famiglia', !('code' in (await Bu.call('familyByUser', 'x'))));
+const mine = await Bu.call('myJoinRequest'); ok('myJoinRequest', mine?.status === 'attesa' && mine.invited_by === 'Augusto', JSON.stringify(mine));
+const reqs = await A.call('joinRequests', fam.id); ok('joinRequests', reqs.length === 1 && reqs[0].display_name === 'Ale', JSON.stringify(reqs));
+ok('B non può accettarsi da solo', !!(await Bu.call('joinDecide', fam.id, '22222222-2222-2222-2222-222222222222', true)).__error);
+const dec = await A.call('joinDecide', fam.id, reqs[0].user_id, true); ok('joinDecide', !dec?.__error, dec?.__error || '');
+const fa = await A.call('familyByUser', U); ok('familyByUser', fa.members?.length === 2 && fa.members.some((m) => m.display_name === 'Augusto' && m.role === 'proprietario'));
+const inv2 = await A.call('inviteCreate', fam.id); ok('invitesOpen', (await A.call('invitesOpen', fam.id)).some((i) => i.code === inv2.code));
+await Bu.call('inviteRevoke', inv2.code); ok('revoca solo chi può', (await A.call('invitePreview', inv2.code)).valid);
+await A.call('inviteRevoke', inv2.code); ok('inviteRevoke', !(await A.call('invitePreview', inv2.code)).valid);
 await Bu.call('familyPushList', fam.code, 'x', items.slice(0, 2));
 const pulled = await A.call('familyPullList', fam.code); ok('lista di famiglia', pulled.items?.length === 2, pulled.__error || '');
 const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista dalla famiglia', rcB.recipes?.[0]?.id === rc.id, rcB.recipes?.[0]?.name);
@@ -86,6 +100,10 @@ const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista da
 const shop = await A.call('shopCreate', { user_id: U, store_id: sv.store_id, saving_id: sv.id, items: [...items, items[0]], display_name: 'Augusto' });
 ok('shopCreate', shop.items?.length === 5 && shop.mine && shop.progress.total === 5, shop.__error || JSON.stringify(shop.progress));
 const seenB = await Bu.call('shopActive', 'x'); ok('la famiglia vede la spesa', seenB.shop?.id === shop.id && !seenB.shop.mine);
+// #11: la prende A, B chiede di aiutare e A accetta
+await A.call('shopTake', shop.id, U, 'Augusto', 'take');
+await Bu.call('shopTake', shop.id, 'x', 'Ale', 'request_help');
+const acc = await A.call('shopTake', shop.id, U, 'Augusto', 'accept'); ok('aiuto accettato', !acc.__error, acc.__error || '');
 const [c1, c2] = await Promise.all([A.call('shopCheck', shop.id, U, 'latte', true, 'Augusto'), Bu.call('shopCheck', shop.id, 'x', 'uova', true, 'Ale')]);
 ok('spunte contemporanee', !c1.__error && !c2.__error, (c1.__error || '') + (c2.__error || ''));
 await new Promise((r) => setTimeout(r, 300));
@@ -111,9 +129,9 @@ ok('classify', (await A.call('classify', 'zucchine')).category_id !== 'altro');
 ok('foto scontrino spenta', !!(await A.call('scanReceipt', [])).__error);
 
 // sicurezza: B non vede i dati personali di A
-ok('B non vede il salvadanaio di A', (await Bu.call('savings', 'x')).entries.length === 0);
-ok('B non vede lo storico di A', (await Bu.call('habitual', 'x')).based_on === 0);
 await Bu.call('familyLeave', 'x');
+ok('uscito: B non vede il salvadanaio di A', (await Bu.call('savings', 'x')).entries.length === 0);
+ok('uscito: B non vede lo storico di A', (await Bu.call('habitual', 'x')).based_on === 0);
 ok('uscito: niente ricette di A', !(await Bu.call('recipes', '', 'x', 'rilevanza')).recipes.some((r) => r.id === rc.id));
 ok('recipeDelete', (await A.call('recipeDelete', rc.id, U)).ok);
 ok('deleteSaving', (await A.call('deleteSaving', sv.id)).deleted === 1);

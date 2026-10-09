@@ -1,8 +1,7 @@
 // "Collega questo telefono": entrare su un altro dispositivo con un codice, senza email.
 //  - create (da un dispositivo dove sei già dentro): crea un codice di 8 caratteri valido 10 minuti
 //  - redeem (dal dispositivo nuovo): il codice diventa un accesso (token monouso), poi l'app chiama verifyOtp
-//  - join (da un invito): codice famiglia + email -> si entra nella famiglia (account nuovo o già della famiglia)
-//  - attach_email: un account senza registrazione riceve la sua email (senza email di conferma)
+//  (gli inviti in famiglia/gruppo sono nel database: join_with_invite, patch_011)
 // Deploy: Supabase → Edge Functions → nome "collega", con "Verify JWT" disattivato (il controllo lo fa la funzione).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -61,49 +60,8 @@ Deno.serve(async (req) => {
       if (e3 || !link?.properties?.hashed_token) return json({ error: e3?.message ?? 'Accesso non creato' }, 500);
       return json({ token_hash: link.properties.hashed_token });
     }
-    if (body.action === 'join') {
-      // invito in famiglia: codice famiglia + email (+ nome). L'email non riceve nulla: il codice famiglia fa da chiave.
-      const famCode = String(body.family ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const email = String(body.email ?? '').trim().toLowerCase();
-      const name = String(body.name ?? '').trim().slice(0, 40) || null;
-      if (!/^\S+@\S+\.\S+$/.test(email)) return json({ error: "Scrivi un'email valida" }, 400);
-      const { data: fam } = await admin.from('families').select('id, code').eq('code', famCode).maybeSingle();
-      if (!fam) return json({ error: 'Codice famiglia non trovato' }, 400);
-      const { data: existing } = await admin.rpc('user_id_by_email', { p_email: email });
-      let userId = existing as string | null;
-      if (userId) {
-        // account già esistente: si entra solo se fa parte di questa famiglia
-        const { data: prof } = await admin.from('profiles').select('family_id').eq('id', userId).maybeSingle();
-        if (prof?.family_id !== fam.id) {
-          return json({ error: 'Questa email ha già un account fuori da questa famiglia: entra con il link via email' }, 403);
-        }
-      } else {
-        const { data: created, error: e1 } = await admin.auth.admin.createUser({
-          email, email_confirm: true, user_metadata: name ? { display_name: name } : {},
-        });
-        if (e1 || !created?.user) return json({ error: e1?.message ?? 'Account non creato' }, 500);
-        userId = created.user.id;
-        await admin.from('profiles').upsert({ id: userId, display_name: name, family_id: fam.id, updated_at: new Date().toISOString() });
-      }
-      if (name) await admin.from('profiles').update({ display_name: name }).eq('id', userId).is('display_name', null);
-      const { data: link, error: e3 } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
-      if (e3 || !link?.properties?.hashed_token) return json({ error: e3?.message ?? 'Accesso non creato' }, 500);
-      return json({ token_hash: link.properties.hashed_token });
-    }
-    if (body.action === 'attach_email') {
-      // account senza registrazione (entrato da un invito): gli si aggiunge l'email, così lo ritrova ovunque
-      const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-      const { data, error } = await admin.auth.getUser(jwt);
-      const user = data?.user;
-      if (error || !user) return json({ error: 'Entra prima su questo dispositivo' }, 401);
-      const email = String(body.email ?? '').trim().toLowerCase();
-      if (!/^\S+@\S+\.\S+$/.test(email)) return json({ error: "Scrivi un'email valida" }, 400);
-      const { data: other } = await admin.rpc('user_id_by_email', { p_email: email });
-      if (other && other !== user.id) return json({ error: 'Questa email è già usata da un altro account' }, 409);
-      const { error: e2 } = await admin.auth.admin.updateUserById(user.id, { email, email_confirm: true });
-      if (e2) return json({ error: e2.message }, 500);
-      return json({ ok: true, email });
-    }
+    // 'join' (codice famiglia + email) e 'attach_email' tolti in F2 (#13): facevano entrare senza verificare l'email.
+    // Ora si rientra con il codice nell'email (Supabase) o con il codice di collegamento qui sopra.
     return json({ error: 'Azione sconosciuta' }, 400);
   } catch (e) {
     return json({ error: String(e) }, 500);

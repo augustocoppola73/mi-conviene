@@ -4,8 +4,9 @@ import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, Family, NearbyStore } from '@/api';
-import { attachEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
-import { shareInvite, shareNotifyReminder } from '@/invite';
+import { attachEmail, confirmEmail, createDeviceCode, IS_CLOUD, saveAccountWithGoogle, sb, signOut } from '@/cloud/client';
+import { normCode, shareNotifyReminder } from '@/invite';
+import { FamilyInvites, MyJoinRequestCard, removeMember } from '@/components/FamilyInvites';
 import { LocationControl } from '@/components/LocationControl';
 import { NotifySettings } from '@/components/NotifySettings';
 import { CategoryRules } from '@/components/CategoryRules';
@@ -181,28 +182,30 @@ export default function ProfiloScreen() {
         <SectionTitle>Famiglia</SectionTitle>
         {family ? (
           <Card>
-            <Text style={s.help}>Invita chi fa la spesa con te: riceve un link su WhatsApp o SMS, scrive il suo nome ed è dentro.</Text>
-            <Text style={s.code} selectable>{family.code}</Text>
-            <PrimaryButton
-              label="Invita in famiglia"
-              icon="share-social-outline"
-              onPress={async () => {
-                const r = await shareInvite(family.code, prefs.displayName);
-                if (r === 'copied') notify("Messaggio d'invito copiato: incollalo su WhatsApp, SMS o email.");
-              }}
-              style={{ marginTop: spacing.sm }}
-            />
+            {IS_CLOUD ? <FamilyInvites family={family} myName={prefs.displayName} onChanged={loadFamily} /> : (
+              <>
+                <Text style={s.help}>Codice della famiglia (versione su questo computer):</Text>
+                <Text style={s.code} selectable>{family.code}</Text>
+              </>
+            )}
             <View style={{ gap: 6, marginTop: spacing.md }}>
               {family.members.map((m) => (
                 <View key={m.user_id} style={s.member}>
                   <Icon name="person-circle-outline" size={22} color={colors.primary} />
-                  <Text style={[s.memberName, { flex: 1 }]}>{m.display_name}{m.user_id === userId ? ' (tu)' : ''}</Text>
+                  <Text style={[s.memberName, { flex: 1 }]}>{m.display_name}{m.user_id === userId ? ' (tu)' : ''}
+                    {m.role === 'proprietario' && <Text style={s.notifyState}>  · proprietario</Text>}</Text>
                   {m.notifications != null && (
                     <View style={s.member} accessibilityLabel={m.notifications ? 'Riceve le notifiche' : 'Non riceve le notifiche'}>
                       <Icon name={m.notifications ? 'notifications' : 'notifications-off-outline'} size={16}
                         color={m.notifications ? colors.primary : colors.textSecondary} />
                       <Text style={s.notifyState}>{m.notifications ? 'notifiche attive' : 'notifiche non attive'}</Text>
                     </View>
+                  )}
+                  {family.my_role === 'proprietario' && m.user_id !== userId && (
+                    <Pressable onPress={() => removeMember(family, m.user_id, m.display_name, loadFamily)} hitSlop={6}
+                      accessibilityRole="button" accessibilityLabel={`Togli ${m.display_name}`}>
+                      <Icon name="person-remove-outline" size={18} color={colors.danger} />
+                    </Pressable>
                   )}
                 </View>
               ))}
@@ -257,6 +260,7 @@ export default function ProfiloScreen() {
         ) : (
           <Card>
             <Text style={s.help}>Fate la spesa in più persone? Create una famiglia e condividete la lista.</Text>
+            {IS_CLOUD && <MyJoinRequestCard onAccepted={loadFamily} />}
             <View style={[s.familyActions, { marginTop: spacing.md }]}>
               <PrimaryButton
                 label="Crea famiglia"
@@ -265,7 +269,7 @@ export default function ProfiloScreen() {
                 onPress={() => run(async () => setFamily(await api.familyCreate(userId!, prefs.displayName)))}
                 style={{ flex: 1 }}
               />
-              <PrimaryButton label="Ho un codice" variant="secondary" onPress={() => setJoinOpen(true)} style={{ flex: 1 }} />
+              <PrimaryButton label={IS_CLOUD ? 'Ho un invito' : 'Ho un codice'} variant="secondary" onPress={() => setJoinOpen(true)} style={{ flex: 1 }} />
             </View>
           </Card>
         )}
@@ -279,9 +283,10 @@ export default function ProfiloScreen() {
         <View style={s.modalBg}>
           <Card style={s.modal}>
             <Text style={s.modalTitle}>Entra in una famiglia</Text>
+            {IS_CLOUD && <Text style={s.help}>Scrivi il codice dell'invito (8 caratteri) che ti hanno mandato.</Text>}
             <TextInput
               value={code}
-              onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+              onChangeText={(t) => setCode(IS_CLOUD ? normCode(t) : t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
               placeholder="CODICE"
               placeholderTextColor={colors.textSecondary}
               autoCapitalize="characters"
@@ -292,9 +297,16 @@ export default function ProfiloScreen() {
               <PrimaryButton label="Annulla" variant="secondary" onPress={() => setJoinOpen(false)} style={{ flex: 1 }} />
               <PrimaryButton
                 label="Entra"
-                disabled={code.length !== 6}
+                disabled={code.length !== (IS_CLOUD ? 8 : 6)}
                 loading={busy}
                 onPress={() => run(async () => {
+                  if (IS_CLOUD) {
+                    const r = await api.inviteJoin(code, prefs.displayName);
+                    setJoinOpen(false); setCode('');
+                    if (r.status === 'invalid') return notify(r.reason || 'Invito non valido');
+                    if (r.status === 'pending') { notify('Richiesta inviata: appena un familiare ti accetta sei dentro.'); return loadFamily(); }
+                    return loadFamily();
+                  }
                   setFamily(await api.familyJoin(userId!, prefs.displayName, code));
                   setJoinOpen(false);
                   setCode('');
@@ -351,12 +363,19 @@ function AccountCard() {
   }, []));
   const [devCode, setDevCode] = useState<{ code: string; minutes: number } | null>(null);
   const [newEmail, setNewEmail] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailCode, setEmailCode] = useState('');
   const addEmail = async () => {
     setBusy(true); setMsg(null);
+    try { await attachEmail(newEmail); setEmailSent(true); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
+  const confirmCode = async () => {
+    setBusy(true); setMsg(null);
     try {
-      await attachEmail(newEmail);
+      await confirmEmail(newEmail, emailCode);
       const { data } = await sb().auth.getUser();
       if (data.user) setUser({ email: data.user.email || null, anonymous: !!data.user.is_anonymous && !data.user.email });
+      setEmailSent(false); setEmailCode('');
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
   const newDevCode = async () => {
@@ -378,11 +397,24 @@ function AccountCard() {
       <Card style={{ gap: spacing.sm }}>
         {user?.anonymous ? (
           <>
-            <Text style={text}>Stai usando l'app senza email: i tuoi dati sono online ma legati a questo telefono. Aggiungi la tua email per ritrovarli anche su un altro telefono (con il codice famiglia e la stessa email).</Text>
-            <TextInput value={newEmail} onChangeText={setNewEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
-              autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email"
-              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16 }} />
-            <PrimaryButton label="Aggiungi la mia email" icon="mail-outline" onPress={addEmail} loading={busy} disabled={!/^\S+@\S+\.\S+$/.test(newEmail.trim())} />
+            <Text style={text}>Stai usando l'app senza email: i tuoi dati sono online ma legati a questo telefono. Aggiungi la tua email per ritrovarli anche su un altro telefono (entri con il codice che ti mandiamo via email).</Text>
+            {!emailSent ? (
+              <>
+                <TextInput value={newEmail} onChangeText={setNewEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email"
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16 }} />
+                <PrimaryButton label="Aggiungi la mia email" icon="mail-outline" onPress={addEmail} loading={busy} disabled={!/^\S+@\S+\.\S+$/.test(newEmail.trim())} />
+              </>
+            ) : (
+              <>
+                <Text style={text}>Ti ho mandato un'email a {newEmail.trim()}: scrivi qui il codice per confermarla (guarda anche nello spam).</Text>
+                <TextInput value={emailCode} onChangeText={(t) => setEmailCode(t.replace(/\D/g, '').slice(0, 8))} placeholder="123456"
+                  placeholderTextColor={colors.textSecondary} keyboardType="number-pad" inputMode="numeric" autoComplete="one-time-code"
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 20, letterSpacing: 4, textAlign: 'center' }} />
+                <PrimaryButton label="Conferma l'email" icon="checkmark-outline" onPress={confirmCode} loading={busy} disabled={emailCode.length < 6} />
+                <PrimaryButton label="Cambia email" variant="secondary" onPress={() => { setEmailSent(false); setEmailCode(''); }} />
+              </>
+            )}
             {Platform.OS === 'web' && <PrimaryButton label="Salva con Google" icon="logo-google" variant="secondary" onPress={save} loading={busy} />}
           </>
         ) : user?.email ? (

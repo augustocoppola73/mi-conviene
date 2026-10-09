@@ -1,7 +1,12 @@
-/** Inviti in famiglia: link con il codice (…/?famiglia=ABC123) da mandare su WhatsApp, SMS, email. */
+/** Inviti (#13): link con il codice (…/?invito=ABCD2345) da mandare su WhatsApp, SMS, email.
+ *  Famiglia: vale 48 ore e una volta sola, poi un familiare accetta. Il vecchio …/?famiglia=CODICE non vale più. */
 import { Platform, Share } from 'react-native';
 
-const KEY = 'mc_invito_famiglia';
+const KEY = 'mc_invito';
+const AUTO = 'mc_invito_auto';
+let memo: string | null = null;        // sul telefono (app) non c'è localStorage: basta la memoria
+let memoAuto: string | null = null;
+let oldLink = false;
 
 function appUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') return window.location.origin;
@@ -9,14 +14,14 @@ function appUrl(): string {
 }
 
 export function inviteLink(code: string): string {
-  return `${appUrl()}/?famiglia=${encodeURIComponent(code)}`;
+  return `${appUrl()}/?invito=${encodeURIComponent(code)}`;
 }
 
-/** Apre la condivisione del telefono; dove non c'è, copia il messaggio. Restituisce come è andata. */
-export async function shareInvite(code: string, from: string): Promise<'shared' | 'copied' | 'cancelled'> {
-  const link = inviteLink(code);
-  const message = `${from ? `${from} ti invita` : 'Ti invito'} nella famiglia su Mi Conviene: facciamo la spesa insieme e vediamo dove conviene.\n` +
-    `Apri il link, scrivi nome ed email e sei dentro (nessuna email da aspettare): ${link}\nSu un altro telefono rientri con il codice famiglia ${code} e la tua email.`;
+export function normCode(t: string): string {
+  return t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+}
+
+async function shareText(message: string): Promise<'shared' | 'copied' | 'cancelled'> {
   if (Platform.OS === 'web') {
     const nav = globalThis.navigator as any;
     if (nav?.share) {
@@ -28,26 +33,63 @@ export async function shareInvite(code: string, from: string): Promise<'shared' 
   return r.action === Share.dismissedAction ? 'cancelled' : 'shared';
 }
 
-/** All'apertura dell'app: se l'indirizzo contiene un invito lo ricorda (serve dopo l'accesso con il link email). */
+/** Apre la condivisione del telefono; dove non c'è, copia il messaggio. */
+export async function shareInvite(code: string, from: string, kind: 'famiglia' | 'evento' = 'famiglia', group?: string | null) {
+  const link = inviteLink(code);
+  const who = from ? `${from} ti invita` : 'Ti invito';
+  const message = kind === 'famiglia'
+    ? `${who} nella famiglia su Mi Conviene: facciamo la spesa insieme e vediamo dove conviene.\n` +
+      `Apri il link e scrivi il tuo nome: ti faccio entrare io. Vale 48 ore: ${link}\n(Oppure nell'app: «Ho un codice» → ${code})`
+    : `${who} in «${group || 'un gruppo'}» su Mi Conviene: lista e conti insieme.\nApri il link, scrivi il tuo nome e sei dentro: ${link}`;
+  return shareText(message);
+}
+
+/** All'apertura dell'app: se l'indirizzo contiene un invito lo ricorda (serve anche dopo l'accesso con il link email). */
 export function rememberInviteFromUrl(): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   try {
     const url = new URL(window.location.href);
-    const code = url.searchParams.get('famiglia');
-    if (code && /^[A-Za-z0-9]{4,10}$/.test(code)) {
-      localStorage.setItem(KEY, code.toUpperCase());
-      url.searchParams.delete('famiglia');
+    const code = url.searchParams.get('invito');
+    if (code && /^[A-Za-z0-9]{8}$/.test(code)) setPendingInvite(code);
+    if (url.searchParams.has('famiglia')) oldLink = true;
+    if (url.searchParams.has('invito') || url.searchParams.has('famiglia')) {
+      url.searchParams.delete('invito'); url.searchParams.delete('famiglia');
       window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
   } catch { /* niente invito */ }
 }
 
+/** Si è aperto un vecchio link con il codice famiglia (non vale più): lo dico una volta. */
+export function takeOldLinkNotice(): boolean {
+  const r = oldLink; oldLink = false; return r;
+}
+
+export function setPendingInvite(code: string, autoName?: string): void {
+  memo = normCode(code);
+  if (autoName !== undefined) memoAuto = autoName;
+  try {
+    if (Platform.OS !== 'web') return;
+    localStorage.setItem(KEY, memo);
+    if (autoName !== undefined) localStorage.setItem(AUTO, autoName);
+  } catch { /* pazienza */ }
+}
+
 export function pendingInvite(): string | null {
-  try { return Platform.OS === 'web' ? localStorage.getItem(KEY) : null; } catch { return null; }
+  try { if (Platform.OS === 'web') return localStorage.getItem(KEY) || memo; } catch { /* niente */ }
+  return memo;
+}
+
+/** Nome scritto nella schermata d'invito: c'è solo se si è entrati da lì (allora si entra senza altre domande). */
+export function takeAutoName(): string | null {
+  let v = memoAuto;
+  try { if (Platform.OS === 'web') { v = localStorage.getItem(AUTO) ?? v; localStorage.removeItem(AUTO); } } catch { /* niente */ }
+  memoAuto = null;
+  return v;
 }
 
 export function clearInvite(): void {
-  try { if (Platform.OS === 'web') localStorage.removeItem(KEY); } catch { /* pazienza */ }
+  memo = null; memoAuto = null;
+  try { if (Platform.OS === 'web') { localStorage.removeItem(KEY); localStorage.removeItem(AUTO); } } catch { /* pazienza */ }
 }
 
 /** Promemoria a un familiare che non riceve le notifiche (WhatsApp, SMS… dal menu Condividi). */
@@ -55,13 +97,5 @@ export async function shareNotifyReminder(name: string): Promise<'shared' | 'cop
   const message = `Ciao ${name}! Per ricevere gli avvisi della spesa di famiglia apri Mi Conviene sul telefono, ` +
     `vai in Profilo › Notifiche e tocca «Prova le notifiche» (poi consenti le notifiche).\n` +
     `Se non hai ancora l'app: https://raw.githubusercontent.com/augustocoppola73/mi-conviene/apk/MiConviene.apk`;
-  if (Platform.OS === 'web') {
-    const nav = globalThis.navigator as any;
-    if (nav?.share) {
-      try { await nav.share({ title: 'Mi Conviene', text: message }); return 'shared'; } catch { return 'cancelled'; }
-    }
-    try { await nav?.clipboard?.writeText(message); return 'copied'; } catch { return 'cancelled'; }
-  }
-  const r = await Share.share({ message });
-  return r.action === Share.dismissedAction ? 'cancelled' : 'shared';
+  return shareText(message);
 }

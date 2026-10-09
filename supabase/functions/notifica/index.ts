@@ -62,14 +62,18 @@ function message(kind: string, who: string, b: any): { title: string; body: stri
       : { title: `✅ ${who} ti ha lasciato la spesa da ${b.store}`, body: 'Ora la fai tu: tocca per aprirla', url: '/spesa' };
     case 'rifiutata': return { title: `👌 ${who} continua la spesa da ${b.store}`, body: 'Puoi seguirla in diretta', url: '/spesa' };
     case 'lasciata': return { title: `🔓 ${who} ha lasciato la spesa da ${b.store}`, body: 'È libera: tocca se vuoi prenderla tu', url: '/spesa' };
+    case 'ingresso': return { title: `🙋 ${b.name || 'Qualcuno'} chiede di entrare in famiglia`, body: 'Tocca per accettare o rifiutare', url: '/profilo' };
+    case 'ingresso_ok': return { title: '✅ Sei nella famiglia', body: `${who} ti ha accettato: ora vedete la stessa spesa`, url: '/' };
     case 'aiuto': return { title: `🤝 ${who} prende ${prodotti} da ${b.store}`, body: 'Li ha tolti dalla tua lista: tocca per vedere quali', url: '/spesa' };
     case 'aiuto_lasciato': return { title: `↩️ ${who} ha lasciato la sua parte da ${b.store}`, body: 'Quello che non ha preso torna nella tua lista', url: '/spesa' };
   }
   return null;
 }
-const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1, aiuto: 0, aiuto_lasciato: 0 };
+const THROTTLE_MIN: Record<string, number> = { lista: 10, spesa: 2, presa: 5, finita: 1, lasciata: 1, aiuto: 0, aiuto_lasciato: 0, ingresso: 0 };
 // avvisi personali (a una persona sola): niente pausa e non si possono spegnere, sono il modo in cui vi parlate
-const DIRECT = new Set(['richiesta', 'accettata', 'rifiutata']);
+const DIRECT = new Set(['richiesta', 'accettata', 'rifiutata', 'ingresso_ok']);
+// avvisi alla famiglia che non si possono spegnere (riguardano chi entra in casa)
+const ALWAYS = new Set(['ingresso']);
 // avvisi che seguono l'interruttore di un altro tipo nel Profilo
 const PREF_OF: Record<string, string> = { lasciata: 'presa', aiuto: 'presa', aiuto_lasciato: 'presa' };
 
@@ -96,7 +100,7 @@ Deno.serve(async (req) => {
       if (last && Date.now() - new Date(last.at).getTime() < (THROTTLE_MIN[kind] ?? 2) * 60_000) return json({ ok: true, skipped: 'throttle' });
       await admin.from('notify_log').upsert({ family_id, kind, at: new Date().toISOString() });
       const { data } = await admin.from('profiles').select('id, prefs').eq('family_id', family_id).neq('id', actor);
-      to = (data ?? []).filter((p: any) => p.prefs?.notify?.[PREF_OF[kind] ?? kind] !== false);
+      to = (data ?? []).filter((p: any) => ALWAYS.has(kind) || p.prefs?.notify?.[PREF_OF[kind] ?? kind] !== false);
     }
     if (!to.length) return json({ ok: true, sent: 0 });
 

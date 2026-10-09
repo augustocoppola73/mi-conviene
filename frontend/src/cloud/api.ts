@@ -173,8 +173,11 @@ async function familyOut(): Promise<T.Family | Record<string, never>> {
   const fam = check(await sb().from('families').select('*').eq('id', p.family_id).maybeSingle()) as any;
   if (!fam) return {};
   const members = check(await sb().rpc('family_members')) as any[];
-  return { code: fam.code, created_at: fam.created_at,
-    members: members.map((m) => ({ user_id: m.user_id, display_name: m.display_name || 'Senza nome', notifications: m.notifications ?? null })) };
+  const me = p.id;
+  return { id: fam.id, code: fam.code ?? fam.id.slice(0, 6).toUpperCase(), created_at: fam.created_at,
+    my_role: members.find((m) => m.user_id === me)?.role ?? 'membro',
+    members: members.map((m) => ({ user_id: m.user_id, display_name: m.display_name || 'Senza nome', notifications: m.notifications ?? null,
+      role: m.role ?? 'membro' })) };
 }
 
 // ------------------------------------------------------------------ spesa in corso
@@ -822,9 +825,11 @@ export const cloudApi = {
 
   familyJoin: async (_user_id: string, display_name: string, code: string): Promise<T.Family> => {
     await setDisplayName(display_name);
-    const { data, error } = await sb().rpc('join_family', { join_code: code });
-    if (error) throw new Error(error.message.includes('non trovato') ? 'Codice famiglia non trovato' : error.message);
-    await moveMyThings((data as any).id);
+    // il codice famiglia fisso non vale più (#13): si entra solo con un invito
+    const r = check(await sb().rpc('join_with_invite', { c: code, p_name: display_name || null })) as T.JoinResult;
+    if (r.status === 'invalid') throw new Error(r.reason || 'Invito non valido');
+    if (r.status === 'pending') throw new Error('Richiesta inviata: aspetta che un familiare ti accetti');
+    if (r.group_id) await moveMyThings(r.group_id);
     return (await familyOut()) as T.Family;
   },
 
@@ -835,6 +840,29 @@ export const cloudApi = {
   },
 
   familyByUser: async (_userId: string) => familyOut(),
+
+  // ------------------------------------------------ inviti e approvazioni (#13)
+  inviteCreate: async (group: string) => {
+    const r = check(await sb().rpc('create_invite', { g: group })) as any;
+    return { code: r.code as string, expires_at: r.expires_at as string };
+  },
+  invitesOpen: async (group: string) => (check(await sb().rpc('group_open_invites', { g: group })) ?? []) as T.OpenInvite[],
+  inviteRevoke: async (code: string) => { check(await sb().rpc('revoke_invite', { c: code })); },
+  invitePreview: async (code: string) => check(await sb().rpc('invite_preview', { c: code })) as T.InvitePreview,
+  inviteJoin: async (code: string, name?: string) => {
+    const r = check(await sb().rpc('join_with_invite', { c: code, p_name: name?.trim() || null })) as T.JoinResult;
+    if (r.status === 'joined' && r.kind === 'famiglia' && r.group_id) await moveMyThings(r.group_id).catch(() => {});
+    return r;
+  },
+  joinRequests: async (group: string) => (check(await sb().rpc('group_pending_requests', { g: group })) ?? []) as T.JoinRequest[],
+  joinDecide: async (group: string, user: string, accept: boolean) => {
+    check(await sb().rpc('decide_join_request', { g: group, u: user, accept }));
+  },
+  myJoinRequest: async () => {
+    const rows = check(await sb().rpc('my_join_request')) as T.MyJoinRequest[] | null;
+    return rows?.[0] ?? null;
+  },
+  memberRemove: async (group: string, user: string) => { check(await sb().rpc('remove_member', { g: group, u: user })); },
 
   familyPushList: async (code: string, _user_id: string, items: T.ListItem[]): Promise<T.FamilyList> => {
     const p = await myProfile();

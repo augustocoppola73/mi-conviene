@@ -3,8 +3,9 @@ import { ReactNode, useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { IS_CLOUD, joinFamilyWithEmail, redeemDeviceCode, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
-import { pendingInvite } from '../invite';
+import { api, InvitePreview } from '../api';
+import { IS_CLOUD, redeemDeviceCode, sb, sendLoginLink, signInWithGoogle, signInWithoutAccount, verifyCode } from '../cloud/client';
+import { clearInvite, normCode, pendingInvite, setPendingInvite, takeOldLinkNotice } from '../invite';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 
 // nell'app Android il link dell'email aprirebbe il browser: si entra con i codici
@@ -25,41 +26,44 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return <Login />;
 }
 
-/** Chi arriva da un invito: basta il nome, si entra subito nella famiglia (niente email). */
+/** Chi arriva da un invito: basta il nome (account senza registrazione), poi si entra o si aspetta l'approvazione. */
 function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
   const s = useStyles();
   const { colors } = useTheme();
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [busy, setBusy] = useState<false | 'email' | 'guest'>(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const validEmail = /^\S+@\S+\.\S+$/.test(email.trim());
-  const remember = () => { try { localStorage.setItem('mc_invito_auto', name.trim()); } catch { /* pazienza */ } };
+  const [info, setInfo] = useState<InvitePreview | null>(null);
+  useEffect(() => { api.invitePreview(code).then(setInfo).catch(() => setInfo({ valid: false, reason: 'Non riesco a leggere l\'invito: controlla la connessione' })); }, [code]);
   const enter = async () => {
-    setBusy('email'); setError(null);
-    try { remember(); await joinFamilyWithEmail(code, email, name); } catch (e) { setError((e as Error).message); setBusy(false); }
+    setBusy(true); setError(null);
+    try { setPendingInvite(code, name.trim()); await signInWithoutAccount(name); } catch (e) { setError((e as Error).message); setBusy(false); }
   };
-  const guest = async () => {
-    setBusy('guest'); setError(null);
-    try { remember(); await signInWithoutAccount(name); } catch (e) { setError((e as Error).message); setBusy(false); }
-  };
+  const fam = info?.kind !== 'evento';
+  const where = fam ? 'nella famiglia' : `in «${info?.emoji ? `${info.emoji} ` : ''}${info?.name || 'un gruppo'}»`;
   return (
     <SafeAreaView style={s.screen}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.wrap}>
         <View style={s.logo}><Icon name="people" size={34} color={colors.primaryText} /></View>
         <Text style={s.title}>Ti hanno invitato</Text>
-        <Text style={s.sub}>Entra nella famiglia {code} su Mi Conviene: fate la spesa insieme e vedete dove conviene.</Text>
-        <Text style={s.label}>Come ti chiami?</Text>
-        <TextInput value={name} onChangeText={setName} placeholder="Il tuo nome" placeholderTextColor={colors.textSecondary}
-          autoComplete="given-name" style={s.input} />
-        <Text style={s.label}>La tua email</Text>
-        <TextInput value={email} onChangeText={setEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
-          autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email" style={s.input}
-          onSubmitEditing={() => name.trim() && validEmail && enter()} />
-        <PrimaryButton label="Entra nella famiglia" icon="log-in-outline" onPress={enter} loading={busy === 'email'} disabled={!name.trim() || !validEmail} />
-        <Text style={s.note}>Non ti mandiamo nessuna email: l'indirizzo serve a ritrovarti. Su un altro telefono rientri con il codice famiglia {code} e la stessa email.</Text>
-        <PrimaryButton label="Entra senza email" variant="secondary" onPress={guest} loading={busy === 'guest'} disabled={!name.trim()} style={{ marginTop: spacing.md }} />
-        <PrimaryButton label="Ho già un account" variant="secondary" onPress={onOther} style={{ marginTop: spacing.sm }} />
+        {!info ? <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} /> : !info.valid ? (
+          <>
+            <Text style={s.sub}>{info.reason}</Text>
+            <PrimaryButton label="Vai all'accesso" variant="secondary" onPress={() => { clearInvite(); onOther(); }} />
+          </>
+        ) : (
+          <>
+            <Text style={s.sub}>{info.invited_by} ti invita {where} su Mi Conviene: fate la spesa insieme e vedete dove conviene.</Text>
+            <Text style={s.label}>Come ti chiami?</Text>
+            <TextInput value={name} onChangeText={setName} placeholder="Il tuo nome" placeholderTextColor={colors.textSecondary}
+              autoComplete="given-name" style={s.input} onSubmitEditing={() => name.trim() && enter()} />
+            <PrimaryButton label={info.needs_approval ? 'Chiedi di entrare' : 'Entra'} icon="log-in-outline" onPress={enter} loading={busy} disabled={!name.trim()} />
+            <Text style={s.note}>{info.needs_approval
+              ? `Niente email né password. ${info.invited_by} (o un familiare) ti accetta e sei dentro.`
+              : 'Niente email né password: entri subito.'} Gli altri vedono solo il tuo nome. Dopo puoi salvare l'accesso con la tua email dal Profilo.</Text>
+            <PrimaryButton label="Ho già un account" variant="secondary" onPress={onOther} style={{ marginTop: spacing.md }} />
+          </>
+        )}
         {error && <Text style={s.error}>{error}</Text>}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -72,32 +76,36 @@ function Loading() {
 
 function Login() {
   const [invite, setInvite] = useState(pendingInvite);
+  const [old] = useState(takeOldLinkNotice);
   if (invite) return <InviteLogin code={invite} onOther={() => setInvite(null)} />;
-  return <LoginForm />;
+  return <LoginForm old={old} onInvite={(c) => { setPendingInvite(c); setInvite(c); }} />;
 }
 
-function LoginForm() {
+function LoginForm({ old, onInvite }: { old: boolean; onInvite: (code: string) => void }) {
   const s = useStyles();
   const { colors } = useTheme();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
-  const [withCode, setWithCode] = useState(false);
+  const [withCode, setWithCode] = useState(NATIVE);
   const [busy, setBusy] = useState<false | 'email' | 'google' | 'guest' | 'link'>(false);
-  const [linking, setLinking] = useState(NATIVE);
+  const [linking, setLinking] = useState(false);
   const [linkCode, setLinkCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(old ? 'Il link che hai aperto usa il vecchio codice famiglia, che non vale più: chiedi un nuovo invito a chi è già nella famiglia.' : null);
   const valid = /^\S+@\S+\.\S+$/.test(email.trim());
 
   const google = async () => {
     setBusy('google'); setError(null);
     try { await signInWithGoogle(); } catch (e) { setError((e as Error).message); setBusy(false); }
   };
+  // 8 caratteri: un invito (famiglia o gruppo) oppure il codice di collegamento di un altro telefono
   const redeem = async () => {
     setBusy('link'); setError(null);
     try {
-      if (linkCode.length === 6) await joinFamilyWithEmail(linkCode, email);
-      else await redeemDeviceCode(linkCode);
+      const p = await api.invitePreview(linkCode).catch(() => null);
+      if (p?.valid) { setBusy(false); onInvite(linkCode); return; }
+      if (p && p.reason && p.reason !== 'Invito non trovato') throw new Error(p.reason);
+      await redeemDeviceCode(linkCode);
     } catch (e) { setError((e as Error).message); setBusy(false); }
   };
   const guest = async () => {
@@ -127,42 +135,42 @@ function LoginForm() {
             <TextInput value={email} onChangeText={setEmail} placeholder="nome@esempio.it" placeholderTextColor={colors.textSecondary}
               autoCapitalize="none" autoComplete="email" keyboardType="email-address" inputMode="email" style={s.input}
               onSubmitEditing={() => valid && send()} />
-            {!NATIVE && <PrimaryButton label="Mandami il link per entrare" icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />}
+            <PrimaryButton label={NATIVE ? 'Mandami il codice per entrare' : 'Mandami il link per entrare'} icon="mail-outline" onPress={send} loading={busy === 'email'} disabled={!valid} />
             <PrimaryButton label="Inizia senza account" icon="arrow-forward-outline" variant="secondary" onPress={guest} loading={busy === 'guest'} style={{ marginTop: spacing.sm }} />
             {!linking ? (
               <PrimaryButton label="Ho un codice" icon="key-outline" variant="secondary" onPress={() => setLinking(true)} style={{ marginTop: spacing.sm }} />
             ) : (
               <View style={{ marginTop: spacing.md }}>
-                <Text style={s.label}>Codice famiglia (6) o di collegamento (8)</Text>
-                <TextInput value={linkCode} onChangeText={(t) => setLinkCode(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-                  placeholder="ABC234" placeholderTextColor={colors.textSecondary} autoCapitalize="characters" autoCorrect={false}
+                <Text style={s.label}>Codice d'invito o di collegamento (8 caratteri)</Text>
+                <TextInput value={linkCode} onChangeText={(t) => setLinkCode(normCode(t))}
+                  placeholder="ABCD2345" placeholderTextColor={colors.textSecondary} autoCapitalize="characters" autoCorrect={false}
                   style={[s.input, { letterSpacing: 4, fontSize: 20, textAlign: 'center' }]} />
-                {linkCode.length === 6 && (
-                  <Text style={s.note}>Codice famiglia: scrivi sopra la tua email (quella con cui sei nella famiglia) e premi Entra.</Text>
-                )}
                 <PrimaryButton label="Entra con il codice" icon="log-in-outline" onPress={redeem} loading={busy === 'link'}
-                  disabled={!(linkCode.length === 8 || (linkCode.length === 6 && valid))} style={{ marginTop: spacing.sm }} />
-                <Text style={s.note}>Codice famiglia: lo trovi in Profilo → Famiglia sul telefono di chi è già dentro. Codice di collegamento: Profilo → Account → "Collega un altro telefono".</Text>
+                  disabled={linkCode.length !== 8} style={{ marginTop: spacing.sm }} />
+                <Text style={s.note}>Invito: te lo manda chi è già nella famiglia o nel gruppo. Collegamento: sul telefono dove sei già dentro, Profilo → Account → "Collega un altro telefono".</Text>
               </View>
             )}
             <Text style={s.note}>{NATIVE
-              ? 'Niente password: scrivi la tua email e il codice famiglia, oppure il codice di collegamento di un telefono dove sei già dentro.'
-              : "Niente password. Con Google o con l'email ritrovi i tuoi dati su ogni dispositivo; senza account restano su questo telefono (puoi salvarli dopo con Google)."}</Text>
+              ? "Niente password: ti mandiamo un codice via email e ritrovi i tuoi dati. Senza account restano su questo telefono (puoi aggiungere l'email dopo)."
+              : "Niente password. Con Google o con l'email ritrovi i tuoi dati su ogni dispositivo; senza account restano su questo telefono (puoi salvarli dopo)."}</Text>
           </>
         ) : (
           <>
-            <Text style={s.ok}>Controlla la posta di {email.trim()} e apri il link: ti fa entrare direttamente. Se non la trovi, guarda anche nello spam.</Text>
+            <Text style={s.ok}>{NATIVE
+              ? `Ti ho mandato un'email a ${email.trim()}: scrivi qui il codice che c'è dentro. Se non la trovi, guarda anche nello spam.`
+              : `Controlla la posta di ${email.trim()} e apri il link: ti fa entrare direttamente. Se non la trovi, guarda anche nello spam.`}</Text>
             {!withCode ? (
               <PrimaryButton label="Nell'email c'è un codice" variant="secondary" onPress={() => setWithCode(true)} />
             ) : (
               <>
                 <Text style={s.label}>Codice dell'email</Text>
                 <TextInput value={code} onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 8))} placeholder="123456"
-                  placeholderTextColor={colors.textSecondary} keyboardType="number-pad" inputMode="numeric" style={s.input} />
+                  placeholderTextColor={colors.textSecondary} keyboardType="number-pad" inputMode="numeric" style={s.input}
+                  autoComplete="one-time-code" onSubmitEditing={() => code.length >= 6 && confirm()} />
                 <PrimaryButton label="Entra" icon="log-in-outline" onPress={confirm} loading={busy === 'email'} disabled={code.length < 6} />
               </>
             )}
-            <PrimaryButton label="Cambia email" variant="secondary" onPress={() => { setSent(false); setCode(''); setWithCode(false); }} style={{ marginTop: spacing.sm }} />
+            <PrimaryButton label="Cambia email" variant="secondary" onPress={() => { setSent(false); setCode(''); setWithCode(NATIVE); }} style={{ marginTop: spacing.sm }} />
           </>
         )}
         {error && <Text style={s.error}>{error}</Text>}

@@ -6,7 +6,10 @@ const secret = 'e2e-secret-e2e-secret-e2e-secret-e2e-secret';
 const types = { '.js': 'application/javascript', '.html': 'text/html', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.ttf': 'font/ttf' };
 http.createServer((req, res) => {
   if (req.url.startsWith('/rest/v1/')) {
-    const opts = { host: 'localhost', port: 3099, path: req.url.slice(8), method: req.method, headers: { ...req.headers, host: 'localhost:3099' } };
+    const headers = { ...req.headers, host: 'localhost:3099' };
+    // senza accesso il client manda la chiave pubblica come token: come Supabase vero, vale da "anon"
+    if ((headers.authorization || '').split('.').length !== 3) delete headers.authorization;
+    const opts = { host: 'localhost', port: 3099, path: req.url.slice(8), method: req.method, headers };
     const p = http.request(opts, (r) => { res.writeHead(r.statusCode, { ...r.headers, 'access-control-allow-origin': '*' }); r.pipe(res); });
     req.pipe(p);
     return;
