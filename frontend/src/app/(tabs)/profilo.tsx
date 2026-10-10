@@ -126,7 +126,11 @@ export default function ProfiloScreen() {
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Text style={s.kicker}>Le tue preferenze</Text>
+        <Pressable onPress={() => router.navigate('/altro')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Torna ad Altro"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start' }}>
+          <Icon name="chevron-back" size={18} color={colors.primary} />
+          <Text style={[s.kicker, { color: colors.primary }]}>Altro</Text>
+        </Pressable>
         <Text style={s.title}>Profilo</Text>
 
         <ProfileSection id="tu" icon="person-outline" title={IS_CLOUD ? 'Tu e account' : 'Tu'} summary={summaryTu}>
