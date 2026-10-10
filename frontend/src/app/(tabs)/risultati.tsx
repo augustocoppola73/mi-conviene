@@ -12,6 +12,7 @@ import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
 import { groupSpend, mergeShopping } from '@/groupShare';
 import { openNavigation } from '@/navigate';
+import { metersBetween, quietPosition } from '@/location';
 import { ParkingLine } from '@/components/ParkingLine';
 import { BrandLogo, fuelDomain } from '@/components/BrandLogo';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
@@ -34,6 +35,10 @@ export default function RisultatiScreen() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // #25: decido io dove fare la spesa (di base il consigliato)
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  // #25: sono già dentro un supermercato della classifica?
+  const [hereId, setHereId] = useState<string | null>(null);
 
   // ogni nuova ricerca è una nuova spesa da confermare
   useEffect(() => {
@@ -42,6 +47,18 @@ export default function RisultatiScreen() {
     setExpanded(null);
     setAddedAmount(null);
     setAskOpen(false);
+    setChosenId(null);
+    setHereId(null);
+    if (!lastResult) return;
+    let alive = true;
+    quietPosition(6000).then((pos) => {
+      if (!alive || !pos) return;
+      const near = lastResult.ranked
+        .filter((r) => r.branch && metersBetween(pos, r.branch) <= 120)
+        .sort((a, b) => metersBetween(pos, a.branch!) - metersBetween(pos, b.branch!))[0];
+      if (near) setHereId(near.store_id);
+    });
+    return () => { alive = false; };
   }, [lastResult]);
 
   if (!lastResult) {
@@ -104,19 +121,25 @@ export default function RisultatiScreen() {
 
   // Il risparmio lo calcola il backend contro un riferimento oggettivo (abituale o
   // spesa tipica in zona). Il budget non entra mai nel conto.
-  const estimatedSaving = savings.amount;
-  const stop = recommended.fuel_stop;
-  const fuelSaving = stop ? savings.fuel_saving : 0;
+  const chosen = (chosenId && ranked.find((r) => r.store_id === chosenId)) || recommended;
+  const isRec = chosen.store_id === recommended.store_id;
+  const estimatedSaving = isRec ? savings.amount : Math.max(0, Math.round((savings.reference_cost - chosen.total_cost) * 100) / 100);
+  const stop = chosen.fuel_stop;
+  const fuelSaving = stop ? (isRec ? savings.fuel_saving : stop.saving) : 0;
+  // quanto costa in più del consigliato (viaggio incluso)
+  const extraVsRec = Math.round((chosen.total_cost - recommended.total_cost) * 100) / 100;
+  const hereStore = hereId ? ranked.find((r) => r.store_id === hereId) : undefined;
 
   // Risparmio rispetto al negozio scelto alla conferma ("dove saresti andato di solito").
   // null = spesa tipica in zona (mediana): è quello calcolato dal backend.
   const refRow = refStore ? ranked.find((r) => r.store_id === refStore) : undefined;
   const shopSaving = refRow
-    ? Math.max(0, Math.round((refRow.total_cost - recommended.total_cost) * 100) / 100)
+    ? Math.max(0, Math.round((refRow.total_cost - chosen.total_cost) * 100) / 100)
     : estimatedSaving;
   const refLabel = refRow ? `rispetto a ${refRow.store_name}` : savings.reference.label;
 
-  const openConfirm = () => {
+  const openConfirm = (storeId?: string) => {
+    setChosenId(storeId ?? null);
     // di solito saresti andato nel migliore dei tuoi preferiti (quello usato per il confronto)
     const favHere = savings.reference.type === 'habitual' ? savings.reference.store_id : null;
     setRefStore(favHere ?? null);
@@ -129,37 +152,37 @@ export default function RisultatiScreen() {
     try {
       // #21: i prodotti presi per i gruppi vanno nella stessa spesa ma NON nel Salvadanaio (sono dei conti del gruppo)
       const merged = mergeShopping(items, groupMine);
-      const gSpend = groupSpend(recommended.receipt.lines, merged);
-      const share = recommended.receipt.total > 0 ? Math.max(0, 1 - gSpend / recommended.receipt.total) : 1;
-      const h = await api.addHistory({ user_id: userId, items, store_id: recommended.store_id, total_cost: Math.round((recommended.total_cost - gSpend) * 100) / 100 });
+      const gSpend = groupSpend(chosen.receipt.lines, merged);
+      const share = chosen.receipt.total > 0 ? Math.max(0, 1 - gSpend / chosen.receipt.total) : 1;
+      const h = await api.addHistory({ user_id: userId, items, store_id: chosen.store_id, total_cost: Math.round((chosen.total_cost - gSpend) * 100) / 100 });
       const amount = addToPiggyBank ? Math.round((shopSaving * share + fuelSaving) * 100) / 100 : 0;
       // la voce va comunque nel Salvadanaio (anche a zero) per poterla verificare con lo scontrino vero
       const listAtConfirm = merged;
       const entry = await api.addSaving({
         user_id: userId,
-        store_id: recommended.store_id,
+        store_id: chosen.store_id,
         // stima totale = spesa + pieno sulla strada (la parte pieno si azzera se alla verifica dici che non l'hai fatto)
         amount,
-        note: (addToPiggyBank ? refLabel : 'spesa registrata senza risparmio') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
+        note: (addToPiggyBank ? refLabel : 'spesa registrata senza risparmio') + (!isRec ? ` · scelto da me (consigliato ${recommended.store_name})` : '') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
         reference_type: refRow ? 'habitual' : savings.reference.type,
         price_basis: savings.price_basis,
         history_id: h.id,
-        estimated_spend: Math.round((recommended.receipt.total - gSpend) * 100) / 100,
-        estimated_total: Math.round((recommended.total_cost - gSpend) * 100) / 100,
-        snapshot: recommended, // lo scontrino virtuale di oggi, per rivederlo nello storico
+        estimated_spend: Math.round((chosen.receipt.total - gSpend) * 100) / 100,
+        estimated_total: Math.round((chosen.total_cost - gSpend) * 100) / 100,
+        snapshot: chosen, // lo scontrino virtuale di oggi, per rivederlo nello storico
         ...(stop && addToPiggyBank ? {
           fuel_saving: fuelSaving, fuel_liters: stop.liters, fuel_median: stop.median,
           fuel_detour_cost: stop.detour_cost, fuel_station: `${stop.brand}, ${stop.address}`,
         } : {}),
       });
       setAddedAmount(amount);
-      setConfirmed(recommended.store_id);
+      setConfirmed(chosen.store_id);
       setAskOpen(false);
       // la lista diventa la "spesa in corso" da smarcare in negozio; la Lista in home si svuota
       try {
         await api.shopCreate({
-          user_id: userId, store_id: recommended.store_id, saving_id: entry.id,
-          branch: recommended.branch ? [recommended.branch.name, recommended.branch.address].filter(Boolean).join(' · ') : null,
+          user_id: userId, store_id: chosen.store_id, saving_id: entry.id,
+          branch: chosen.branch ? [chosen.branch.name, chosen.branch.address].filter(Boolean).join(' · ') : null,
           display_name: prefs.displayName || null,
           items: listAtConfirm.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null, unit: i.unit ?? null,
             groups: i.groups })),
@@ -219,6 +242,20 @@ export default function RisultatiScreen() {
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
       <ScrollView contentContainerStyle={s.content}>
+        {hereStore && !confirmed && (
+          <Card style={[s.hereBox, { borderColor: colors.primary }]}>
+            <Text style={s.hereTitle}>📍 Sei da {hereStore.store_name}: fai la spesa qui?</Text>
+            {hereStore.store_id !== recommended.store_id && (
+              <Text style={s.modalSmall}>
+                {hereStore.total_cost > recommended.total_cost
+                  ? `Costa ${euro(hereStore.total_cost - recommended.total_cost)} in più di ${recommended.store_name}, ma sei già qui.`
+                  : `Conviene quanto ${recommended.store_name}.`}
+              </Text>
+            )}
+            <PrimaryButton label={`Faccio la spesa da ${hereStore.store_name}`} icon="cart-outline"
+              onPress={() => openConfirm(hereStore.store_id)} style={{ marginTop: spacing.sm }} />
+          </Card>
+        )}
         <Text style={s.kicker}>Ti conviene andare da</Text>
         <View style={s.heroRow}>
           <StoreDot storeId={recommended.store_id} size={20} />
@@ -456,17 +493,18 @@ export default function RisultatiScreen() {
         <PrimaryButton
           label={confirmed === recommended.store_id ? 'Spesa confermata' : split ? `Resto in un negozio: ${recommended.store_name}` : 'Confermo questa spesa'}
           icon={confirmed === recommended.store_id ? 'checkmark-circle' : 'cart-outline'}
-          onPress={openConfirm}
+          onPress={() => openConfirm()}
           disabled={!!confirmed}
           style={{ marginTop: spacing.lg }}
         />
-        {confirmed === recommended.store_id && (
+        {!!confirmed && confirmed !== 'split' && (
           <Text style={s.confirmNote}>
+            {confirmed !== recommended.store_id ? `Spesa da ${chosen.store_name} confermata.\n` : ''}
             {addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
             {'\n'}La lista è pronta da smarcare in negozio.
           </Text>
         )}
-        {confirmed === recommended.store_id && !shopError && (
+        {!!confirmed && confirmed !== 'split' && !shopError && (
           <PrimaryButton label="Vai alla spesa in corso" icon="basket-outline" onPress={() => router.push('/spesa')} style={{ marginTop: spacing.sm }} />
         )}
         {shopError && <Text style={[s.confirmNote, { color: colors.danger }]}>Non riesco a preparare la spesa in corso: {shopError}</Text>}
@@ -504,6 +542,12 @@ export default function RisultatiScreen() {
               )}
               <DeltaBadge delta={r.effective_cost - recommended.effective_cost} />
               <ReceiptToggle store={r} expanded={expanded === r.store_id} onToggle={() => setExpanded(expanded === r.store_id ? null : r.store_id)} />
+              {confirmed === r.store_id ? (
+                <Text style={[s.confirmNote, { marginTop: spacing.xs }]}>✓ Fai la spesa qui</Text>
+              ) : (
+                <PrimaryButton label="Faccio la spesa qui" icon="cart-outline" variant="secondary" disabled={!!confirmed}
+                  onPress={() => openConfirm(r.store_id)} style={{ marginTop: spacing.sm }} />
+              )}
             </Card>
           ))}
         </View>
@@ -542,7 +586,14 @@ export default function RisultatiScreen() {
       <Modal visible={askOpen} transparent animationType="fade" onRequestClose={() => setAskOpen(false)}>
         <View style={s.modalBg}>
           <Card style={s.modal}>
-            <Text style={s.modalTitle}>Confermi la spesa da {recommended.store_name}?</Text>
+            <Text style={s.modalTitle}>Confermi la spesa da {chosen.store_name}?</Text>
+            {!isRec && (
+              <Text style={[s.modalText, { marginBottom: spacing.sm }]}>
+                {extraVsRec > 0
+                  ? `${chosen.store_name} costa ${euro(extraVsRec)} in più di ${recommended.store_name} (viaggio incluso). Va bene: decidi tu.`
+                  : `Costa quanto ${recommended.store_name}.`}
+              </Text>
+            )}
             <Text style={s.modalText}>Rispetto a dove saresti andato di solito?</Text>
             <View style={s.refWrap}>
               {ranked.map((r) => (
@@ -559,9 +610,9 @@ export default function RisultatiScreen() {
             </View>
 
             <View style={s.preview}>
-              {refRow && refRow.store_id !== recommended.store_id ? (
+              {refRow && refRow.store_id !== chosen.store_id ? (
                 <Text style={s.modalText}>
-                  Da {refRow.store_name} avresti speso {euro(refRow.total_cost)}, qui {euro(recommended.total_cost)} (viaggio incluso).
+                  Da {refRow.store_name} avresti speso {euro(refRow.total_cost)}, qui {euro(chosen.total_cost)} (viaggio incluso).
                 </Text>
               ) : refRow ? (
                 <Text style={s.modalText}>È proprio il negozio dove vai di solito: nessun risparmio da aggiungere.</Text>
@@ -572,7 +623,7 @@ export default function RisultatiScreen() {
                 {shopSaving > 0 ? `Risparmi ${euro(shopSaving)}` : 'Nessun risparmio'}
                 {fuelSaving > 0 ? ` + ${euro(fuelSaving)} sul pieno (da verificare)` : ''}
               </Text>
-              {refRow && refRow.total_cost < recommended.total_cost && (
+              {refRow && isRec && refRow.total_cost < recommended.total_cost && (
                 <Text style={s.modalSmall}>{refRow.store_name} costerebbe meno in euro, ma tra strada e tempo non conviene.</Text>
               )}
             </View>
@@ -586,6 +637,9 @@ export default function RisultatiScreen() {
             />
             {shopSaving + fuelSaving > 0 && (
               <PrimaryButton label="Conferma senza aggiungere al Salvadanaio" variant="secondary" onPress={() => confirm(false)} disabled={saving} />
+            )}
+            {shopSaving + fuelSaving <= 0 && !isRec && (
+              <Text style={[s.modalSmall, { textAlign: 'center' }]}>Nessun risparmio da mettere nel Salvadanaio: la spesa resta registrata, da verificare con lo scontrino.</Text>
             )}
             <Pressable onPress={() => setAskOpen(false)} style={{ alignSelf: 'center', padding: spacing.sm }}>
               <Text style={s.modalSmall}>Annulla</Text>
@@ -645,6 +699,8 @@ const useStyles = makeStyles((c) => ({
   splitTotal: { color: c.text, fontSize: 24, fontWeight: '800' },
   splitSave: { color: c.success, fontSize: 14, fontWeight: '700' },
   splitStop: { gap: 4, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: c.border },
+  hereBox: { padding: spacing.md, marginBottom: spacing.lg, borderWidth: 2 },
+  hereTitle: { color: c.text, fontSize: 17, fontWeight: '800', marginBottom: 4 },
   confirmNote: { color: c.success, textAlign: 'center', marginTop: spacing.sm, fontSize: 14 },
   altRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   altName: { flex: 1, color: c.text, fontSize: 16, fontWeight: '600' },
