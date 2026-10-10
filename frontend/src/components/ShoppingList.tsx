@@ -85,20 +85,23 @@ export function ShoppingList({ items, categories, productById, updateQty, remove
     const sel = open ? rows.find((r) => r.item.product_id === open) : undefined;
     return (
       <View style={{ gap: spacing.md }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-        {/* tutte di seguito nell'ordine dei reparti (meno scorrimento): il reparto è il segnetto in alto a sinistra */}
-        <View style={[s.grid, { gap: GAP }]}>
-          {sorted.flatMap(([, list]) => list).map((r) => (
-            <Pressable key={r.item.product_id} onPress={() => setOpen(r.item.product_id)}
-              style={({ pressed }) => [s.tile, tileW ? { width: tileW } : { width: '23%' }, pressed && { opacity: 0.7 }]}
-              accessibilityRole="button" accessibilityLabel={`${r.name}, ${formatQty(r.item.quantity, r.unit)}, ${catById.get(r.categoryId)?.name ?? 'Altro'}`}
-              accessibilityHint="Tocca per cambiare quantità o toglierlo">
-              <Text style={s.tileCat}>{catById.get(r.categoryId)?.emoji ?? '🛒'}</Text>
-              <Text style={s.tileEmoji}>{productEmoji(r.name, catById.get(r.categoryId)?.emoji)}</Text>
-              <Text style={s.tileName} numberOfLines={2}>{r.name}</Text>
-              <Text style={s.tileQty} numberOfLines={1}>{formatQty(r.item.quantity, r.unit)}{r.custom ? ' ✍️' : ''}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {sorted.map(([catId, list]) => (
+          <View key={catId} style={{ gap: 6 }}>
+            <Text style={s.group}>{catById.get(catId)?.emoji ?? '🛒'} {catById.get(catId)?.name ?? 'Altro'}</Text>
+            <View style={[s.grid, { gap: GAP }]}>
+              {list.map((r) => (
+                <Pressable key={r.item.product_id} onPress={() => setOpen(r.item.product_id)}
+                  style={({ pressed }) => [s.tile, tileW ? { width: tileW } : { width: '23%' }, pressed && { opacity: 0.7 }]}
+                  accessibilityRole="button" accessibilityLabel={`${r.name}, ${formatQty(r.item.quantity, r.unit)}`}
+                  accessibilityHint="Tocca per cambiare quantità o toglierlo">
+                  <Text style={s.tileEmoji}>{productEmoji(r.name, catById.get(r.categoryId)?.emoji)}</Text>
+                  <Text style={s.tileName} numberOfLines={2}>{r.name}</Text>
+                  <Text style={s.tileQty} numberOfLines={1}>{formatQty(r.item.quantity, r.unit)}{r.custom ? ' ✍️' : ''}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ))}
         <ItemSheet row={sel} categories={categories} catEmoji={sel ? catById.get(sel.categoryId)?.emoji : undefined}
           onClose={() => setOpen(null)}
           onQty={(q) => { if (!sel) return; if (q <= 0) { removeItem(sel.item.product_id); setOpen(null); } else updateQty(sel.item.product_id, q); }}
@@ -252,7 +255,6 @@ const useStyles = makeStyles((c) => ({
     borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface,
   },
   tileEmoji: { fontSize: 30, lineHeight: 36 },
-  tileCat: { position: 'absolute', top: 3, left: 4, fontSize: 10, opacity: 0.75 },
   tileName: { color: c.text, fontSize: 12.5, fontWeight: '600', textAlign: 'center', lineHeight: 15 },
   tileQty: { color: c.primary, fontSize: 12, fontWeight: '700', marginTop: 'auto' },
   sheetBg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'flex-end' },
