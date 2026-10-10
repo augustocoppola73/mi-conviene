@@ -200,7 +200,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setItemCategory = useCallback((productId: string, categoryId: string) => {
-    setItemsState((prev) => prev.map((i) => (i.product_id === productId ? { ...i, category_id: categoryId } : i)));
+    setItemsState((prev) => {
+      const it = prev.find((i) => i.product_id === productId);
+      // #27: il reparto corretto vale anche nel catalogo di tutti (se l'ho creato io e lo uso solo io)
+      if (it && productId.startsWith('custom:')) api.rememberCustom(productId, it.name ?? productId.slice(7), categoryId, it.unit ?? 'pz').catch(() => {});
+      return prev.map((i) => (i.product_id === productId ? { ...i, category_id: categoryId } : i));
+    });
   }, []);
 
   const setPrefs = useCallback((patch: Partial<Prefs>) => setPrefsState((p) => ({ ...p, ...patch })), []);

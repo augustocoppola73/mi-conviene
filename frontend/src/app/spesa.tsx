@@ -16,7 +16,7 @@ import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty } from '@/format';
 import { ParkingLine } from '@/components/ParkingLine';
 import { openNavigation } from '@/navigate';
-import { useStore } from '@/store';
+import { customId, useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 const CACHE_KEY = 'mc_shop_cache';
@@ -457,7 +457,7 @@ export default function SpesaScreen() {
               products={catalog?.products ?? []}
               categories={catalog?.categories ?? []}
               onToggleProduct={(id) => { if (!shop.items.some((x) => x.key === id)) addInStore(id); }}
-              onAddCustom={(n, cat) => addInStore('custom:' + n.toLowerCase().replace(/[^a-z0-9]+/g, '-'), n, cat)}
+              onAddCustom={(n, cat) => addInStore(customId(n), n, cat)}
               itemFor={(id) => (shop.items.some((x) => x.key === id) ? { product_id: id, quantity: 0 } : undefined)}
             />
             <Pressable onPress={() => setAdding(false)} style={{ alignSelf: 'center', padding: spacing.sm }}><Text style={s.muted}>Chiudi</Text></Pressable>

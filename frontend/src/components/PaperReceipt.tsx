@@ -93,7 +93,7 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
                 <Text style={st.t}>{cols(c.name.toUpperCase(), c.price != null ? `${num(c.price)} T` : 'DA VERIFICARE')}</Text>
                 <Text style={[st.t, st.faded]}>
                   {'  '}{formatQty(c.quantity, c.unit)}
-                  {c.price != null ? (c.seen_on ? ` · VISTO DA TE IL ${c.seen_on.slice(8, 10)}/${c.seen_on.slice(5, 7)}` : ' · VISTO DA TE') : ' · PREZZO SUL POSTO'}
+                  {c.price != null ? ` · ${c.seen_mine === false ? 'SEGNALATO' : 'VISTO DA TE'}${c.seen_on ? ` IL ${c.seen_on.slice(8, 10)}/${c.seen_on.slice(5, 7)}` : ''}` : ' · PREZZO SUL POSTO'}
                 </Text>
               </Fragment>
             ))}
@@ -118,7 +118,7 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
         <Text style={[st.t, st.faded]}>{cols('PREZZI REALI', `${receipt.real_lines}/${pieces}`)}</Text>
         <Text style={[st.t, st.faded]}>R = PREZZO REALE (OPEN PRICES)</Text>
         <Text style={[st.t, st.faded]}>S = PREZZO STIMATO</Text>
-        {(receipt.lines.some((l) => l.custom) || (receipt.custom_total ?? 0) > 0) && <Text style={[st.t, st.faded]}>T = PREZZO SCRITTO DA TE</Text>}
+        {(receipt.lines.some((l) => l.custom) || (receipt.custom_total ?? 0) > 0) && <Text style={[st.t, st.faded]}>T = PREZZO SCRITTO A MANO (TU O ALTRI)</Text>}
         {receipt.unknown_products.length > 0 && (
           <Text style={[st.t, st.faded]}>{receipt.unknown_products.length} ART. NON TROVATI</Text>
         )}

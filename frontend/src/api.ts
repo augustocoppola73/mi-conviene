@@ -62,7 +62,10 @@ export interface ScanResult {
 }
 export interface CustomLine { product_id: string; name: string; quantity: number; unit: string; category_id: string | null;
   /** #26: prezzo che conosco in questo negozio (visto da te o dalla famiglia), null = da verificare sul posto */
-  price?: number | null; seen_on?: string | null }
+  price?: number | null; seen_on?: string | null; /** #27: prezzo visto da me/famiglia (true) o da altri (false) */ seen_mine?: boolean | null }
+
+/** #27: prodotto scritto a mano da qualcuno, nel catalogo di tutti */
+export interface CommunityProduct { key: string; name: string; category_id: string; unit: string; uses: number }
 
 export interface ReceiptLine {
   product_id: string; name: string; quantity: number; unit: string;
@@ -407,6 +410,8 @@ export const localApi = {
   shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
   /** "Ti do una mano" (#4): solo nella versione online (serve la famiglia e la posizione) */
   /** #15: nel gruppo, cosa conviene prendere a me (dalla mia posizione): solo versione online */
+  communityProducts: async (_fresh?: boolean): Promise<CommunityProduct[]> => [],
+  rememberCustom: async (_key: string, _name: string, _categoryId: string | null, _unit: string | null): Promise<void> => {},
   groupHelpPlan: async (_items: { id: string; product_id: string; name: string; quantity: number; unit: string; category_id: string | null }[],
     _lat: number, _lon: number, _transport: Transport, _fuel: FuelType): Promise<HelpOption[]> => {
     throw new Error('Funziona nella versione online');

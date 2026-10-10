@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
-import { api, Category, ClassifyResult, ListItem, Product } from '../api';
+import { api, Category, ClassifyResult, CommunityProduct, ListItem, Product } from '../api';
 import { formatQty, qtyStep } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { QtyStepper } from './QtyStepper';
 import { Icon } from './ui';
+
+const customKey = (name: string) =>
+  'custom:' + name.trim().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+/** #27: i prodotti scritti a mano da tutti, cercabili come il catalogo */
+let communityMem: CommunityProduct[] = [];
+function useCommunity(): CommunityProduct[] {
+  const [list, setList] = useState(communityMem);
+  useEffect(() => { api.communityProducts().then((l) => { communityMem = l; setList(l); }).catch(() => {}); }, []);
+  return list;
+}
 
 export const norm = (t: string) =>
   t.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').trim();
@@ -27,6 +38,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
   const s = useStyles();
   const { colors } = useTheme();
   const [q, setQ] = useState('');
+  const community = useCommunity();
   const [cls, setCls] = useState<ClassifyResult | null>(null);
   const [catPick, setCatPick] = useState<string | null>(null); // categoria scelta a mano per il prodotto nuovo
   const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -56,6 +68,17 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
       .map((x) => x.p);
   }, [q, products]);
 
+  // #27: prodotti scritti a mano da altri (non doppioni del catalogo)
+  const communityMatches = useMemo(() => {
+    const nq = norm(q);
+    if (nq.length < 2) return [];
+    const words = nq.split(' ').filter(Boolean);
+    const inCatalog = new Set(products.map((p) => norm(p.name)));
+    return community
+      .filter((c) => { const n = norm(c.name); return words.every((w) => n.includes(w)) && !inCatalog.has(n); })
+      .slice(0, 4);
+  }, [q, community, products]);
+
   // classificazione del testo scritto (con un attimo di attesa mentre scrivi)
   useEffect(() => {
     setCatPick(null);
@@ -67,14 +90,22 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
 
   // suggerimenti del backend che non sono già tra i risultati della ricerca
   const extra = (cls?.similar ?? []).filter((x) => !matches.some((m) => m.id === x.product_id)).slice(0, 2);
-  const exactInCatalog = matches.some((m) => norm(m.name) === norm(q));
+  const exactInCatalog = matches.some((m) => norm(m.name) === norm(q)) || communityMatches.some((c) => norm(c.name) === norm(q));
   const newCat = catPick ?? cls?.category_id ?? 'altro';
 
   const addNew = () => {
     const name = q.trim();
     onAddCustom(name, newCat);
-    const id = 'custom:' + name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const id = customKey(name);
+    api.rememberCustom(id, name, newCat, 'pz').catch(() => {});   // #27: entra nel catalogo di tutti
     setLast({ id, name, unit: 'pz', step: 1 });
+    setQ('');
+  };
+  const tapCommunity = (c: CommunityProduct) => {
+    if (itemFor(c.key)) { if (onUpdateQty) { onUpdateQty(c.key, 0); return; } return; }
+    onAddCustom(c.name, c.category_id);
+    api.rememberCustom(c.key, c.name, c.category_id, c.unit).catch(() => {});
+    setLast({ id: c.key, name: c.name, unit: c.unit, step: 1 });
     setQ('');
   };
   const tap = (p: Product) => {
@@ -133,6 +164,21 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
                 </Text>
               </View>
               <Icon name={itemFor(p.id) ? 'checkmark-circle' : 'add-circle-outline'} size={24} color={colors.primary} />
+            </Pressable>
+          ))}
+
+          {communityMatches.map((c) => (
+            <Pressable key={c.key} onPress={() => tapCommunity(c)} style={s.row}
+              accessibilityHint={itemFor(c.key) ? 'Già in lista' : 'Tocca per aggiungerlo'}>
+              <Text style={s.emoji}>{catById.get(c.category_id)?.emoji ?? '✍️'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.name}>{c.name} <Text style={s.meta}>✍️</Text></Text>
+                <Text style={s.meta}>
+                  {catById.get(c.category_id)?.name ?? 'Altro'} · aggiunto da {c.uses > 1 ? `${c.uses} persone` : 'un utente'}
+                  {itemFor(c.key) ? (onUpdateQty ? ' · in lista: tocca per togliere' : ' · già nella spesa') : ''}
+                </Text>
+              </View>
+              <Icon name={itemFor(c.key) ? 'checkmark-circle' : 'add-circle-outline'} size={24} color={colors.primary} />
             </Pressable>
           ))}
 

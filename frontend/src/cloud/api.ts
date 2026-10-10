@@ -96,14 +96,15 @@ async function saveObserved(lines: ObservedLine[], storeId: string, date: string
 
 // ------------------------------------------------------------------ prezzi dei prodotti scritti a mano (#26)
 // Della famiglia (o della persona): "idropulsore da Lidl 49,99 €, visto il 10/10". Prezzo per unità (pz o kg).
-type CustomPrice = { unit_price: number; seen_on: string; name: string };
+type CustomPrice = { unit_price: number; seen_on: string; mine: boolean };
 let customCache: { at: number; map: Map<string, CustomPrice> } | null = null;
 async function customPrices(): Promise<Map<string, CustomPrice>> {
   if (customCache && Date.now() - customCache.at < 10 * 60 * 1000) return customCache.map;
   const map = new Map<string, CustomPrice>();
   try {
-    const { data } = await sb().from('custom_prices').select('store_id,key,name,unit_price,seen_on');
-    for (const r of data ?? []) map.set(`${r.store_id}|${r.key}`, { unit_price: Number(r.unit_price), seen_on: r.seen_on, name: r.name });
+    // #27: i prezzi li vedono tutti (l'ultimo per negozio); "mine" = visto da me o dalla mia famiglia
+    const { data } = await sb().rpc('custom_prices_all');
+    for (const r of (data ?? []) as any[]) map.set(`${r.store_id}|${r.key}`, { unit_price: Number(r.unit_price), seen_on: r.seen_on, mine: !!r.mine });
   } catch { /* senza rete: niente prezzi a mano */ }
   customCache = { at: Date.now(), map };
   return map;
@@ -121,6 +122,7 @@ function priceCustom(receipt: any, storeId: string, cp: Map<string, CustomPrice>
     const k = cp.get(`${storeId}|${c.product_id}`);
     c.price = k ? r2(k.unit_price * c.quantity) : null;
     c.seen_on = k?.seen_on ?? null;
+    c.seen_mine = k ? k.mine : null;
     if (c.price != null) tot += c.price;
   }
   receipt.custom_total = r2(tot);
@@ -166,6 +168,16 @@ function withCustomPrice(item: any, storeId: string, cp: Map<string, CustomPrice
   if (!item.product_id?.startsWith('custom:') || item.price != null) return item;
   const k = cp.get(`${storeId}|${item.product_id}`);
   return k ? { ...item, price: r2(k.unit_price * item.quantity), price_seen_on: k.seen_on } : item;
+}
+
+// ------------------------------------------------------------------ prodotti della comunità (#27)
+let communityCache: { at: number; list: T.CommunityProduct[] } | null = null;
+async function communityProducts(): Promise<T.CommunityProduct[]> {
+  if (communityCache && Date.now() - communityCache.at < 10 * 60 * 1000) return communityCache.list;
+  const { data, error } = await sb().from('community_products').select('key,name,category_id,unit,uses').order('uses', { ascending: false }).limit(2000);
+  if (error) return communityCache?.list ?? [];
+  communityCache = { at: Date.now(), list: (data ?? []) as T.CommunityProduct[] };
+  return communityCache.list;
 }
 
 // ------------------------------------------------------------------ carburante (cache di un'ora per zona)
@@ -508,6 +520,14 @@ export const cloudApi = {
   },
 
   classify: async (text: string): Promise<T.ClassifyResult> => classify(text) as T.ClassifyResult,
+
+  /** #27: prodotti scritti a mano da tutti (cercabili come gli altri) */
+  communityProducts: async (fresh = false): Promise<T.CommunityProduct[]> => { if (fresh) communityCache = null; return communityProducts(); },
+  /** #27: un prodotto scritto a mano entra nel catalogo di tutti (nome e reparto) */
+  rememberCustom: async (key: string, name: string, categoryId: string | null, unit: string | null): Promise<void> => {
+    await sb().rpc('register_custom_product', { p_key: key, p_name: name, p_category: categoryId, p_unit: unit });
+    communityCache = null;
+  },
 
   fuelNearby: async (fuel: T.FuelType, lat?: number, lon?: number, liters = 40): Promise<T.FuelNearby> => {
     if (lat == null || lon == null) return { fuel, median: null, liters, observed_at: null, best: null, stations: [] };

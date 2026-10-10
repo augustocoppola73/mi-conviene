@@ -298,7 +298,7 @@ export default function RisultatiScreen() {
             const known = cs.filter((c) => c.price != null).length;
             return (
               <Text style={s.heroSub}>
-                ✍️ Scritti a mano: {known > 0 ? `+ ${euro(recommended.receipt.custom_total ?? 0)} visti da te qui` : ''}
+                ✍️ Scritti a mano: {known > 0 ? `+ ${euro(recommended.receipt.custom_total ?? 0)} col prezzo già visto qui` : ''}
                 {known > 0 && known < cs.length ? ' · ' : ''}
                 {known < cs.length ? `${cs.length - known} da verificare sul posto` : ''} (fuori dal confronto)
               </Text>
