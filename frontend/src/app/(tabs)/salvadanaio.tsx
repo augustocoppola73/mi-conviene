@@ -314,6 +314,13 @@ export default function SalvadanaioScreen() {
                   </Text>
                 )}
                 <Text style={s.rowMeta}>(stima era {euro(verifying.amount)})</Text>
+                {(verifying.snapshot?.receipt.custom_items?.length ?? 0) > 0 && (
+                  <Text style={[s.rowMeta, { color: colors.danger }]}>
+                    ✍️ {verifying.snapshot!.receipt.custom_items.length} prodotti scritti a mano non hanno il prezzo
+                    ({verifying.snapshot!.receipt.custom_items.map((c) => c.name).join(', ')}): il pagato li comprende, il previsto no.
+                    Scrivili prima in "Prezzi veri", così il conto torna.
+                  </Text>
+                )}
               </View>
             )}
             <View style={s.actions}>

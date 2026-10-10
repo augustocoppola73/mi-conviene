@@ -125,6 +125,42 @@ function priceCustom(receipt: any, storeId: string, cp: Map<string, CustomPrice>
   }
   receipt.custom_total = r2(tot);
 }
+/**
+ * #26: i prezzi veri dei prodotti scritti a mano entrano nel previsto della spesa. Non erano stimati (l'app non li conosceva):
+ * senza questo il pagato sembra più alto del previsto e il risparmio verificato scende per niente.
+ */
+function foldCustomPrices(data: any, lines: any[]) {
+  const rc = data.snapshot?.receipt;
+  if (!rc) return;
+  let delta = 0;
+  for (const l of lines) {
+    if (!l.product_id?.startsWith('custom:') || !(l.net_price > 0) || l.kind === 'variante') continue;
+    const price = r2(l.net_price);
+    const k = (rc.custom_items ?? []).findIndex((c: any) => c.product_id === l.product_id);
+    if (k >= 0) {
+      const c = rc.custom_items[k];
+      rc.custom_items.splice(k, 1);
+      rc.lines.push({ product_id: c.product_id, name: c.name, quantity: c.quantity, unit: c.unit, unit_price: r2(price / (c.quantity || 1)),
+        normal_price: price, line_price: price, in_promo: false, loyalty_required: false, confidence: 'green', source: 'scontrino',
+        observed_at: today(), location_name: 'scontrino vero', sample_product: null, proof_url: null, custom: true });
+      delta += price;
+      continue;
+    }
+    const line = rc.lines.find((x: any) => x.product_id === l.product_id && x.custom);
+    if (line && line.line_price !== price) {
+      delta += price - line.line_price;
+      Object.assign(line, { line_price: price, normal_price: price, unit_price: r2(price / (line.quantity || 1)) });
+    }
+  }
+  if (!delta) return;
+  rc.total = r2(rc.total + delta);
+  rc.normal_total = r2((rc.normal_total ?? 0) + delta);
+  if (data.snapshot.total_cost != null) data.snapshot.total_cost = r2(data.snapshot.total_cost + delta);
+  if (data.snapshot.effective_cost != null) data.snapshot.effective_cost = r2(data.snapshot.effective_cost + delta);
+  if (data.estimated_spend != null) data.estimated_spend = r2(data.estimated_spend + delta);
+  if (data.estimated_total != null) data.estimated_total = r2(data.estimated_total + delta);
+}
+
 /** prezzo iniziale nella spesa in corso di un prodotto scritto a mano */
 function withCustomPrice(item: any, storeId: string, cp: Map<string, CustomPrice>) {
   if (!item.product_id?.startsWith('custom:') || item.price != null) return item;
@@ -565,8 +601,13 @@ export const cloudApi = {
     const out: { prices_saved: number; verified?: T.SavingEntry } = { prices_saved: saved };
     if (row) {
       const data = { ...row.data, real_receipt: { store_id: body.store_id, date, total: body.total ?? null, lines: body.lines } };
+      foldCustomPrices(data, body.lines as any[]);
       check(await sb().from('savings').update({ data }).eq('id', row.id));
       if (body.total) out.verified = await cloudApi.verifySaving(row.id, body.total, body.refueled, body.fuel_price);
+      // già verificata col solo totale: rifaccio il conto con il previsto corretto
+      else if (row.data?.verified && row.data?.paid != null) {
+        out.verified = await cloudApi.verifySaving(row.id, Number(row.data.paid), row.data.refueled ?? undefined, row.data.fuel_price_paid ?? undefined);
+      }
     }
     return out;
   },
