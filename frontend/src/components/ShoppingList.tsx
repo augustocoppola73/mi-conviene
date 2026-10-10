@@ -25,17 +25,20 @@ export function parseQty(text: string, unit: string): number | null {
 
 interface Row { item: ListItem; name: string; unit: string; step: number; custom: boolean; categoryId: string }
 
-export function ShoppingList({ items, categories, productById, updateQty, removeItem }: {
+export function ShoppingList({ items, categories, productById, updateQty, removeItem, setCategory }: {
   items: ListItem[];
   categories: Category[];
   productById: (id: string) => Product | undefined;
   updateQty: (id: string, q: number) => void;
   removeItem: (id: string) => void;
+  /** solo per i prodotti scritti a mano: cambia reparto */
+  setCategory?: (id: string, categoryId: string) => void;
 }) {
   const s = useStyles();
   const { colors } = useTheme();
   const [editing, setEditing] = useState<string | null>(null);
   const [text, setText] = useState('');
+  const [catFor, setCatFor] = useState<string | null>(null);
 
   const rows: Row[] = items
     .map((it): Row | null => {
@@ -99,6 +102,27 @@ export function ShoppingList({ items, categories, productById, updateQty, remove
                     </Text>
                   </Pressable>
                 )}
+                {r.custom && setCategory && (
+                  <Pressable onPress={() => setCatFor(catFor === r.item.product_id ? null : r.item.product_id)} hitSlop={6}
+                    accessibilityRole="button" accessibilityLabel={`Cambia reparto di ${r.name}`}>
+                    <Text style={s.catLink}>
+                      {catFor === r.item.product_id ? 'Scegli il reparto:' : `${catById.get(r.categoryId)?.emoji ?? '🛒'} Cambia reparto`}
+                    </Text>
+                  </Pressable>
+                )}
+                {catFor === r.item.product_id && setCategory && (
+                  <View style={s.catRow}>
+                    {categories.map((c) => {
+                      const on = c.id === r.categoryId;
+                      return (
+                        <Pressable key={c.id} onPress={() => { setCategory(r.item.product_id, c.id); setCatFor(null); }}
+                          style={[s.catChip, on && s.catOn]} accessibilityState={{ selected: on }}>
+                          <Text style={[s.catChipText, on && { fontWeight: '700' }]}>{c.emoji} {c.name}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
               <Pressable accessibilityLabel="Diminuisci" style={s.stepBtn} onPress={() => updateQty(r.item.product_id, Math.round((r.item.quantity - r.step) * 1000) / 1000)}>
                 <Icon name="remove" />
@@ -132,6 +156,11 @@ const useStyles = makeStyles((c) => ({
     width: 90, color: c.text, fontSize: 15, paddingHorizontal: spacing.sm, paddingVertical: 4,
     borderRadius: radius.sm, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface,
   },
+  catLink: { color: c.primary, fontSize: 12, fontWeight: '600', marginTop: 4 },
+  catRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  catChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
+  catOn: { backgroundColor: c.primarySoft, borderColor: c.primary },
+  catChipText: { color: c.text, fontSize: 13 },
   stepBtn: {
     width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center',
     backgroundColor: c.surfaceMuted,

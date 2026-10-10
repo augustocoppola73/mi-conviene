@@ -47,7 +47,7 @@ export default function ListaScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const {
-    catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems,
+    catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems, setItemCategory,
     prefs, setPrefs, userId, setLastResult, lastResult, groupMine, reloadGroupMine,
   } = useStore();
 
@@ -309,6 +309,7 @@ export default function ListaScreen() {
             productById={productById}
             updateQty={updateQty}
             removeItem={removeItem}
+            setCategory={setItemCategory}
           />
         )}
         {groupMine.length > 0 && <MyGroupShares />}

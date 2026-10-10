@@ -69,6 +69,8 @@ interface StoreValue {
   removeItem: (productId: string) => void;
   toggleItem: (productId: string) => void;
   updateQty: (productId: string, quantity: number) => void;
+  /** reparto di un prodotto scritto a mano (si può correggere dopo averlo aggiunto) */
+  setItemCategory: (productId: string, categoryId: string) => void;
   setItems: (items: ListItem[]) => void;
   clearItems: () => void;
   prefs: Prefs;
@@ -197,6 +199,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const setItemCategory = useCallback((productId: string, categoryId: string) => {
+    setItemsState((prev) => prev.map((i) => (i.product_id === productId ? { ...i, category_id: categoryId } : i)));
+  }, []);
+
   const setPrefs = useCallback((patch: Partial<Prefs>) => setPrefsState((p) => ({ ...p, ...patch })), []);
 
   const [groupMine, setGroupMine] = useState<MyGroupItem[]>([]);
@@ -226,6 +232,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     removeItem,
     toggleItem,
     updateQty,
+    setItemCategory,
     setItems: setItemsState,
     clearItems: () => setItemsState([]),
     prefs,
