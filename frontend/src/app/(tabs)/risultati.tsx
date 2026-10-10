@@ -293,6 +293,17 @@ export default function RisultatiScreen() {
             {recommended.travel.fuel_cost > 0 ? ` + carburante ${euro(recommended.travel.fuel_cost)}` : ''}
             {` · ${location.mode === 'reale' ? 'circa ' : ''}${km(recommended.travel.distance_km)} · ${recommended.travel.time_min} min`}
           </Text>
+          {(recommended.receipt.custom_items?.length ?? 0) > 0 && (() => {
+            const cs = recommended.receipt.custom_items;
+            const known = cs.filter((c) => c.price != null).length;
+            return (
+              <Text style={s.heroSub}>
+                ✍️ Scritti a mano: {known > 0 ? `+ ${euro(recommended.receipt.custom_total ?? 0)} visti da te qui` : ''}
+                {known > 0 && known < cs.length ? ' · ' : ''}
+                {known < cs.length ? `${cs.length - known} da verificare sul posto` : ''} (fuori dal confronto)
+              </Text>
+            );
+          })()}
           <View style={s.sourceRow}>
             <Icon name={price_coverage.real_lines > 0 ? 'checkmark-done-outline' : 'information-circle-outline'} size={15} color={colors.textSecondary} />
             <Text style={s.sourceText}>

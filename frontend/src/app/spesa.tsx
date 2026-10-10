@@ -428,6 +428,8 @@ export default function SpesaScreen() {
                       <Text style={s.name}>{i.name}</Text>
                       <Text style={s.muted}>
                         {formatQty(i.quantity, i.unit)}{i.price != null ? ` · ~${euro(i.price)}` : ''}
+                        {i.product_id.startsWith('custom:') ? (i.price == null ? ' · prezzo da verificare sul posto'
+                          : i.price_seen_on ? ` (visto il ${i.price_seen_on.slice(8, 10)}/${i.price_seen_on.slice(5, 7)})` : '') : ''}
                         {i.in_promo ? ` · in offerta${i.promo_until ? ` fino al ${i.promo_until.slice(8, 10)}/${i.promo_until.slice(5, 7)}` : ''}` : ''}
                       </Text>
                       {!!shareLabel(i) && <Text style={[s.muted, { color: colors.primary, fontWeight: '700' }]}>{shareLabel(i)}</Text>}
@@ -437,7 +439,7 @@ export default function SpesaScreen() {
                         </Text>
                       )}
                     </View>
-                    {canActItem(shop, i, userId) && !i.product_id.startsWith('custom:') && (
+                    {canActItem(shop, i, userId) && (
                       <Pressable onPress={() => openPrice(i)} hitSlop={8} style={s.priceBtn} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
                         <Text style={s.priceBtnText}>€</Text>
                       </Pressable>

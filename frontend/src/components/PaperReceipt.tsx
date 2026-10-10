@@ -54,7 +54,7 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
         <Text style={st.t}>{cols('', 'EURO')}</Text>
 
         {receipt.lines.map((l) => {
-          const code = l.source === 'stima' ? 'S' : 'R';
+          const code = l.custom ? 'T' : l.source === 'stima' ? 'S' : 'R';
           const qty = formatQty(l.quantity, l.unit);
           const row = (
             <Fragment>
@@ -87,9 +87,15 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
         {(receipt.custom_items?.length ?? 0) > 0 && (
           <>
             <Text style={st.t}>{dash}</Text>
-            <Text style={[st.t, st.faded]}>ALTRO DA COMPRARE (SENZA PREZZO)</Text>
+            <Text style={[st.t, st.faded]}>SCRITTI A MANO (FUORI CONFRONTO)</Text>
             {receipt.custom_items.map((c) => (
-              <Text key={c.product_id} style={st.t}>{cols(c.name.toUpperCase(), `${formatQty(c.quantity, c.unit)}  `)}</Text>
+              <Fragment key={c.product_id}>
+                <Text style={st.t}>{cols(c.name.toUpperCase(), c.price != null ? `${num(c.price)} T` : 'DA VERIFICARE')}</Text>
+                <Text style={[st.t, st.faded]}>
+                  {'  '}{formatQty(c.quantity, c.unit)}
+                  {c.price != null ? (c.seen_on ? ` · VISTO DA TE IL ${c.seen_on.slice(8, 10)}/${c.seen_on.slice(5, 7)}` : ' · VISTO DA TE') : ' · PREZZO SUL POSTO'}
+                </Text>
+              </Fragment>
             ))}
           </>
         )}
@@ -98,6 +104,9 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
         {receipt.savings_vs_normal > 0 && <Text style={st.t}>{cols('TOTALE SCONTI', `-${num(receipt.savings_vs_normal)}`)}</Text>}
         <Text style={[st.t, st.total]}>{cols('TOTALE EURO', num(receipt.total), 22)}</Text>
         {travel.fuel_cost > 0 && <Text style={[st.t, st.faded]}>{cols('+ CARBURANTE VIAGGIO', num(travel.fuel_cost))}</Text>}
+        {(receipt.custom_total ?? 0) > 0 && (
+          <Text style={[st.t, st.faded]}>{cols('+ SCRITTI A MANO (T)', num(receipt.custom_total!))}</Text>
+        )}
         <Text style={st.t}>{dash}</Text>
         {paid != null && (
           <>
@@ -109,6 +118,7 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
         <Text style={[st.t, st.faded]}>{cols('PREZZI REALI', `${receipt.real_lines}/${pieces}`)}</Text>
         <Text style={[st.t, st.faded]}>R = PREZZO REALE (OPEN PRICES)</Text>
         <Text style={[st.t, st.faded]}>S = PREZZO STIMATO</Text>
+        {(receipt.lines.some((l) => l.custom) || (receipt.custom_total ?? 0) > 0) && <Text style={[st.t, st.faded]}>T = PREZZO SCRITTO DA TE</Text>}
         {receipt.unknown_products.length > 0 && (
           <Text style={[st.t, st.faded]}>{receipt.unknown_products.length} ART. NON TROVATI</Text>
         )}

@@ -21,7 +21,12 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
 }) {
   const s = useStyles();
   const { colors } = useTheme();
-  const lines = entry.snapshot?.receipt.lines ?? [];
+  // #26: anche i prodotti scritti a mano senza prezzo (il calcolato è "—")
+  const lines = useMemo(() => [
+    ...(entry.snapshot?.receipt.lines ?? []),
+    ...(entry.snapshot?.receipt.custom_items ?? []).map((c) => ({ product_id: c.product_id, name: c.name, quantity: c.quantity, unit: c.unit,
+      line_price: c.price ?? null, custom: true })),
+  ] as { product_id: string; name: string; quantity: number; unit: string; line_price: number | null; custom?: boolean }[], [entry]);
   const already = useMemo(
     () => Object.fromEntries((entry.real_receipt?.lines ?? []).filter((l) => l.product_id).map((l) => [l.product_id!, l.net_price])),
     [entry],
@@ -42,7 +47,7 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
   const allFilled = filled.length === lines.length && lines.length > 0;
   // il totale si propone da solo quando hai scritto tutte le righe (lo puoi sempre correggere)
   const total = totalTouched || !allFilled ? toNum(totalText) : sum;
-  const calcFilled = Math.round(filled.reduce((a, l) => a + l.line_price, 0) * 100) / 100;
+  const calcFilled = Math.round(filled.reduce((a, l) => a + (l.line_price ?? 0), 0) * 100) / 100;
 
   const save = async () => {
     setSaving(true);
@@ -83,7 +88,7 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
             </View>
             {lines.map((l) => {
               const v = toNum(prices[l.product_id] ?? '');
-              const diff = v != null ? v - l.line_price : null;
+              const diff = v != null && l.line_price != null ? v - l.line_price : null;
               return (
                 <View key={l.product_id} style={{ gap: 4 }}>
                 <View style={s.row}>
@@ -96,7 +101,7 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
                       ) : null}
                     </Text>
                   </View>
-                  <Text style={[s.calc, s.colCalc]}>{euro(l.line_price)}</Text>
+                  <Text style={[s.calc, s.colCalc]}>{l.line_price != null ? euro(l.line_price) : "—"}</Text>
                   <View style={[s.inputBox, s.colReal]}>
                     <Text style={s.euro}>€</Text>
                     <TextInput
@@ -116,8 +121,8 @@ export function ManualPrices({ entry, userId, onClose, onDone }: {
                 </View>
               );
             })}
-            {(entry.snapshot?.receipt.custom_items?.length ?? 0) > 0 && (
-              <Text style={s.meta}>I prodotti scritti a mano senza prezzo non sono in elenco: contano solo nel totale pagato.</Text>
+            {lines.some((l) => l.custom || l.product_id.startsWith('custom:')) && (
+              <Text style={s.meta}>I prezzi dei prodotti scritti a mano restano per la prossima volta in questo negozio.</Text>
             )}
 
             <View style={s.sumRow}>

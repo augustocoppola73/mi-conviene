@@ -60,7 +60,9 @@ export interface ScanResult {
   total_matches: boolean; missing_expected: string[]; rows: string[];
   photos?: number; overlaps?: number[]; missing_amount?: number;
 }
-export interface CustomLine { product_id: string; name: string; quantity: number; unit: string; category_id: string | null }
+export interface CustomLine { product_id: string; name: string; quantity: number; unit: string; category_id: string | null;
+  /** #26: prezzo che conosco in questo negozio (visto da te o dalla famiglia), null = da verificare sul posto */
+  price?: number | null; seen_on?: string | null }
 
 export interface ReceiptLine {
   product_id: string; name: string; quantity: number; unit: string;
@@ -69,9 +71,13 @@ export interface ReceiptLine {
   source: PriceSource; observed_at: string | null; location_name: string | null;
   sample_product: string | null; proof_url: string | null;
   promo_until?: string | null; variant?: VariantHint | null;
+  /** #26: prodotto scritto a mano col prezzo segnato da te */
+  custom?: boolean;
 }
 export interface Receipt {
   lines: ReceiptLine[]; unknown_products: string[]; real_lines: number; custom_items: CustomLine[];
+  /** #26: somma dei prodotti scritti a mano col prezzo conosciuto (non entra nel confronto tra negozi) */
+  custom_total?: number;
   total: number; normal_total: number; savings_vs_normal: number;
 }
 export interface Travel { distance_km: number; time_min: number; fuel_cost: number; time_cost: number }
@@ -234,6 +240,8 @@ export interface ShopItem {
   key: string; product_id: string; name: string; quantity: number; unit: string; category_id: string;
   price: number | null; checked: boolean; checked_by: string | null; checked_by_id?: string | null; checked_at: string | null; added_in_store: boolean;
   in_promo?: boolean; promo_until?: string | null; variant?: VariantHint | null; seen?: { price: number; kind: PriceKind; note?: string | null } | null;
+  /** #26: prodotto scritto a mano: il prezzo viene da una volta precedente (data) */
+  price_seen_on?: string | null;
   /** spesa in più tappe: in quale tappa (0, 1) e in quale catena si prende */
   stop?: number; store_id?: string;
   /** "Ti do una mano": da dove veniva prima di passare a chi aiuta (per restituirlo) */

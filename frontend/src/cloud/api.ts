@@ -94,6 +94,44 @@ async function saveObserved(lines: ObservedLine[], storeId: string, date: string
   return saved;
 }
 
+// ------------------------------------------------------------------ prezzi dei prodotti scritti a mano (#26)
+// Della famiglia (o della persona): "idropulsore da Lidl 49,99 €, visto il 10/10". Prezzo per unità (pz o kg).
+type CustomPrice = { unit_price: number; seen_on: string; name: string };
+let customCache: { at: number; map: Map<string, CustomPrice> } | null = null;
+async function customPrices(): Promise<Map<string, CustomPrice>> {
+  if (customCache && Date.now() - customCache.at < 10 * 60 * 1000) return customCache.map;
+  const map = new Map<string, CustomPrice>();
+  try {
+    const { data } = await sb().from('custom_prices').select('store_id,key,name,unit_price,seen_on');
+    for (const r of data ?? []) map.set(`${r.store_id}|${r.key}`, { unit_price: Number(r.unit_price), seen_on: r.seen_on, name: r.name });
+  } catch { /* senza rete: niente prezzi a mano */ }
+  customCache = { at: Date.now(), map };
+  return map;
+}
+async function saveCustomPrice(storeId: string, key: string, name: string | null, unit: string | null, unitPrice: number) {
+  if (!key.startsWith('custom:') || !(unitPrice > 0)) return false;
+  check(await sb().rpc('save_custom_price', { p_store: storeId, p_key: key, p_name: name ?? key.slice(7), p_unit: unit ?? 'pz', p_unit_price: r2(unitPrice) }));
+  customCache = null;
+  return true;
+}
+/** scontrino calcolato: i prodotti scritti a mano col prezzo che conosco in quel negozio (fuori dal confronto tra negozi) */
+function priceCustom(receipt: any, storeId: string, cp: Map<string, CustomPrice>) {
+  let tot = 0;
+  for (const c of receipt.custom_items ?? []) {
+    const k = cp.get(`${storeId}|${c.product_id}`);
+    c.price = k ? r2(k.unit_price * c.quantity) : null;
+    c.seen_on = k?.seen_on ?? null;
+    if (c.price != null) tot += c.price;
+  }
+  receipt.custom_total = r2(tot);
+}
+/** prezzo iniziale nella spesa in corso di un prodotto scritto a mano */
+function withCustomPrice(item: any, storeId: string, cp: Map<string, CustomPrice>) {
+  if (!item.product_id?.startsWith('custom:') || item.price != null) return item;
+  const k = cp.get(`${storeId}|${item.product_id}`);
+  return k ? { ...item, price: r2(k.unit_price * item.quantity), price_seen_on: k.seen_on } : item;
+}
+
 // ------------------------------------------------------------------ carburante (cache di un'ora per zona)
 let fuelDate: { at: number; date: string | null } | null = null;
 const stationCache = new Map<string, { at: number; stations: FuelStation[] }>();
@@ -274,6 +312,21 @@ async function finalizeSaving(shop: any) {
   const listItems = bought.map((i) => ({ product_id: i.product_id, quantity: mineQty(i), name: i.name, category_id: i.category_id, unit: i.unit }));
   bookCache = null;  // i prezzi segnati in negozio valgono subito
   const receipt: any = shopReceipt(await priceBook(), shop, listItems, (i) => bought[i].stop ?? 0);
+  // #26: i prodotti scritti a mano col prezzo (segnato in negozio o ricordato) diventano righe vere e contano nel totale
+  const left: any[] = [];
+  for (const c of receipt.custom_items ?? []) {
+    const it = bought.find((b) => b.product_id === c.product_id);
+    const full = it ? (it.seen?.price ?? it.price ?? null) : null;
+    const price = full != null && it!.quantity > 0 ? r2(full * c.quantity / it!.quantity) : null;
+    if (price == null) { left.push(c); continue; }
+    receipt.lines.push({ product_id: c.product_id, name: c.name, quantity: c.quantity, unit: c.unit, unit_price: r2(price / (c.quantity || 1)),
+      normal_price: price, line_price: price, in_promo: false, loyalty_required: false, confidence: 'green',
+      source: 'scontrino', observed_at: today(), location_name: it!.seen ? 'segnato da te in negozio' : 'visto da te',
+      sample_product: null, proof_url: null, custom: true });
+    receipt.total = r2(receipt.total + price);
+    receipt.normal_total = r2(receipt.normal_total + price);
+  }
+  receipt.custom_items = left;
   const snap = data.snapshot ? { ...data.snapshot } : null;
   if (snap) {
     const fuel = snap.travel?.fuel_cost ?? 0;
@@ -392,6 +445,10 @@ export const cloudApi = {
         favorites: favHere,
       }));
     }
+    if (req.items.some((i) => i.product_id.startsWith('custom:'))) {
+      const cp = await customPrices();
+      for (const r of result.ranked) priceCustom(r.receipt, r.store_id, cp);
+    }
     const last: any = lastSimilarShop(req.items.map((i) => i.product_id), shops);
     if (last) last.same_as_recommended = last.store_id === result.recommended.store_id;
     result.last_similar = last;
@@ -498,7 +555,13 @@ export const cloudApi = {
     const date = body.date && !Number.isNaN(Date.parse(body.date)) ? body.date.slice(0, 10) : today();
     const row = body.saving_id ? await savingRow(body.saving_id).catch(() => null) : null;
     const branch = row?.data?.snapshot?.branch?.name ?? null;
-    const saved = await saveObserved(body.lines as ObservedLine[], body.store_id, date, branch);
+    let saved = await saveObserved(body.lines as ObservedLine[], body.store_id, date, branch);
+    // #26: righe dei prodotti scritti a mano: il prezzo vero resta per la prossima volta
+    for (const l of body.lines as any[]) {
+      if (!l.product_id?.startsWith('custom:') || l.kind === 'variante') continue;
+      const q = l.weight_kg ?? l.quantity ?? 1;
+      if (await saveCustomPrice(body.store_id, l.product_id, l.text, l.weight_kg ? 'kg' : null, l.net_price / (q || 1)).catch(() => false)) saved += 1;
+    }
     const out: { prices_saved: number; verified?: T.SavingEntry } = { prices_saved: saved };
     if (row) {
       const data = { ...row.data, real_receipt: { store_id: body.store_id, date, total: body.total ?? null, lines: body.lines } };
@@ -632,7 +695,7 @@ export const cloudApi = {
   shopCreate: async (body: { user_id: string; store_id: string; saving_id?: string; branch?: string | null; items: T.ShopItemIn[]; display_name?: string | null; stops?: T.ShopStop[] | null }): Promise<T.Shop> => {
     if (!STORE_INDEX[body.store_id]) throw new Error('Negozio sconosciuto');
     const me = await uid();
-    const book = await priceBook();
+    const [book, cp] = await Promise.all([priceBook(), customPrices()]);
     const seen = new Set<string>();
     const items: any[] = [];
     const stops = body.stops && body.stops.length > 1 ? body.stops : null;
@@ -640,10 +703,10 @@ export const cloudApi = {
       if (seen.has(it.product_id)) continue;
       seen.add(it.product_id);
       const groups = it.groups?.length ? { groups: it.groups } : {};   // #21: la parte per i gruppi
-      if (!stops) { items.push({ ...shopItem(book, it, body.store_id), ...groups }); continue; }
+      if (!stops) { items.push({ ...withCustomPrice(shopItem(book, it, body.store_id), body.store_id, cp), ...groups }); continue; }
       // spesa in più tappe: ogni prodotto col prezzo del negozio dove lo prendi
       const k = Math.min(Math.max(it.stop ?? 0, 0), stops.length - 1);
-      items.push({ ...shopItem(book, it, stops[k].store_id), stop: k, store_id: stops[k].store_id, ...groups });
+      items.push({ ...withCustomPrice(shopItem(book, it, stops[k].store_id), stops[k].store_id, cp), stop: k, store_id: stops[k].store_id, ...groups });
     }
     const row = check(await sb().from('shops').insert({
       display_name: body.display_name ?? null, store_id: body.store_id,
@@ -742,7 +805,7 @@ export const cloudApi = {
 
   shopAdd: async (id: string, _user_id: string, item: T.ShopItemIn): Promise<T.Shop> => {
     const me = await uid();
-    const book = await priceBook();
+    const [book, cp] = await Promise.all([priceBook(), customPrices()]);
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
       guardAct(shop, me);
@@ -751,8 +814,8 @@ export const cloudApi = {
       else if (shop.stops?.length > 1) {
         const k = Math.min(Math.max(item.stop ?? 0, 0), shop.stops.length - 1);
         const sid = shop.stops[k].store_id;
-        shop.items.push({ ...shopItem(book, item, sid, true), stop: k, store_id: sid, checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
-      } else shop.items.push({ ...shopItem(book, item, shop.store_id, true), checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
+        shop.items.push({ ...withCustomPrice(shopItem(book, item, sid, true), sid, cp), stop: k, store_id: sid, checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
+      } else shop.items.push({ ...withCustomPrice(shopItem(book, item, shop.store_id, true), shop.store_id, cp), checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
     });
     return shopOut(row, me);
   },
@@ -769,6 +832,9 @@ export const cloudApi = {
         quantity: kg ? 1 : item.quantity, weight_kg: kg ? item.quantity : null, kind: body.kind,
         promo_until: body.promo_until ?? null, note: body.note ?? null }], item.store_id ?? current.store_id, today(),
         (item.stop != null && current.stops?.[item.stop]?.branch) || current.branch || null);
+    } else if (body.kind !== 'variante' && item.quantity > 0) {
+      // #26: scritto a mano: il prezzo resta per la prossima volta in questo negozio
+      await saveCustomPrice(item.store_id ?? current.store_id, item.product_id, item.name, item.unit, body.price / item.quantity).catch(() => {});
     }
     const row = await updateShop(id, (shop) => {
       const it = shop.items.find((i: any) => i.key === body.key);
