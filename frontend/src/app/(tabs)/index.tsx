@@ -69,6 +69,14 @@ export default function ListaScreen() {
   const [loading, setLoading] = useState(false);
   const [loadingHabitual, setLoadingHabitual] = useState(false);
   const [habitualProposal, setHabitualProposal] = useState<{ items: HabitualItem[]; occasions: number } | null>(null);
+  // #24: ordine dei reparti imparato nel primo preferito (mio o della famiglia)
+  const favStore = prefs.favorites[0]?.store_id ?? null;
+  const [aisle, setAisle] = useState<{ order: string[]; store: string } | null>(null);
+  useEffect(() => {
+    if (!favStore || !userId) { setAisle(null); return; }
+    api.aisleOrderFor(favStore).then((r) => setAisle(r ? { order: r.order, store: catalog?.stores.find((x) => x.id === favStore)?.name ?? favStore } : null))
+      .catch(() => setAisle(null));
+  }, [favStore, userId, catalog]);
   const [budgetText, setBudgetText] = useState(prefs.budget != null ? String(prefs.budget) : '');
 
   useEffect(() => {
@@ -295,10 +303,19 @@ export default function ListaScreen() {
 
         <SectionTitle
           right={items.length > 0 && (
-            <Pressable onPress={clearItems} hitSlop={8}><Text style={s.clear}>Svuota</Text></Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Pressable onPress={() => setPrefs({ listView: prefs.listView === 'griglia' ? 'lista' : 'griglia' })} hitSlop={10}
+                accessibilityRole="button" accessibilityLabel={prefs.listView === 'griglia' ? 'Mostra a righe' : 'Mostra a card'}>
+                <Icon name={prefs.listView === 'griglia' ? 'list-outline' : 'grid-outline'} size={22} color={colors.primary} />
+              </Pressable>
+              <Pressable onPress={clearItems} hitSlop={8}><Text style={s.clear}>Svuota</Text></Pressable>
+            </View>
           )}>
           La tua lista
         </SectionTitle>
+        {items.length > 0 && aisle && (
+          <Text style={s.aisleNote}>🧭 Reparti nell'ordine in cui giri da {aisle.store}</Text>
+        )}
 
         {items.length === 0 ? (
           <EmptyState icon="basket-outline" text="Nessun prodotto. Cerca o scrivi qui sopra, oppure tocca una categoria." />
@@ -310,6 +327,8 @@ export default function ListaScreen() {
             updateQty={updateQty}
             removeItem={removeItem}
             setCategory={setItemCategory}
+            view={prefs.listView}
+            categoryOrder={aisle?.order}
           />
         )}
         {groupMine.length > 0 && <MyGroupShares />}
@@ -521,6 +540,7 @@ const useStyles = makeStyles((c) => ({
   },
   habitualText: { color: c.primary, fontWeight: '600', fontSize: 14 },
   clear: { color: c.danger, fontSize: 14 },
+  aisleNote: { color: c.textSecondary, fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
   itemRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md,
     borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface,

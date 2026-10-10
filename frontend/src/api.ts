@@ -410,6 +410,7 @@ export const localApi = {
   shopAdd: (id: string, user_id: string, item: ShopItemIn) => post<Shop>(`/shops/${id}/add`, { user_id, item }),
   /** "Ti do una mano" (#4): solo nella versione online (serve la famiglia e la posizione) */
   /** #15: nel gruppo, cosa conviene prendere a me (dalla mia posizione): solo versione online */
+  aisleOrderFor: async (_storeId: string): Promise<{ order: string[]; learned: number } | null> => null,
   communityProducts: async (_fresh?: boolean): Promise<CommunityProduct[]> => [],
   rememberCustom: async (_key: string, _name: string, _categoryId: string | null, _unit: string | null): Promise<void> => {},
   groupHelpPlan: async (_items: { id: string; product_id: string; name: string; quantity: number; unit: string; category_id: string | null }[],

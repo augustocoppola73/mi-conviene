@@ -35,6 +35,8 @@ export interface Prefs {
   categoryRules: Record<string, string>;
   /** #21: la lista mostrata nella scheda Lista: null = la mia, altrimenti l'id del gruppo */
   activeList: string | null;
+  /** #24: la mia lista a righe o a card compatte */
+  listView: 'lista' | 'griglia';
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -54,6 +56,7 @@ const DEFAULT_PREFS: Prefs = {
   nearOnlyPriced: false,
   categoryRules: {},
   activeList: null,
+  listView: 'griglia',
 };
 
 interface StoreValue {

@@ -312,6 +312,33 @@ export function learnAisles(items: { checked: boolean; checked_at: string | null
   return ranks;
 }
 
+/**
+ * #24: come learnAisles, ma robusto alle spunte tardive. Quando un reparto ha già un ordine consolidato (almeno 3 spese)
+ * e oggi compare molto più avanti o indietro (un prodotto dimenticato e ripreso dopo), quella spesa pesa poco (0,2):
+ * l'ordine cambia solo se succede più volte di fila.
+ */
+export function learnAislesSteady(items: { checked: boolean; checked_at: string | null; category_id: string }[],
+  ranks0: Record<string, { avg: number; n: number }> | null | undefined) {
+  const checks = items.filter((i) => i.checked && i.checked_at).sort((a, b) => cmpStr(a.checked_at!, b.checked_at!));
+  // un reparto entra nell'ordine dove ci sono la maggior parte dei suoi prodotti (mediana), non dal primo spuntato
+  const posOf = new Map<string, number[]>();
+  checks.forEach((i, k) => posOf.set(i.category_id, [...(posOf.get(i.category_id) ?? []), k]));
+  const order = [...posOf.entries()]
+    .map(([cat, ps]) => ({ cat, m: ps.slice().sort((x, y) => x - y)[Math.floor((ps.length - 1) / 2)] }))
+    .sort((a, b) => a.m - b.m).map((x) => x.cat);
+  if (order.length < 2) return null;
+  const ranks = { ...(ranks0 || {}) };
+  order.forEach((cat, pos) => {
+    const rel = pos / (order.length - 1);
+    const r = ranks[cat] ? { ...ranks[cat] } : { avg: rel, n: 0 };
+    const w = r.n >= 3 && Math.abs(rel - r.avg) > 0.35 ? 0.2 : 1;
+    r.avg = pyRound((r.avg * r.n + rel * w) / (r.n + w), 3);
+    r.n = Math.min(pyRound(r.n + w, 2), 20);
+    ranks[cat] = r;
+  });
+  return ranks;
+}
+
 /** Prepara i piani delle ricette a piccoli blocchi (non blocca l'app all'avvio, come la cache del server). */
 export function warmRecipes(all: Recipe[], chunk = 40): Promise<void> {
   return new Promise((resolve) => {

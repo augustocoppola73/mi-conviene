@@ -14,7 +14,7 @@ import {
 import { classify } from '../engine/classify';
 import { C, CATEGORIES, PRODUCT_INDEX, PRODUCTS, STORE_INDEX, STORES } from '../engine/data';
 import {
-  aisleOrder, learnAisles, menuPlan, planRecipe, proposeMenu, rankByPrice, Recipe, recipeSummaryPriced,
+  aisleOrder, learnAislesSteady, menuPlan, planRecipe, proposeMenu, rankByPrice, Recipe, recipeSummaryPriced,
   shopItem, suggest, primeCores,
 } from '../engine/kitchen';
 import { observedRows, ObservedLine } from '../engine/observed';
@@ -323,7 +323,7 @@ async function learnFromShop(row: any) {
     : [{ store_id: row.store_id, items: row.items }];
   for (const part of parts) {
     const { data } = await sb().from('aisles').select('ranks').eq('owner_id', owner).eq('store_id', part.store_id).maybeSingle();
-    const ranks = learnAisles(part.items, data?.ranks);
+    const ranks = learnAislesSteady(part.items, data?.ranks);
     if (ranks) await sb().from('aisles').upsert({ owner_id: owner, store_id: part.store_id, ranks, updated_at: nowIso() });
   }
 }
@@ -520,6 +520,16 @@ export const cloudApi = {
   },
 
   classify: async (text: string): Promise<T.ClassifyResult> => classify(text) as T.ClassifyResult,
+
+  /** #24: ordine dei reparti imparato in quel negozio (mio o della famiglia); null se non c'è ancora */
+  aisleOrderFor: async (storeId: string): Promise<{ order: string[]; learned: number } | null> => {
+    const me = await uid();
+    const fam = (check(await sb().from('profiles').select('family_id').eq('id', me).maybeSingle()) as any)?.family_id ?? null;
+    const { data } = await sb().from('aisles').select('ranks').eq('owner_id', fam || me).eq('store_id', storeId).maybeSingle();
+    const ranks = (data?.ranks ?? null) as Record<string, { avg: number; n: number }> | null;
+    const learned = ranks ? Object.values(ranks).filter((r) => r.n >= 1).length : 0;
+    return learned >= 2 ? { order: aisleOrder(ranks), learned } : null;
+  },
 
   /** #27: prodotti scritti a mano da tutti (cercabili come gli altri) */
   communityProducts: async (fresh = false): Promise<T.CommunityProduct[]> => { if (fresh) communityCache = null; return communityProducts(); },
