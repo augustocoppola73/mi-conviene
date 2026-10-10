@@ -16,6 +16,7 @@ import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty } from '@/format';
 import { ParkingLine } from '@/components/ParkingLine';
 import { openNavigation } from '@/navigate';
+import { productEmoji } from '@/productEmoji';
 import { customId, useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -50,7 +51,10 @@ const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('it-IT', { hour: 
 export default function SpesaScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { userId, catalog, prefs, addItem, addCustom, setItems, items: listItems, reloadGroupMine } = useStore();
+  const { userId, catalog, prefs, setPrefs, addItem, addCustom, setItems, items: listItems, reloadGroupMine } = useStore();
+  // #24: in negozio le stesse card della Lista: un tocco e il prodotto va nel carrello
+  const [gridW, setGridW] = useState(0);
+  const grid = prefs.listView === 'griglia';
   const [shop, setShop] = useState<Shop | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -387,9 +391,15 @@ export default function SpesaScreen() {
       </View>
       <View style={s.progressBox}>
         <View style={s.progressTrack}><View style={[s.progressFill, { width: `${Math.round(pct * 100)}%` }]} /></View>
-        <Text style={s.progressText}>
-          {done.length} di {shop.items.length} nel carrello · ~{euro(cart)} di ~{euro(estimated)}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={[s.progressText, { flex: 1 }]}>
+            {done.length} di {shop.items.length} nel carrello · ~{euro(cart)} di ~{euro(estimated)}
+          </Text>
+          <Pressable onPress={() => setPrefs({ listView: grid ? 'lista' : 'griglia' })} hitSlop={10}
+            accessibilityRole="button" accessibilityLabel={grid ? 'Mostra a righe' : 'Mostra a card'}>
+            <Icon name={grid ? 'list-outline' : 'grid-outline'} size={22} color={colors.primary} />
+          </Pressable>
+        </View>
         {offline && <Text style={[s.muted, { color: colors.warning }]}>Senza rete: le spunte restano sul telefono e le invio appena torna.</Text>}
       </View>
 
@@ -421,7 +431,33 @@ export default function SpesaScreen() {
                 {sec.groups.map(([cat, list]) => (
               <View key={cat} style={{ gap: 6 }}>
                 <Text style={s.group}>{catById.get(cat)?.emoji ?? '🛒'} {catById.get(cat)?.name ?? 'Altro'}</Text>
-                {list.map((i) => (
+                {grid ? (
+                  <View style={s.grid} onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
+                    {list.map((i) => {
+                      const can = canActItem(shop, i, userId);
+                      return (
+                        <Pressable key={i.key} onPress={() => toggle(i)}
+                          style={({ pressed }) => [s.tile, { width: tileW(gridW) }, !can && { opacity: 0.6 }, pressed && { opacity: 0.6 }]}
+                          accessibilityRole="checkbox" accessibilityState={{ checked: false }}
+                          accessibilityLabel={`${i.name}, ${formatQty(i.quantity, i.unit)}`} accessibilityHint="Tocca quando l'hai messo nel carrello">
+                          <Text style={s.tileEmoji}>{productEmoji(i.name, catById.get(i.category_id)?.emoji)}</Text>
+                          <Text style={s.tileName} numberOfLines={2}>{i.name}</Text>
+                          <Text style={s.tileQty} numberOfLines={1}>
+                            {formatQty(i.quantity, i.unit)}{i.groups?.length ? ` ${i.groups.map((g) => g.emoji || '👥').join('')}` : ''}
+                          </Text>
+                          <Text style={[s.tilePrice, i.in_promo && { color: colors.success }]} numberOfLines={1}>
+                            {i.price != null ? `~${euro(i.price)}` : i.product_id.startsWith('custom:') ? 'sul posto' : ' '}{i.in_promo ? ' %' : ''}{i.variant ? ' 💡' : ''}
+                          </Text>
+                          {can && (
+                            <Pressable onPress={() => openPrice(i)} hitSlop={10} style={s.tileEuro} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
+                              <Text style={s.tileEuroText}>€</Text>
+                            </Pressable>
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : list.map((i) => (
                   <Pressable key={i.key} onPress={() => toggle(i)} style={[s.row, !canActItem(shop, i, userId) && { opacity: 0.6 }]} accessibilityRole="checkbox" accessibilityState={{ checked: false }}>
                     <Icon name="ellipse-outline" size={26} color={colors.primary} />
                     <View style={{ flex: 1 }}>
@@ -471,8 +507,19 @@ export default function SpesaScreen() {
 
         {done.length > 0 && (
           <View style={{ gap: 6, marginTop: spacing.lg }}>
-            <Text style={s.group}>✓ Nel carrello ({done.length})</Text>
-            {done.map((i) => (
+            <Text style={s.group}>✓ Nel carrello ({done.length}){grid ? ' · tocca per rimetterlo in lista' : ''}</Text>
+            {grid ? (
+              <View style={s.grid}>
+                {done.map((i) => (
+                  <Pressable key={i.key} onPress={() => toggle(i)} style={[s.tile, s.tileDone, { width: tileW(gridW) }]}
+                    accessibilityRole="checkbox" accessibilityState={{ checked: true }} accessibilityLabel={`${i.name}, nel carrello`}>
+                    <Text style={[s.tileEmoji, { opacity: 0.5 }]}>{productEmoji(i.name, catById.get(i.category_id)?.emoji)}</Text>
+                    <Text style={[s.tileName, s.nameDone]} numberOfLines={2}>{i.name}</Text>
+                    <Text style={s.tilePrice} numberOfLines={1}>{i.seen ? euro(i.seen.price) : '✓'}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : done.map((i) => (
               <Pressable key={i.key} onPress={() => toggle(i)} style={[s.row, s.rowDone]} accessibilityRole="checkbox" accessibilityState={{ checked: true }}>
                 <Icon name="checkmark-circle" size={26} color={colors.success} />
                 <View style={{ flex: 1 }}>
@@ -564,6 +611,17 @@ const useStyles = makeStyles((c) => ({
     flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, minHeight: 56,
     borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface,
   },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tile: { minHeight: 112, paddingTop: 10, paddingBottom: 8, paddingHorizontal: 4, alignItems: 'center', gap: 2,
+    borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  tileDone: { backgroundColor: c.surfaceMuted, borderColor: c.surfaceMuted, minHeight: 84 },
+  tileEmoji: { fontSize: 30, lineHeight: 36 },
+  tileName: { color: c.text, fontSize: 12.5, fontWeight: '600', textAlign: 'center', lineHeight: 15 },
+  tileQty: { color: c.primary, fontSize: 12, fontWeight: '700', marginTop: 'auto' },
+  tilePrice: { color: c.textSecondary, fontSize: 11 },
+  tileEuro: { position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: c.surfaceMuted },
+  tileEuroText: { color: c.primary, fontSize: 13, fontWeight: '800' },
   rowDone: { backgroundColor: c.surfaceMuted, borderColor: c.surfaceMuted },
   name: { color: c.text, fontSize: 17, fontWeight: '600' },
   nameDone: { color: c.textSecondary, textDecorationLine: 'line-through', fontWeight: '400' },
@@ -669,4 +727,11 @@ function TakeBtn({ label, onPress, secondary }: { label: string; onPress: () => 
       <Text style={[s.takeBtnText, secondary && { color: colors.primary }]}>{label}</Text>
     </Pressable>
   );
+}
+
+/** larghezza della card: fino a 4 per riga (almeno 80 px), altrimenti 3 */
+function tileW(w: number): number | `${number}%` {
+  if (!w) return '23%';
+  const cols = Math.max(3, Math.min(4, Math.floor((w + 8) / 88)));
+  return Math.floor((w - 8 * (cols - 1)) / cols);
 }
