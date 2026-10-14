@@ -94,7 +94,7 @@ export function ShoppingList({ items, categories, productById, updateQty, remove
                   style={({ pressed }) => [s.tile, tileW ? { width: tileW } : { width: '23%' }, pressed && { opacity: 0.7 }]}
                   accessibilityRole="button" accessibilityLabel={`${r.name}, ${formatQty(r.item.quantity, r.unit)}`}
                   accessibilityHint="Tocca per cambiare quantità o toglierlo">
-                  <ProductIcon name={r.name} productId={r.item.product_id} categoryEmoji={catById.get(r.categoryId)?.emoji} size={36} />
+                  <ProductIcon name={r.name} productId={r.item.product_id} categoryEmoji={catById.get(r.categoryId)?.emoji} size={44} />
                   <Text style={s.tileName} numberOfLines={2}>{r.name}</Text>
                   <Text style={s.tileQty} numberOfLines={1}>{formatQty(r.item.quantity, r.unit)}{r.custom ? ' ✍️' : ''}</Text>
                 </Pressable>

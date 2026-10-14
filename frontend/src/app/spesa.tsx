@@ -440,7 +440,7 @@ export default function SpesaScreen() {
                           style={({ pressed }) => [s.tile, { width: tileW(gridW) }, !can && { opacity: 0.6 }, pressed && { opacity: 0.6 }]}
                           accessibilityRole="checkbox" accessibilityState={{ checked: false }}
                           accessibilityLabel={`${i.name}, ${formatQty(i.quantity, i.unit)}`} accessibilityHint="Tocca quando l'hai messo nel carrello">
-                          <ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={36} />
+                          <ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={44} />
                           <Text style={s.tileName} numberOfLines={2}>{i.name}</Text>
                           <Text style={s.tileQty} numberOfLines={1}>
                             {formatQty(i.quantity, i.unit)}{i.groups?.length ? ` ${i.groups.map((g) => g.emoji || '👥').join('')}` : ''}
