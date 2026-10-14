@@ -64,7 +64,6 @@ export default function ListaScreen() {
 
   const [offers, setOffers] = useState<Offer[]>([]);
   const [openCategory, setOpenCategory] = useState<Category | null>(null);
-  const [repartiOpen, setRepartiOpen] = useState(false);   // #30
   const [tripOpen, setTripOpen] = useState(false);         // #30
   const [loading, setLoading] = useState(false);
   const [loadingHabitual, setLoadingHabitual] = useState(false);
@@ -188,12 +187,9 @@ export default function ListaScreen() {
             onUpdateQty={L.updateQty}
           />
         </View>
-        {/* #30: Reparti, Abituale, Ricette: tre pulsantini sotto la ricerca */}
+        {/* #30: Abituale e Ricette sotto la ricerca; i reparti sempre in vista */}
+        {!groupMode && (
         <View style={s.mini}>
-          <Pressable onPress={() => setRepartiOpen(true)} style={s.miniBtn} accessibilityRole="button">
-            <Text style={s.miniText}>🧭 Reparti</Text>
-          </Pressable>
-          {!groupMode && (
             <>
               <Pressable onPress={can(prefs, 'abituale') ? loadHabitual : () => showLocked('abituale')}
                 style={[s.miniBtn, !can(prefs, 'abituale') && { opacity: 0.45 }]} disabled={loadingHabitual} accessibilityRole="button">
@@ -204,8 +200,19 @@ export default function ListaScreen() {
                 <Text style={s.miniText}>📖 Ricette</Text>
               </Pressable>
             </>
-          )}
         </View>
+        )}
+
+        <SectionTitle>Reparti</SectionTitle>
+        <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
+          {catalog.categories.map((c) => (
+            <Pressable key={c.id} onPress={() => setOpenCategory(c)} style={({ pressed }) => [s.catTile, pressed && { opacity: 0.7 }]}
+              accessibilityRole="button" accessibilityLabel={`Reparto ${c.name}`}>
+              <Text style={s.catEmoji}>{c.emoji}</Text>
+              <Text style={s.catName} numberOfLines={1}>{c.name}</Text>
+            </Pressable>
+          ))}
+        </HScroll>
 
         {groupMode && (
           <View style={{ marginTop: spacing.lg }}>
@@ -351,22 +358,6 @@ export default function ListaScreen() {
         </View>
       </Modal>
       <TripSheet visible={tripOpen} onClose={() => setTripOpen(false)} suggestion={suggestion} />
-      <Modal visible={repartiOpen} transparent animationType="slide" onRequestClose={() => setRepartiOpen(false)}>
-        <Pressable style={s.overlay} onPress={() => setRepartiOpen(false)} />
-        <View style={[s.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
-          <View style={s.grabber} />
-          <Text style={s.sheetTitle}>Scegli dal reparto</Text>
-          <View style={s.repGrid}>
-            {catalog.categories.map((c) => (
-              <Pressable key={c.id} onPress={() => { setRepartiOpen(false); setOpenCategory(c); }}
-                style={({ pressed }) => [s.repTile, pressed && { opacity: 0.7 }]} accessibilityRole="button">
-                <Text style={s.catEmoji}>{c.emoji}</Text>
-                <Text style={s.catName} numberOfLines={1}>{c.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      </Modal>
       {habitualProposal && catalog && (
         <HabitualPicker
           items={habitualProposal.items}
@@ -435,8 +426,6 @@ const useStyles = makeStyles((c) => ({
   miniBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 40, paddingVertical: 8, borderRadius: radius.md, backgroundColor: c.primarySoft },
   miniText: { color: c.primary, fontWeight: '700', fontSize: 13.5 },
   collapsed: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
-  repGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center', marginTop: spacing.sm },
-  repTile: { width: '31%', height: 84, borderRadius: radius.lg, backgroundColor: c.surfaceSecondary, alignItems: 'center', justifyContent: 'center', gap: 4 },
   guest: { backgroundColor: c.primarySoft, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
   guestText: { color: c.text, fontSize: 13, lineHeight: 18 },
   aisleNote: { color: c.textSecondary, fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
