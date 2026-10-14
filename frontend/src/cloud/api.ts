@@ -20,6 +20,7 @@ import {
 import { observedRows, ObservedLine } from '../engine/observed';
 import { flyers, fuelNearby, geocode, KV, NEAR_ME_MAX_KM, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor, supermarketsAround } from '../engine/places';
 import { search } from '../engine/recipes';
+import { usualAndDue } from '../engine/restock';
 import { haversineKm, median, pyRound } from '../engine/util';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
 import RECIPE_CORES from '../engine/data/recipe_cores.json';
@@ -606,6 +607,19 @@ export const cloudApi = {
     };
   },
 
+  /** #39: obiettivo di risparmio della famiglia (o mio se non ho famiglia) */
+  savingGoal: async (): Promise<T.SavingGoal | null> => {
+    const { data, error } = await sb().from('saving_goals').select('title,amount,start_date,deadline,updated_at').maybeSingle();
+    if (error || !data) return null;
+    return { ...(data as any), amount: Number((data as any).amount) };
+  },
+  setSavingGoal: async (title: string, amount: number, deadline: string | null, restart = false): Promise<void> => {
+    check(await sb().rpc('set_saving_goal', { p_title: title, p_amount: amount, p_deadline: deadline, p_restart: restart }));
+  },
+  deleteSavingGoal: async (): Promise<void> => {
+    check(await sb().from('saving_goals').delete().not('owner_id', 'is', null));
+  },
+
   deleteSaving: async (id: string) => {
     const rows = check(await sb().from('savings').delete().eq('id', id).select('id')) as any[];
     if (!rows.length) throw new Error('Voce non trovata');
@@ -674,6 +688,9 @@ export const cloudApi = {
     const ids = items.map((i) => i.product_id);
     return { ...(suggestBudget(ids, shops) as any), last_similar: lastSimilarShop(ids, shops) };
   },
+
+  /** #44/#35: "Di solito compri" e "Di solito lo ricompri" (dallo storico, mio e della famiglia) */
+  usualAndDue: async () => usualAndDue(await historyRows(60)),
 
   habitual: async (_userId: string) => {
     const shops = await historyRows(40);

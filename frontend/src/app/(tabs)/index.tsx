@@ -28,6 +28,8 @@ import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
 import { ListPicker } from '@/components/ListPicker';
 import { TripSheet, TripSummary } from '@/components/TripSheet';
+import { UsualPanel } from '@/components/UsualPanel';
+import { listText, myListRows, shareList } from '@/listShare';
 import { can, showLocked } from '@/features';
 import { GroupListPanel, useGroupList } from '@/components/GroupList';
 import { IS_CLOUD } from '@/cloud/client';
@@ -113,6 +115,24 @@ export default function ListaScreen() {
       setLoadingHabitual(false);
     }
   }, [userId]);
+
+  // #42: la lista come testo, per chi non ha l'app
+  const shareMine = async () => {
+    if (!catalog) return;
+    const r = await shareList(listText('La mia lista della spesa', myListRows(items, productById), catalog.categories));
+    if (r === 'copied') notify('Lista copiata', 'Incollala su WhatsApp o in un messaggio.');
+  };
+  const shareGroup = async () => {
+    if (!catalog || !gl.group) return;
+    const rows = gl.items.filter((i) => i.status === 'da_prendere' || i.status === 'proposto').map((i) => {
+      const p = productById(i.product_id);
+      return { name: (p?.name ?? i.name ?? i.product_id.slice(7)) + (i.assigned_to ? ` (${gl.nameOf(i.assigned_to)})` : ''),
+        quantity: Number(i.quantity), unit: p?.unit ?? i.unit ?? 'pz', category_id: p?.category_id ?? i.category_id ?? 'altro' };
+    });
+    const r = await shareList(listText(`Lista ${gl.group.emoji ?? ''} ${gl.group.name}`.replace(/\s+/g, ' '), rows, catalog.categories,
+      'Entra nel gruppo su Mi Conviene per dire «Lo prendo io»: chiedi il link a chi l\'ha creato.'));
+    if (r === 'copied') notify('Lista copiata', 'Incollala su WhatsApp o in un messaggio.');
+  };
 
   const findBest = async () => {
     if (!userId || (!items.length && !groupMine.length)) return;
@@ -217,6 +237,12 @@ export default function ListaScreen() {
         {groupMode && (
           <View style={{ marginTop: spacing.lg }}>
             <GroupListPanel gl={gl} />
+            {gl.items.some((i) => i.status === 'da_prendere' || i.status === 'proposto') && (
+              <Pressable onPress={shareGroup} style={s.shareListRow} accessibilityRole="button">
+                <Icon name="share-social-outline" size={18} color={colors.primary} />
+                <Text style={s.link}>Condividi la lista come testo (WhatsApp)</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -225,6 +251,9 @@ export default function ListaScreen() {
         <SectionTitle
           right={items.length > 0 && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Pressable onPress={shareMine} hitSlop={10} accessibilityRole="button" accessibilityLabel="Condividi la lista">
+                <Icon name="share-social-outline" size={21} color={colors.primary} />
+              </Pressable>
               <Pressable onPress={() => setPrefs({ listView: prefs.listView === 'griglia' ? 'lista' : 'griglia' })} hitSlop={10}
                 accessibilityRole="button" accessibilityLabel={prefs.listView === 'griglia' ? 'Mostra a righe' : 'Mostra a card'}>
                 <Icon name={prefs.listView === 'griglia' ? 'list-outline' : 'grid-outline'} size={22} color={colors.primary} />
@@ -254,6 +283,7 @@ export default function ListaScreen() {
         )}
         {groupMine.length > 0 && <MyGroupShares />}
         {items.length >= 1 && <SmartSuggestions items={items} />}
+        <UsualPanel />
           </>
         )}
 
@@ -422,6 +452,7 @@ const useStyles = makeStyles((c) => ({
   habitualText: { color: c.primary, fontWeight: '600', fontSize: 14 },
   clear: { color: c.danger, fontSize: 14 },
   link: { color: c.primary, fontSize: 14, fontWeight: '700' },
+  shareListRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'center', padding: spacing.md },
   mini: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   miniBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 40, paddingVertical: 8, borderRadius: radius.md, backgroundColor: c.primarySoft },
   miniText: { color: c.primary, fontWeight: '700', fontSize: 13.5 },

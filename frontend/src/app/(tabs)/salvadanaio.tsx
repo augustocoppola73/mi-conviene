@@ -8,6 +8,8 @@ import { PaperReceipt } from '@/components/PaperReceipt';
 import { ManualPrices } from '@/components/ManualPrices';
 import { IS_CLOUD } from '@/cloud/client';
 import { ReceiptScanner } from '@/components/ReceiptScanner';
+import { MonthSummary } from '@/components/MonthSummary';
+import { SavingGoalCard } from '@/components/SavingGoalCard';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate } from '@/format';
 import { useStore } from '@/store';
@@ -36,7 +38,7 @@ function previewVerified(e: SavingEntry, paid: number, refueled: boolean | null 
 export default function SalvadanaioScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { userId, productById } = useStore();
+  const { userId, productById, catalog } = useStore();
   const [scanning, setScanning] = useState<SavingEntry | null>(null);
   const [manual, setManual] = useState<SavingEntry | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -134,6 +136,9 @@ export default function SalvadanaioScreen() {
               </View>
               <Text style={s.heroSmall}>Totale di sempre: {data.total < 0 ? '−' : ''}{euro(Math.abs(data.total))}</Text>
             </Card>
+
+            {IS_CLOUD && <SavingGoalCard entries={data.entries} inFamily={data.entries.some((e) => e.mine === false)} />}
+            {data.entries.length > 0 && <MonthSummary entries={data.entries} categories={catalog?.categories ?? []} />}
 
             <Pressable onPress={() => setShowHelp(!showHelp)} style={s.helpToggle}>
               <Icon name="help-circle-outline" size={16} color={colors.primary} />

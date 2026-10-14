@@ -23,7 +23,7 @@ export function normCode(t: string): string {
   return t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 }
 
-async function shareText(message: string): Promise<'shared' | 'copied' | 'cancelled'> {
+export async function shareText(message: string): Promise<'shared' | 'copied' | 'cancelled'> {
   if (Platform.OS === 'web') {
     const nav = globalThis.navigator as any;
     if (nav?.share) {

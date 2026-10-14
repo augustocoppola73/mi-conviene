@@ -197,6 +197,8 @@ export interface SavingEntry {
   added_in_store?: string[]; not_bought?: string[]; planned_spend?: number | null;
   real_receipt?: { store_id: string; date: string; total: number; lines: { product_id: string | null; text: string; net_price: number }[] } | null;
 }
+/** #39: obiettivo di risparmio (della famiglia) */
+export interface SavingGoal { title: string; amount: number; start_date: string; deadline: string | null; updated_at: string }
 export interface SavingsSummary {
   entries: SavingEntry[]; total: number; total_estimated: number; total_verified: number; to_verify: number;
 }
@@ -411,6 +413,13 @@ export const localApi = {
   /** "Ti do una mano" (#4): solo nella versione online (serve la famiglia e la posizione) */
   /** #15: nel gruppo, cosa conviene prendere a me (dalla mia posizione): solo versione online */
   aisleOrderFor: async (_storeId: string): Promise<{ order: string[]; learned: number } | null> => null,
+  usualAndDue: async (): Promise<{ usual: { product_id: string; name: string; count: number; quantity: number }[];
+    due: { product_id: string; name: string; count: number; quantity: number; every_days: number; since_days: number }[] }> => ({ usual: [], due: [] }),
+  savingGoal: async (): Promise<SavingGoal | null> => null,
+  setSavingGoal: async (_title: string, _amount: number, _deadline: string | null, _restart?: boolean): Promise<void> => {
+    throw new Error('Funziona nella versione online');
+  },
+  deleteSavingGoal: async (): Promise<void> => {},
   communityProducts: async (_fresh?: boolean): Promise<CommunityProduct[]> => [],
   rememberCustom: async (_key: string, _name: string, _categoryId: string | null, _unit: string | null): Promise<void> => {},
   groupHelpPlan: async (_items: { id: string; product_id: string; name: string; quantity: number; unit: string; category_id: string | null }[],

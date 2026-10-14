@@ -41,6 +41,8 @@ export interface Prefs {
   participant: boolean;
   /** #30: Offerte di oggi aperte o chiuse in fondo alla Lista */
   offersOpen: boolean;
+  /** #35: "Di solito lo ricompri": prodotto → fino a quando non riproporlo (AAAA-MM-GG) */
+  restockSnooze: Record<string, string>;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -63,6 +65,7 @@ const DEFAULT_PREFS: Prefs = {
   listView: 'griglia',
   participant: false,
   offersOpen: true,
+  restockSnooze: {},
 };
 
 interface StoreValue {
