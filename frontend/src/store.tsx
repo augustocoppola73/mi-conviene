@@ -39,6 +39,8 @@ export interface Prefs {
   listView: 'lista' | 'griglia';
   /** #23: entrato con l'invito a un gruppo, senza usare l'app per sé: funzioni personali ingrigite */
   participant: boolean;
+  /** #30: Offerte di oggi aperte o chiuse in fondo alla Lista */
+  offersOpen: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -60,6 +62,7 @@ const DEFAULT_PREFS: Prefs = {
   activeList: null,
   listView: 'griglia',
   participant: false,
+  offersOpen: true,
 };
 
 interface StoreValue {

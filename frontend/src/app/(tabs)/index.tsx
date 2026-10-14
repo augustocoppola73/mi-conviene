@@ -9,27 +9,25 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api, BudgetSuggestion, Category, HabitualItem, Offer } from '@/api';
 import { ActiveShopBanner } from '@/components/ActiveShopBanner';
-import { FuelCard } from '@/components/FuelCard';
 import { HabitualPicker } from '@/components/HabitualPicker';
 import { HScroll } from '@/components/HScroll';
 import { ProductSearch } from '@/components/ProductSearch';
 import { QtyStepper } from '@/components/QtyStepper';
 import { ShoppingList } from '@/components/ShoppingList';
 import { SmartSuggestions } from '@/components/SmartSuggestions';
-import { Chip, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
-import { euro, formatDate, formatQty, qtyStep, TRANSPORTS } from '@/format';
+import { EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
+import { euro, formatQty, qtyStep } from '@/format';
 import { quietPosition } from '@/location';
-import { LocationControl } from '@/components/LocationControl';
 import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
 import { ListPicker } from '@/components/ListPicker';
+import { TripSheet, TripSummary } from '@/components/TripSheet';
 import { can, showLocked } from '@/features';
 import { GroupListPanel, useGroupList } from '@/components/GroupList';
 import { IS_CLOUD } from '@/cloud/client';
@@ -66,6 +64,8 @@ export default function ListaScreen() {
 
   const [offers, setOffers] = useState<Offer[]>([]);
   const [openCategory, setOpenCategory] = useState<Category | null>(null);
+  const [repartiOpen, setRepartiOpen] = useState(false);   // #30
+  const [tripOpen, setTripOpen] = useState(false);         // #30
   const [loading, setLoading] = useState(false);
   const [loadingHabitual, setLoadingHabitual] = useState(false);
   const [habitualProposal, setHabitualProposal] = useState<{ items: HabitualItem[]; occasions: number } | null>(null);
@@ -77,15 +77,10 @@ export default function ListaScreen() {
     api.aisleOrderFor(favStore).then((r) => setAisle(r ? { order: r.order, store: catalog?.stores.find((x) => x.id === favStore)?.name ?? favStore } : null))
       .catch(() => setAisle(null));
   }, [favStore, userId, catalog]);
-  const [budgetText, setBudgetText] = useState(prefs.budget != null ? String(prefs.budget) : '');
 
   useEffect(() => {
     api.offers().then(setOffers).catch(() => setOffers([]));
   }, [catalog]);
-
-  useEffect(() => {
-    setBudgetText(prefs.budget != null ? String(prefs.budget) : '');
-  }, [prefs.budget]);
 
   // Budget suggerito dallo storico: mediana delle spese simili + 10% (calcolato dal backend)
   const [suggestion, setSuggestion] = useState<BudgetSuggestion | null>(null);
@@ -96,13 +91,6 @@ export default function ListaScreen() {
     }, 600);
     return () => clearTimeout(t);
   }, [userId, items]);
-
-  const onBudgetChange = (t: string) => {
-    const clean = t.replace(',', '.').replace(/[^0-9.]/g, '');
-    setBudgetText(clean);
-    const n = parseFloat(clean);
-    setPrefs({ budget: Number.isFinite(n) ? n : null });
-  };
 
   const loadHabitual = useCallback(async () => {
     if (!userId) return;
@@ -170,7 +158,7 @@ export default function ListaScreen() {
 
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[s.content, !groupMode && shopCount > 0 && { paddingBottom: 200 }]} keyboardShouldPersistTaps="handled">
         <Text style={s.kicker}>Mi Conviene · Ciao{prefs.displayName.trim() ? ` ${prefs.displayName.trim()}` : ''} 👋</Text>
         <Text style={s.title}>{groupMode && gl.group ? `Lista ${gl.group.emoji || ''} ${gl.group.name}` : 'Cosa devi comprare?'}</Text>
         <ListPicker />
@@ -200,77 +188,33 @@ export default function ListaScreen() {
             onUpdateQty={L.updateQty}
           />
         </View>
+        {/* #30: Reparti, Abituale, Ricette: tre pulsantini sotto la ricerca */}
+        <View style={s.mini}>
+          <Pressable onPress={() => setRepartiOpen(true)} style={s.miniBtn} accessibilityRole="button">
+            <Text style={s.miniText}>🧭 Reparti</Text>
+          </Pressable>
+          {!groupMode && (
+            <>
+              <Pressable onPress={can(prefs, 'abituale') ? loadHabitual : () => showLocked('abituale')}
+                style={[s.miniBtn, !can(prefs, 'abituale') && { opacity: 0.45 }]} disabled={loadingHabitual} accessibilityRole="button">
+                {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Text style={s.miniText}>🔁 Abituale</Text>}
+              </Pressable>
+              <Pressable onPress={() => (can(prefs, 'ricette') ? router.push('/ricette') : showLocked('ricette'))}
+                style={[s.miniBtn, !can(prefs, 'ricette') && { opacity: 0.45 }]} accessibilityRole="button">
+                <Text style={s.miniText}>📖 Ricette</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+
         {groupMode && (
           <View style={{ marginTop: spacing.lg }}>
             <GroupListPanel gl={gl} />
           </View>
         )}
 
-        {offers.length > 0 && (
-          <>
-            <SectionTitle>🔥 Offerte di oggi</SectionTitle>
-            <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
-              {offers.map((o) => (
-                <View key={`${o.store_id}-${o.product_id}`} style={s.offerCard}>
-                  <View style={s.offerTop}>
-                    <Text style={s.offerName} numberOfLines={2}>{o.product_name}</Text>
-                    <View style={s.badge}><Text style={s.badgeText}>-{o.discount_pct}%</Text></View>
-                  </View>
-                  <View style={s.storeRow}>
-                    <StoreDot storeId={o.store_id} />
-                    <Text style={s.muted}>{o.store_name}</Text>
-                  </View>
-                  <View style={s.offerBottom}>
-                    <View>
-                      <Text style={s.price}>
-                        {euro(o.promo_price)} <Text style={s.strike}>{euro(o.normal_price)}</Text>
-                      </Text>
-                      {o.loyalty_required && <Text style={s.loyalty}>Carta fedeltà</Text>}
-                      <Text style={o.source === 'stima' ? s.tagEstimate : s.tagReal}>
-                        {o.source === 'stima' ? 'stima' : '✓ prezzo reale'}
-                      </Text>
-                    </View>
-                    {(() => {
-                      const on = L.has(o.product_id);
-                      return (
-                        <Pressable
-                          accessibilityLabel={on ? `Togli ${o.product_name}` : `Aggiungi ${o.product_name}`}
-                          onPress={() => L.toggle(o.product_id)}
-                          style={[s.addBtn, on && { backgroundColor: colors.primary }]}>
-                          <Icon name={on ? 'checkmark' : 'add'} size={20} color={on ? colors.primaryText : colors.textSecondary} />
-                        </Pressable>
-                      );
-                    })()}
-                  </View>
-                </View>
-              ))}
-            </HScroll>
-          </>
-        )}
-
-        <SectionTitle>Categorie</SectionTitle>
-        <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
-          {catalog.categories.map((c) => (
-            <Pressable key={c.id} onPress={() => setOpenCategory(c)} style={({ pressed }) => [s.catTile, pressed && { opacity: 0.7 }]}>
-              <Text style={s.catEmoji}>{c.emoji}</Text>
-              <Text style={s.catName} numberOfLines={1}>{c.name}</Text>
-            </Pressable>
-          ))}
-        </HScroll>
-
         {groupMode ? null : (
           <>
-        <Pressable onPress={can(prefs, 'abituale') ? loadHabitual : () => showLocked('abituale')}
-          style={[s.habitualBtn, !can(prefs, 'abituale') && { opacity: 0.45 }]} disabled={loadingHabitual}>
-          {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Icon name="repeat" size={18} color={colors.primary} />}
-          <Text style={s.habitualText}>Carica la mia spesa abituale</Text>
-        </Pressable>
-        <Pressable onPress={() => (can(prefs, 'ricette') ? router.push('/ricette') : showLocked('ricette'))}
-          style={[s.habitualBtn, { marginTop: spacing.sm }, !can(prefs, 'ricette') && { opacity: 0.45 }]}>
-          <Icon name="book-outline" size={18} color={colors.primary} />
-          <Text style={s.habitualText}>Dalle ricette</Text>
-        </Pressable>
-
         <SectionTitle
           right={items.length > 0 && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
@@ -303,103 +247,58 @@ export default function ListaScreen() {
         )}
         {groupMine.length > 0 && <MyGroupShares />}
         {items.length >= 1 && <SmartSuggestions items={items} />}
-
-        <SectionTitle>Budget</SectionTitle>
-        <View style={s.budgetBox}>
-          <Text style={s.budgetEuro}>€</Text>
-          <TextInput
-            value={budgetText}
-            onChangeText={onBudgetChange}
-            keyboardType="decimal-pad"
-            placeholder="Nessun limite"
-            placeholderTextColor={colors.textSecondary}
-            style={s.budgetInput}
-          />
-          <Text style={s.budgetHint}>per questa{'\n'}spesa</Text>
-        </View>
-        {suggestion?.suggested != null && suggestion.suggested !== prefs.budget && (
-          <Pressable style={s.suggestRow} onPress={() => setPrefs({ budget: suggestion.suggested })}>
-            <Icon name="bulb-outline" size={16} color={colors.primary} />
-            <Text style={s.suggestText}>
-              Ti propongo <Text style={{ fontWeight: '700' }}>{euro(suggestion.suggested)}</Text> · {suggestion.reason}
-            </Text>
-            <Text style={s.suggestUse}>Usa</Text>
-          </Pressable>
+          </>
         )}
 
-        {suggestion?.last_similar && (
-          <View style={s.lastRow}>
-            <Icon name="time-outline" size={16} color={colors.textSecondary} />
-            <Text style={s.lastText}>
-              L'ultima volta, per una spesa simile, sei andato da{' '}
-              <Text style={{ fontWeight: '700', color: colors.text }}>{suggestion.last_similar.store_name}</Text>
-              {' '}({formatDate(suggestion.last_similar.date)}
-              {suggestion.last_similar.total_cost ? ` · ${euro(suggestion.last_similar.total_cost)}` : ''})
-            </Text>
-          </View>
-        )}
-
-        <SectionTitle>Come vai?</SectionTitle>
-        <View style={s.wrap}>
-          {TRANSPORTS.map((t) => (
-            <Chip key={t.id} label={t.label} icon={t.icon as never} selected={prefs.transport === t.id} onPress={() => setPrefs({ transport: t.id })} />
-          ))}
-        </View>
-
-        {prefs.transport === 'car' && !can(prefs, 'carburante') && (
-          <Pressable onPress={() => showLocked('carburante')} style={[s.refuelRow, { marginTop: spacing.lg, opacity: 0.5 }]}
-            accessibilityRole="button" accessibilityLabel="Risparmio carburante, nell'app completa">
-            <Icon name="lock-closed" size={20} color={colors.textSecondary} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.itemName}>⛽ Risparmio carburante</Text>
-              <Text style={s.muted}>Il distributore più conveniente sulla strada: nell'app completa.</Text>
-            </View>
-          </Pressable>
-        )}
-        {prefs.transport === 'car' && can(prefs, 'carburante') && (
-          <View style={{ marginTop: spacing.lg }}>
-            <FuelCard
-              fuel={prefs.fuelType}
-              onFuelChange={(f) => setPrefs({ fuelType: f })}
-              lat={prefs.location?.lat}
-              lon={prefs.location?.lon}
-            />
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityState={{ checked: prefs.refuel }}
-              onPress={() => setPrefs({ refuel: !prefs.refuel })}
-              style={[s.refuelRow, prefs.refuel && s.refuelOn]}>
-              <Icon name={prefs.refuel ? 'checkbox' : 'square-outline'} size={22} color={colors.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.itemName}>Devo anche fare carburante</Text>
-                <Text style={s.muted}>
-                  {prefs.location
-                    ? 'Cerco il distributore più conveniente sulla strada di ogni supermercato e lo metto nel confronto.'
-                    : 'Attiva la posizione qui sotto: serve per sapere qual è la tua strada.'}
-                </Text>
-              </View>
-            </Pressable>
-            {prefs.refuel && (
-              <View style={s.litersRow}>
-                <Text style={s.muted}>Litri (facoltativo)</Text>
-                <TextInput
-                  value={prefs.refuelLiters != null ? String(prefs.refuelLiters) : ''}
-                  onChangeText={(t) => {
-                    const n = parseFloat(t.replace(',', '.'));
-                    setPrefs({ refuelLiters: Number.isFinite(n) && n > 0 ? Math.min(n, 200) : null });
-                  }}
-                  keyboardType="decimal-pad"
-                  placeholder="40 (pieno medio)"
-                  placeholderTextColor={colors.textSecondary}
-                  style={s.litersInput}
-                />
-              </View>
+        {offers.length > 0 && (
+          <>
+            <SectionTitle right={
+              <Pressable onPress={() => setPrefs({ offersOpen: !prefs.offersOpen })} hitSlop={8}>
+                <Text style={s.link}>{prefs.offersOpen ? 'Chiudi' : 'Apri'}</Text>
+              </Pressable>
+            }>🔥 Offerte di oggi</SectionTitle>
+            {prefs.offersOpen ? (
+              <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
+                {offers.map((o) => (
+                  <View key={`${o.store_id}-${o.product_id}`} style={s.offerCard}>
+                    <View style={s.offerTop}>
+                      <Text style={s.offerName} numberOfLines={2}>{o.product_name}</Text>
+                      <View style={s.badge}><Text style={s.badgeText}>-{o.discount_pct}%</Text></View>
+                    </View>
+                    <View style={s.storeRow}>
+                      <StoreDot storeId={o.store_id} />
+                      <Text style={s.muted}>{o.store_name}</Text>
+                    </View>
+                    <View style={s.offerBottom}>
+                      <View>
+                        <Text style={s.price}>
+                          {euro(o.promo_price)} <Text style={s.strike}>{euro(o.normal_price)}</Text>
+                        </Text>
+                        {o.loyalty_required && <Text style={s.loyalty}>Carta fedeltà</Text>}
+                        <Text style={o.source === 'stima' ? s.tagEstimate : s.tagReal}>
+                          {o.source === 'stima' ? 'stima' : '✓ prezzo reale'}
+                        </Text>
+                      </View>
+                      {(() => {
+                        const on = L.has(o.product_id);
+                        return (
+                          <Pressable
+                            accessibilityLabel={on ? `Togli ${o.product_name}` : `Aggiungi ${o.product_name}`}
+                            onPress={() => L.toggle(o.product_id)}
+                            style={[s.addBtn, on && { backgroundColor: colors.primary }]}>
+                            <Icon name={on ? 'checkmark' : 'add'} size={20} color={on ? colors.primaryText : colors.textSecondary} />
+                          </Pressable>
+                        );
+                      })()}
+                    </View>
+                  </View>
+                ))}
+              </HScroll>
+            ) : (
+              <Pressable onPress={() => setPrefs({ offersOpen: true })} style={s.collapsed} accessibilityRole="button">
+                <Text style={s.muted}>🔥 {offers.length} offerte oggi · tocca per vederle</Text>
+              </Pressable>
             )}
-          </View>
-        )}
-
-        <SectionTitle>Dove sei?</SectionTitle>
-        <LocationControl />
           </>
         )}
 
@@ -412,6 +311,7 @@ export default function ListaScreen() {
         </View>
       ) : shopCount > 0 && (
         <View style={[s.ctaWrap, { paddingBottom: spacing.md }]} pointerEvents="box-none">
+          <TripSummary onPress={() => setTripOpen(true)} />
           <PrimaryButton label="Trova la spesa migliore" icon="sparkles" onPress={findBest} loading={loading} style={s.cta} />
         </View>
       )}
@@ -448,6 +348,23 @@ export default function ListaScreen() {
             }}
           />
           <PrimaryButton label="Fatto" onPress={() => setOpenCategory(null)} style={{ marginTop: spacing.md }} />
+        </View>
+      </Modal>
+      <TripSheet visible={tripOpen} onClose={() => setTripOpen(false)} suggestion={suggestion} />
+      <Modal visible={repartiOpen} transparent animationType="slide" onRequestClose={() => setRepartiOpen(false)}>
+        <Pressable style={s.overlay} onPress={() => setRepartiOpen(false)} />
+        <View style={[s.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <View style={s.grabber} />
+          <Text style={s.sheetTitle}>Scegli dal reparto</Text>
+          <View style={s.repGrid}>
+            {catalog.categories.map((c) => (
+              <Pressable key={c.id} onPress={() => { setRepartiOpen(false); setOpenCategory(c); }}
+                style={({ pressed }) => [s.repTile, pressed && { opacity: 0.7 }]} accessibilityRole="button">
+                <Text style={s.catEmoji}>{c.emoji}</Text>
+                <Text style={s.catName} numberOfLines={1}>{c.name}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
       </Modal>
       {habitualProposal && catalog && (
@@ -513,6 +430,13 @@ const useStyles = makeStyles((c) => ({
   },
   habitualText: { color: c.primary, fontWeight: '600', fontSize: 14 },
   clear: { color: c.danger, fontSize: 14 },
+  link: { color: c.primary, fontSize: 14, fontWeight: '700' },
+  mini: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  miniBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 40, paddingVertical: 8, borderRadius: radius.md, backgroundColor: c.primarySoft },
+  miniText: { color: c.primary, fontWeight: '700', fontSize: 13.5 },
+  collapsed: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  repGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center', marginTop: spacing.sm },
+  repTile: { width: '31%', height: 84, borderRadius: radius.lg, backgroundColor: c.surfaceSecondary, alignItems: 'center', justifyContent: 'center', gap: 4 },
   guest: { backgroundColor: c.primarySoft, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
   guestText: { color: c.text, fontSize: 13, lineHeight: 18 },
   aisleNote: { color: c.textSecondary, fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
