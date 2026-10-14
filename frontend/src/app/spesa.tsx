@@ -12,11 +12,11 @@ import { IS_CLOUD } from '@/cloud/client';
 import { HelpSheet } from '@/components/HelpSheet';
 import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
 import { ProductSearch } from '@/components/ProductSearch';
+import { ProductIcon } from '@/components/ProductIcon';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty } from '@/format';
 import { ParkingLine } from '@/components/ParkingLine';
 import { openNavigation } from '@/navigate';
-import { productEmoji } from '@/productEmoji';
 import { customId, useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -440,7 +440,7 @@ export default function SpesaScreen() {
                           style={({ pressed }) => [s.tile, { width: tileW(gridW) }, !can && { opacity: 0.6 }, pressed && { opacity: 0.6 }]}
                           accessibilityRole="checkbox" accessibilityState={{ checked: false }}
                           accessibilityLabel={`${i.name}, ${formatQty(i.quantity, i.unit)}`} accessibilityHint="Tocca quando l'hai messo nel carrello">
-                          <Text style={s.tileEmoji}>{productEmoji(i.name, catById.get(i.category_id)?.emoji)}</Text>
+                          <ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={36} />
                           <Text style={s.tileName} numberOfLines={2}>{i.name}</Text>
                           <Text style={s.tileQty} numberOfLines={1}>
                             {formatQty(i.quantity, i.unit)}{i.groups?.length ? ` ${i.groups.map((g) => g.emoji || '👥').join('')}` : ''}
@@ -513,7 +513,7 @@ export default function SpesaScreen() {
                 {done.map((i) => (
                   <Pressable key={i.key} onPress={() => toggle(i)} style={[s.tile, s.tileDone, { width: tileW(gridW) }]}
                     accessibilityRole="checkbox" accessibilityState={{ checked: true }} accessibilityLabel={`${i.name}, nel carrello`}>
-                    <Text style={[s.tileEmoji, { opacity: 0.5 }]}>{productEmoji(i.name, catById.get(i.category_id)?.emoji)}</Text>
+                    <View style={{ opacity: 0.5 }}><ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={30} /></View>
                     <Text style={[s.tileName, s.nameDone]} numberOfLines={2}>{i.name}</Text>
                     <Text style={s.tilePrice} numberOfLines={1}>{i.seen ? euro(i.seen.price) : '✓'}</Text>
                   </Pressable>

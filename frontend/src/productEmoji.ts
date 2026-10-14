@@ -1,47 +1,132 @@
 /**
- * #24: "immagine" del prodotto per le card della lista. Niente foto (pesanti, con diritti): un'emoji scelta dal nome,
- * altrimenti quella del reparto. Vale anche per i prodotti scritti a mano.
+ * #28/#29: quale icona per un prodotto. Le icone sono disegnate (Fluent Emoji di Microsoft, licenza MIT, vedi
+ * assets/food/LICENSE) e uguali su tutti i telefoni: base + un piccolo segno che distingue i prodotti simili.
+ *
+ * Ordine di ricerca:
+ *  1. prodotto del catalogo → tabella PRODUCT_ICONS (una scelta per prodotto);
+ *  2. scritto a mano: somiglia a un prodotto del catalogo ("tonno rio mare" → tonno in scatola), più il segno della
+ *     confezione se il nome la dice ("… surgelati" 🧊, "… in vetro" 🫙, "… in bottiglia" 🍾);
+ *  3. parole chiave (anche cose non alimentari: asciugacapelli, trapano, phon…);
+ *  4. niente di adatto: l'icona del reparto con l'iniziale del nome come segno (così due prodotti diversi non sono uguali).
  */
-const RULES: [RegExp, string][] = [
-  [/caffe|orzo solubile/, '☕'], [/macinato di manzo/, '🥩'],
-  [/\bmel[ae]\b/, '🍎'], [/banan/, '🍌'], [/aranc|spremut/, '🍊'], [/\bper[ae]\b/, '🍐'], [/fragol/, '🍓'], [/limon/, '🍋'],
-  [/mandarin|clementin/, '🍊'], [/kiwi/, '🥝'], [/\buva\b/, '🍇'], [/pesch|albicocc|prugn/, '🍑'], [/cilieg/, '🍒'],
-  [/anguria/, '🍉'], [/melone/, '🍈'], [/ananas/, '🍍'], [/avocado/, '🥑'], [/mirtill|frutti di bosco/, '🫐'],
-  [/pompelm/, '🍊'], [/fich|cach/, '🍑'], [/noci|mandorl|frutta secca|arachid/, '🥜'], [/cocco/, '🥥'], [/mango/, '🥭'],
-  [/pomodor|pelati|passata|polpa di pom|concentrato/, '🍅'], [/insalat|lattuga|rucola/, '🥬'], [/zucchin|cetriol/, '🥒'],
-  [/patat|pure/, '🥔'], [/carot/, '🥕'], [/cipoll|porri/, '🧅'], [/melanzan/, '🍆'], [/peperon/, '🫑'], [/spinac|bietol/, '🥬'],
-  [/brocc|cavol/, '🥦'], [/finocch|sedano|asparag|fagiolin|carcio/, '🥬'], [/aglio/, '🧄'], [/fungh|champignon/, '🍄'],
-  [/zucca/, '🎃'], [/basilico|prezzemolo|origano|pesto/, '🌿'], [/\bmais\b|pop corn|snack di mais/, '🌽'],
-  [/pizza/, '🍕'], [/hamburger|burger/, '🍔'], [/pollo|tacchino|cotolett/, '🍗'], [/manzo|vitello|bistecc|fettine|spezzatino|agnello|macinato/, '🥩'],
-  [/maiale|salsicc|costine|arista|braciol|wurstel/, '🥓'], [/prosciutto|salame|mortadella|bresaola|speck|pancetta/, '🥓'],
-  [/salmone|merluzzo|orata|branzino|sgombro|alici|pesce|tonno/, '🐟'], [/gamber|scamp/, '🦐'], [/cozz|vongol/, '🦪'],
-  [/calamar|polpo/, '🦑'], [/sushi/, '🍣'],
-  [/latte|kefir|bevanda di soia|bevanda d.avena/, '🥛'], [/uova/, '🥚'], [/burro\b/, '🧈'], [/yogurt|budino/, '🍮'],
-  [/mozzarell|burrata|fiordilatte|parmigian|grana|pecorino|gorgonzola|provolone|ricotta|stracchino|formagg|asiago|feta|emmental|mascarpone/, '🧀'],
-  [/panna/, '🥛'], [/baguette|pane|focaccia|pan carre|grissini|taralli|pangrattato/, '🥖'], [/croissant|cornett/, '🥐'],
-  [/piadin|tortill|tramezzin/, '🌯'], [/cracker|gallette|fette biscottate/, '🍘'],
-  [/spaghetti|penne|fusilli|pasta|lasagn|tortellini|gnocchi/, '🍝'], [/riso/, '🍚'], [/cous|farro|orzo perlato|polenta|farina|fecola|lievito/, '🌾'],
-  [/lenticch|fagiol|ceci|piselli/, '🫘'], [/olio|olive/, '🫒'], [/aceto|salsa di soia/, '🍶'], [/\bsale\b|pepe|spezie|dado|brodo/, '🧂'],
-  [/maionese|ketchup|senape|salsa|sugo|ragu/, '🥫'], [/zuppa|minestrone/, '🍲'], [/capperi|sottaceti/, '🫙'],
-  [/caffe|orzo solubile/, '☕'], [/\bte\b|tisana|camomilla/, '🍵'], [/cereali|muesli|fiocchi d.avena/, '🥣'],
-  [/miele/, '🍯'], [/marmellat|confettur|crema spalmabile|burro di arachidi/, '🍯'], [/zucchero|dolcificante/, '🍬'],
-  [/biscott|wafer|merendin|plumcake|barrett/, '🍪'], [/cioccolat|cacao/, '🍫'], [/torta|crostata/, '🍰'],
-  [/gelato|ghiacciol|coni/, '🍦'], [/patatine/, '🍟'], [/caramell|gomme/, '🍬'],
-  [/acqua/, '💧'], [/birra/, '🍺'], [/vino|prosecco/, '🍷'], [/cola|aranciata|bevanda|succo|sciroppo|te freddo/, '🧃'],
-  [/hummus|tofu/, '🥙'],
-  [/detersiv|ammorbident|candeggin|sgrassator|anticalcare|detergente|lavastovigli|brillantante/, '🧴'],
-  [/carta igienica|carta da cucina|fazzolett|tovagliol/, '🧻'], [/sacch|pellicola|alluminio|carta forno/, '🛍️'],
-  [/spugn|guanti/, '🧽'], [/pile|batteri/, '🔋'], [/lampadin/, '💡'],
-  [/shampoo|balsamo|bagnoschiuma|sapone|crema corpo|salviett/, '🧼'], [/dentifric|spazzolin|colluttor|collutorio/, '🪥'],
-  [/deodorant|rasoi|schiuma da barba|assorbent|cotton|dischetti|cerott/, '🧴'], [/pannolin|omogeneizz|latte di crescita|infanzia/, '🍼'],
-  [/cani|gatti|lettiera|animali/, '🐾'],
-  [/asciugacapelli|phon/, '💨'], [/idropul|trapano|avvitator|attrezz/, '🛠️'],
+import { PRODUCTS } from './engine/data';
+import { PRODUCT_ICONS } from './productIcons';
+
+export interface IconSpec { base: string; badge?: string; letter?: string }
+
+const norm = (t: string) => t.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+const parse = (v: string): IconSpec => { const [base, badge] = v.split('|'); return badge ? { base, badge } : { base }; };
+
+// segno della confezione/variante scritto nel nome
+const MODIFIERS: [RegExp, string][] = [
+  [/surgelat|congelat|frozen/, '🧊'], [/in scatola|scatolett|lattina/, '🥫'], [/in vetro|vasett|barattol/, '🫙'],
+  [/bottigli/, '🍾'], [/senza lattosio|senza glutine|\bsenza\b/, '🚫'], [/integral/, '🌾'], [/\bbio\b|biologic/, '🌱'],
+  [/affumicat/, '💨'], [/piccant/, '🌶️'], [/grattugiat/, '🫙'],
 ];
 
-const norm = (t: string) => t.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '');
+// parole chiave per i prodotti che non somigliano a nessuno del catalogo
+const RULES: [RegExp, string][] = [
+  [/asciugacapell|phon\b|fon\b/, '💨|🔌'], [/idropul|idropulitric/, '🚿|🔌'], [/trapan|avvitator|cacciavit|attrezz|utensil/, '🛠️'],
+  [/martell/, '🔨'], [/chiod|vite\b|viti\b/, '🔩'], [/lampad/, '💡'], [/pile|batteri/, '🔋'], [/cavo|caricator|presa/, '🔌'],
+  [/candel/, '🕯️'], [/fiori|piant/, '💐'], [/regal/, '🎁'], [/giornal|rivist/, '📰'], [/quadern|penn[ae] |matit|cancelleri/, '✏️'],
+  [/calz/, '🧦'], [/magliett|maglia/, '👕'], [/scarp|ciabatt/, '👟'], [/ombrell/, '☂️'], [/giocattol|gioco/, '🧸'],
+  [/medicin|farmac|aspirin|tachipirin|vitamin/, '💊'], [/termometr/, '🌡️'], [/mascherin/, '😷'],
+  [/sushi/, '🍣'], [/kebab|gyros/, '🥙'], [/taco|burrito/, '🌯'], [/curry/, '🍛'], [/ramen|noodle/, '🍜'], [/dumpling|ravioli cinesi/, '🥟'],
+  [/ravioli|agnolotti|cappellett/, '🥟'], [/risott/, '🍚'], [/paella/, '🥘'], [/zuppa|vellutat|minestr/, '🍲'],
+  [/cocco/, '🥥'], [/mango/, '🥭'], [/melagran|melograno/, '🍎|🔴'], [/papaya|maracuj|frutto della passione/, '🥭|🟡'],
+  [/zenzero/, '🫚'], [/peperoncin/, '🌶️'], [/castagn/, '🌰'], [/oliv/, '🫒'], [/ceci|fagiol|lentic|legum/, '🫘'], [/piselli/, '🫛'],
+  [/salsicc|wurstel|hot dog/, '🌭'], [/costat|costin/, '🍖'], [/pollo|tacchino/, '🍗'], [/maiale|porchett/, '🐖'],
+  [/manzo|vitell|bistecc|carne/, '🥩'], [/prosciutt|salam|mortadell|speck|pancett|guancial|lard/, '🥓'],
+  [/gamber|scamp|mazzanc/, '🦐'], [/aragost|astice/, '🦞'], [/grancio/, '🦀'], [/cozz|ostric/, '🦪'], [/vongol|telline/, '🐚'],
+  [/calamar|seppi|totan/, '🦑'], [/polp/, '🐙'], [/pesce|baccal|tonno|acciug|alic|sardin|trot|spigol|sogliol|platess|nasell|pesce spada/, '🐟'],
+  [/formagg|caciott|scamorz|fontina|taleggio|robiola|caprino|brie|camembert|cheddar|mozzarell|grana|parmig|pecorin/, '🧀'],
+  [/latte\b|panna/, '🥛'], [/uov[ao]/, '🥚'], [/burro/, '🧈'], [/yogurt|skyr/, '🍶|🥄'], [/budin|creme caramel|panna cotta/, '🍮'],
+  [/pane|pagnott|rosett|ciabatt|filon/, '🍞'], [/baguette/, '🥖'], [/cornett|brioche|croissant/, '🥐'], [/pizz/, '🍕'],
+  [/focacc|piadin/, '🫓'], [/panin|tramezz|sandwich|toast/, '🥪'], [/ciambell|donut|bombol/, '🍩'], [/muffin|cupcake|tortin|merendin/, '🧁'],
+  [/torta|crostat|dolce|pasticc|tiramisu/, '🍰'], [/biscott|frollin|cookie/, '🍪'], [/cioccolat|nutella|cacao/, '🍫'],
+  [/caramell|lecca|zuccher/, '🍬'], [/gelat/, '🍨'], [/ghiaccio|ghiacciol/, '🧊'], [/pop ?corn/, '🍿'], [/patatin|chips/, '🥔|🧂'],
+  [/cracker|gallett|tuc\b|salatin/, '🍘'], [/arachid|nocciol|pistacch|anacard|noci|mandorl|frutta secca/, '🥜'],
+  [/spaghett|pasta|penne|fusill|rigaton|maccheron|tagliatell|lasagn|linguin/, '🍝'], [/riso|basmati/, '🍚'], [/gnocch/, '🥔|🍝'],
+  [/farin|semola|cereal|avena|orzo|farro|crusca|quinoa|grano/, '🌾'], [/muesli|granola|corn flakes/, '🥣'],
+  [/caffe|espresso|capsul/, '☕'], [/\bte\b|the\b|tisana|camomill|infus/, '🍵'], [/miel/, '🍯'], [/marmellat|confettur/, '🫙|🍓'],
+  [/acqua/, '💧'], [/birra/, '🍺'], [/vino|lambrusc|chianti/, '🍷'], [/spumant|prosecc|champagne/, '🍾'], [/aperitiv|spritz|cocktail|liquor|amaro|grappa|vodka|gin\b|rum\b|whisky/, '🍸'],
+  [/succo|nettare|estathe|the freddo|te freddo/, '🧃'], [/cola|aranciata|gassosa|chinotto|bibit|energy/, '🥤'],
+  [/olio/, '🫒|🍾'], [/aceto/, '🍶'], [/sale\b/, '🧂'], [/pepe\b|spezi|curcuma|paprika|cannella/, '🌶️'],
+  [/maiones|ketchup|senape|salsa|sugo|pesto|ragu/, '🫙'], [/scatolett|in scatola/, '🥫'],
+  [/mel[aei]\b/, '🍎'], [/banan/, '🍌'], [/aranc/, '🍊'], [/pera|pere\b/, '🍐'], [/fragol/, '🍓'], [/limon/, '🍋'],
+  [/mandarin|clementin/, '🍊'], [/kiwi/, '🥝'], [/\buva\b/, '🍇'], [/pesc[ah]|albicocc|nettarin/, '🍑'], [/prugn|susin/, '🫐|🟣'],
+  [/cilieg/, '🍒'], [/anguri|cocomer/, '🍉'], [/melon/, '🍈'], [/ananas/, '🍍'], [/avocad/, '🥑'], [/mirtill|lampon|more\b|ribes/, '🫐'],
+  [/pomodor/, '🍅'], [/insalat|lattug|rucol|valerian|radicchi|indivia|scarola/, '🥬'], [/zucchin|cetriol/, '🥒'],
+  [/patat/, '🥔'], [/carot/, '🥕'], [/cipoll|scalogn|porr/, '🧅'], [/aglio/, '🧄'], [/melanzan/, '🍆'], [/peperon/, '🫑'],
+  [/spinac|bietol|cavol|verz|cime di rapa|friariell/, '🥬'], [/broccol/, '🥦'], [/fungh|porcin|champignon/, '🍄'], [/zucca/, '🎃'],
+  [/mais|polenta/, '🌽'], [/basilic|prezzemol|rosmarin|salvi|menta|erbe|aromi|origano|timo/, '🌿'], [/asparag|germogl/, '🌱'],
+  [/tofu|seitan|tempeh/, '🧈|🫘'], [/hummus|falafel/, '🧆'],
+  [/detersiv|bucato|lavatric/, '🧺'], [/lavastovigl|piatti/, '🍽️|🫧'], [/carta igienic/, '🧻'], [/fazzolett/, '🤧'],
+  [/scottex|carta cucina|carta da cucina|rotolon/, '🧻|🍳'], [/sapon/, '🧼'], [/shampoo|balsam/, '🧴|💇'], [/bagnoschium|doccia/, '🛁'],
+  [/dentifric|spazzolin|filo interdent/, '🪥'], [/rasoi|lamett/, '🪒'], [/deodorant|profum/, '🌸|🧴'], [/crema|lozion/, '🧴|🌸'],
+  [/cerott/, '🩹'], [/pannolin|bimb|neonat|omogeneizz/, '👶'], [/spugn/, '🧽'], [/guant/, '🧤'], [/scop|pavimen|mocio/, '🧹'],
+  [/sacchett|sacch|busta|buste/, '🛍️'], [/candeggin|varechin|sgrassat|anticalc|spray/, '🧴|✨'], [/insetticid|zanzar/, '🦟'],
+  [/cane|cani\b|crocchett/, '🐕'], [/gatt|lettiera/, '🐈'], [/pesc[ie] rossi|acquari/, '🐠'], [/uccell|canarin/, '🐦'],
+];
 
-export function productEmoji(name: string, categoryEmoji?: string | null): string {
+const SKIP = new Set(['di', 'da', 'del', 'della', 'alla', 'al', 'con', 'per', 'in', 'e', 'a', 'x', 'la', 'il', 'lo', 'le', 'gli', 'i']);
+// stem semplice per italiano: "zucchine" ~ "zucchina", "pomodori" ~ "pomodoro"
+const stem = (w: string) => (w.length > 4 ? w.replace(/(e|i|a|o)$/, '') : w);
+
+// indice dei prodotti del catalogo per parola principale (la prima parola significativa del nome)
+let INDEX: { stem: string; words: string[]; spec: IconSpec }[] | null = null;
+function index() {
+  if (INDEX) return INDEX;
+  INDEX = PRODUCTS.filter((p) => PRODUCT_ICONS[p.id]).map((p) => {
+    const words = norm(p.name).split(' ').filter((w) => w.length >= 3 && !SKIP.has(w) && !/^\d/.test(w));
+    return { stem: stem(words[0] ?? ''), words: words.map(stem), spec: parse(PRODUCT_ICONS[p.id]) };
+  }).filter((x) => x.stem.length >= 3);
+  return INDEX;
+}
+
+const cache = new Map<string, IconSpec>();
+
+export function productIcon(name: string, productId?: string | null, categoryEmoji?: string | null): IconSpec {
+  if (productId && PRODUCT_ICONS[productId]) return parse(PRODUCT_ICONS[productId]);
   const n = norm(name);
-  for (const [re, e] of RULES) if (re.test(n)) return e;
-  return categoryEmoji || '🛒';
+  const key = `${n}|${categoryEmoji ?? ''}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const mod = MODIFIERS.find(([re]) => re.test(n))?.[1];
+  let out: IconSpec | null = null;
+  // 2. somiglia a un prodotto del catalogo: stessa parola principale, il più parole in comune possibile
+  const mine = n.split(' ').filter((w) => w.length >= 3 && !SKIP.has(w)).map(stem);
+  if (mine.length) {
+    let best: { spec: IconSpec; score: number } | null = null;
+    for (const p of index()) {
+      if (!mine.includes(p.stem)) continue;
+      const score = p.words.filter((w) => mine.includes(w)).length * 10 - p.words.length;
+      if (!best || score > best.score) best = { spec: p.spec, score };
+    }
+    if (best) out = { ...best.spec, ...(mod ? { badge: mod } : {}) };
+  }
+  // 3. parole chiave
+  if (!out) {
+    const r = RULES.find(([re]) => re.test(n));
+    if (r) { const sp = parse(r[1]); out = { ...sp, ...(mod && !sp.badge ? { badge: mod } : {}) }; }
+  }
+  // 4. reparto + iniziale
+  if (!out) out = { base: categoryEmoji || '🛒', letter: (n[0] ?? '?').toUpperCase() };
+  cache.set(key, out);
+  return out;
+}
+
+/** compatibilità: il solo disegno principale (testo) */
+export function productEmoji(name: string, categoryEmoji?: string | null, productId?: string | null): string {
+  return productIcon(name, productId, categoryEmoji).base;
+}
+
+/** tutte le emoji che possono servire (per preparare le immagini: scripts/build_food_icons.ts) */
+export function allIconEmoji(categoryEmojis: string[]): string[] {
+  const set = new Set<string>(categoryEmojis);
+  const add = (v: string) => v.split('|').forEach((e) => set.add(e));
+  Object.values(PRODUCT_ICONS).forEach(add);
+  RULES.forEach(([, v]) => add(v));
+  MODIFIERS.forEach(([, v]) => add(v));
+  return [...set];
 }

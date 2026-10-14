@@ -5,8 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Category, ListItem, Product } from '../api';
 import { formatQty, qtyStep } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
-import { productEmoji } from '../productEmoji';
 import { QtyStepper } from './QtyStepper';
+import { ProductIcon } from './ProductIcon';
 import { Icon, PrimaryButton } from './ui';
 
 /**
@@ -94,7 +94,7 @@ export function ShoppingList({ items, categories, productById, updateQty, remove
                   style={({ pressed }) => [s.tile, tileW ? { width: tileW } : { width: '23%' }, pressed && { opacity: 0.7 }]}
                   accessibilityRole="button" accessibilityLabel={`${r.name}, ${formatQty(r.item.quantity, r.unit)}`}
                   accessibilityHint="Tocca per cambiare quantità o toglierlo">
-                  <Text style={s.tileEmoji}>{productEmoji(r.name, catById.get(r.categoryId)?.emoji)}</Text>
+                  <ProductIcon name={r.name} productId={r.item.product_id} categoryEmoji={catById.get(r.categoryId)?.emoji} size={36} />
                   <Text style={s.tileName} numberOfLines={2}>{r.name}</Text>
                   <Text style={s.tileQty} numberOfLines={1}>{formatQty(r.item.quantity, r.unit)}{r.custom ? ' ✍️' : ''}</Text>
                 </Pressable>
@@ -203,7 +203,7 @@ function ItemSheet({ row, categories, catEmoji, onClose, onQty, onRemove, onCate
           {row && (
             <>
               <View style={s.sheetHead}>
-                <Text style={{ fontSize: 40 }}>{productEmoji(row.name, catEmoji)}</Text>
+                <ProductIcon name={row.name} productId={row.item.product_id} categoryEmoji={catEmoji} size={46} />
                 <View style={{ flex: 1 }}>
                   <Text style={s.sheetTitle}>{row.name}</Text>
                   {row.custom && <Text style={s.muted}>✍️ scritto a mano · senza prezzo in lista</Text>}

@@ -5,6 +5,7 @@ import { api, Category, ClassifyResult, CommunityProduct, ListItem, Product } fr
 import { formatQty, qtyStep } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { QtyStepper } from './QtyStepper';
+import { ProductIcon } from './ProductIcon';
 import { Icon } from './ui';
 
 const customKey = (name: string) =>
@@ -156,7 +157,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
           {[...matches, ...extra.map((x) => products.find((p) => p.id === x.product_id)!).filter(Boolean)].map((p) => (
             <Pressable key={p.id} onPress={() => tap(p)} style={s.row}
               accessibilityHint={itemFor(p.id) ? (onUpdateQty ? 'Già in lista: tocca per toglierlo' : 'Già nella spesa') : 'Tocca per aggiungerlo'}>
-              <Text style={s.emoji}>{catById.get(p.category_id)?.emoji}</Text>
+              <ProductIcon name={p.name} productId={p.id} categoryEmoji={catById.get(p.category_id)?.emoji} size={28} />
               <View style={{ flex: 1 }}>
                 <Text style={s.name}>{p.name}</Text>
                 <Text style={s.meta}>
@@ -170,7 +171,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
           {communityMatches.map((c) => (
             <Pressable key={c.key} onPress={() => tapCommunity(c)} style={s.row}
               accessibilityHint={itemFor(c.key) ? 'Già in lista' : 'Tocca per aggiungerlo'}>
-              <Text style={s.emoji}>{catById.get(c.category_id)?.emoji ?? '✍️'}</Text>
+              <ProductIcon name={c.name} categoryEmoji={catById.get(c.category_id)?.emoji} size={28} />
               <View style={{ flex: 1 }}>
                 <Text style={s.name}>{c.name} <Text style={s.meta}>✍️</Text></Text>
                 <Text style={s.meta}>
@@ -185,7 +186,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
           {!exactInCatalog && (
             <View style={s.newBox}>
               <Pressable onPress={addNew} style={s.row}>
-                <Text style={s.emoji}>{catById.get(newCat)?.emoji ?? '🛒'}</Text>
+                <ProductIcon name={q.trim()} categoryEmoji={catById.get(newCat)?.emoji} size={28} />
                 <View style={{ flex: 1 }}>
                   <Text style={s.name}>Aggiungi «{q.trim()}»</Text>
                   <Text style={s.meta}>
