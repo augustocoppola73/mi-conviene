@@ -2,6 +2,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Tabs } from 'expo-router';
 
+import { View } from 'react-native';
+
+import { LockedSheet } from '@/components/LockedSheet';
+import { can, Feature, showLocked } from '@/features';
+import { useStore } from '@/store';
 import { useTheme } from '@/theme';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -16,7 +21,11 @@ const TABS: { name: string; title: string; icon: IconName; iconActive: IconName 
 
 export default function TabsLayout() {
   const { colors } = useTheme();
+  const { prefs } = useStore();
+  // #23: in modalità partecipante Vicino a me e Salvadanaio restano visibili ma ingrigiti
+  const locked = (name: string) => (name === 'vicino' || name === 'salvadanaio') && !can(prefs, name as Feature);
   return (
+    <>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -30,12 +39,19 @@ export default function TabsLayout() {
         <Tabs.Screen
           key={t.name}
           name={t.name}
+          listeners={{ tabPress: (e) => { if (locked(t.name)) { e.preventDefault(); showLocked(t.name as Feature); } } }}
           options={{
             title: t.title,
-            tabBarIcon: ({ color, focused, size }) => t.name === 'salvadanaio'
-              // il maialino del salvadanaio (Ionicons non ce l'ha)
-              ? <MaterialCommunityIcons name={focused ? 'piggy-bank' : 'piggy-bank-outline'} size={size + 2} color={color} />
-              : <Ionicons name={focused ? t.iconActive : t.icon} size={size} color={color} />,
+            tabBarLabelStyle: locked(t.name) ? { fontSize: 11, opacity: 0.45 } : undefined,
+            tabBarIcon: ({ color, focused, size }) => (
+              <View style={locked(t.name) ? { opacity: 0.4 } : undefined}>
+                {t.name === 'salvadanaio'
+                  // il maialino del salvadanaio (Ionicons non ce l'ha)
+                  ? <MaterialCommunityIcons name={focused ? 'piggy-bank' : 'piggy-bank-outline'} size={size + 2} color={color} />
+                  : <Ionicons name={focused ? t.iconActive : t.icon} size={size} color={color} />}
+                {locked(t.name) && <Ionicons name="lock-closed" size={11} color={color} style={{ position: 'absolute', right: -6, top: -2 }} />}
+              </View>
+            ),
           }}
         />
       ))}
@@ -44,5 +60,7 @@ export default function TabsLayout() {
       {/* #22: il Profilo si apre da "Altro" (resta raggiungibile dai link dell'app) */}
       <Tabs.Screen name="profilo" options={{ href: null, title: 'Profilo' }} />
     </Tabs>
+    <LockedSheet />
+    </>
   );
 }

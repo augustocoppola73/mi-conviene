@@ -15,7 +15,7 @@ type View_ = { mode: 'ask'; code: string; info: InvitePreview; current: boolean 
   | { mode: 'error'; message: string; code?: string; canLeave?: boolean };
 
 export function InviteHandler() {
-  const { userId, prefs, setPrefs, hydrated } = useStore();
+  const { userId, prefs, setPrefs, hydrated, items } = useStore();
   const s = useStyles();
   const [view, setView] = useState<View_ | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,6 +49,13 @@ export function InviteHandler() {
       const r: JoinResult = rejoin ? await api.inviteRejoin(code, rejoin) : await api.inviteJoin(code, name);
       clearInvite();
       if (r.status === 'invalid') return setView({ mode: 'error', message: r.reason || 'Invito non valido' });
+      // #23: invitato a un gruppo senza aver mai usato l'app per sé → modalità partecipante (le funzioni personali si sbloccano con un tocco)
+      const kind = r.kind ?? info?.kind;
+      if ((r.status === 'joined' || r.status === 'pending') && kind && kind !== 'famiglia' && !prefs.participant
+        && items.length === 0 && !prefs.favorites.length && !prefs.budget
+        && !(await api.savings(userId!).then((x) => x.entries.length > 0).catch(() => true))) {
+        setPrefs({ participant: true, ...(r.group_id ? { activeList: r.group_id } : {}) });
+      }
       if (r.status === 'pending') return setView({ mode: 'pending', info });
       setView(null);
       if (r.status === 'joined') {

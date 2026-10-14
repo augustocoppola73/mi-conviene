@@ -5,6 +5,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { IS_CLOUD } from '../cloud/client';
 import { Group, myGroups } from '../cloud/groups';
+import { can, showLocked } from '../features';
 import { useStore } from '../store';
 import { makeStyles, radius, spacing } from '../theme';
 import { GroupSheet } from './GroupSheet';
@@ -41,7 +42,8 @@ export function ListPicker() {
             </Pressable>
           );
         })}
-        <Pressable onPress={() => setCreating(true)} style={[s.chip, s.add]} accessibilityRole="button">
+        <Pressable onPress={() => (can(prefs, 'nuovoGruppo') ? setCreating(true) : showLocked('nuovoGruppo'))}
+          style={[s.chip, s.add, !can(prefs, 'nuovoGruppo') && { opacity: 0.45 }]} accessibilityRole="button">
           <Text style={s.addText}>＋ Nuovo gruppo</Text>
         </Pressable>
       </HScroll>

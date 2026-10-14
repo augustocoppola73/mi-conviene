@@ -488,7 +488,7 @@ export default function RisultatiScreen() {
             {ruleMsg && <Text style={[s.altMeta, { color: colors.primary }]}>{ruleMsg}</Text>}
             {confirmed === 'split' ? (
               <Text style={s.confirmNote}>
-                {addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
+                {prefs.participant ? 'Spesa confermata.' : addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
                 {'\n'}La lista è pronta, divisa per negozio.
               </Text>
             ) : (
@@ -511,7 +511,7 @@ export default function RisultatiScreen() {
         {!!confirmed && confirmed !== 'split' && (
           <Text style={s.confirmNote}>
             {confirmed !== recommended.store_id ? `Spesa da ${chosen.store_name} confermata.\n` : ''}
-            {addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
+            {prefs.participant ? 'Spesa confermata.' : addedAmount && addedAmount > 0 ? `Aggiunti ${euro(addedAmount)} al Salvadanaio 🐷` : 'Spesa registrata nel Salvadanaio'}
             {'\n'}La lista è pronta da smarcare in negozio.
           </Text>
         )}
@@ -641,12 +641,12 @@ export default function RisultatiScreen() {
 
 
             <PrimaryButton
-              label={shopSaving + fuelSaving > 0 ? `Conferma e aggiungi ${euro(shopSaving + fuelSaving)}` : 'Conferma la spesa'}
+              label={!prefs.participant && shopSaving + fuelSaving > 0 ? `Conferma e aggiungi ${euro(shopSaving + fuelSaving)}` : 'Conferma la spesa'}
               icon="wallet-outline"
               loading={saving}
-              onPress={() => confirm(shopSaving + fuelSaving > 0)}
+              onPress={() => confirm(!prefs.participant && shopSaving + fuelSaving > 0)}
             />
-            {shopSaving + fuelSaving > 0 && (
+            {!prefs.participant && shopSaving + fuelSaving > 0 && (
               <PrimaryButton label="Conferma senza aggiungere al Salvadanaio" variant="secondary" onPress={() => confirm(false)} disabled={saving} />
             )}
             {shopSaving + fuelSaving <= 0 && !isRec && (

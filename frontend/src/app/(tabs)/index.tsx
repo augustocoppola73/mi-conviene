@@ -30,6 +30,7 @@ import { LocationControl } from '@/components/LocationControl';
 import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
 import { ListPicker } from '@/components/ListPicker';
+import { can, showLocked } from '@/features';
 import { GroupListPanel, useGroupList } from '@/components/GroupList';
 import { IS_CLOUD } from '@/cloud/client';
 import { mergeShopping } from '@/groupShare';
@@ -173,6 +174,11 @@ export default function ListaScreen() {
         <Text style={s.kicker}>Mi Conviene · Ciao{prefs.displayName.trim() ? ` ${prefs.displayName.trim()}` : ''} 👋</Text>
         <Text style={s.title}>{groupMode && gl.group ? `Lista ${gl.group.emoji || ''} ${gl.group.name}` : 'Cosa devi comprare?'}</Text>
         <ListPicker />
+        {prefs.participant && (
+          <Pressable onPress={() => showLocked('tutte')} style={s.guest} accessibilityRole="button">
+            <Text style={s.guestText}>👋 Sei ospite nel gruppo: lista, "Lo prendo io", dove conviene e conti. <Text style={{ fontWeight: '800', color: colors.primary }}>Scopri l'app completa</Text></Text>
+          </Pressable>
+        )}
         <ActiveShopBanner />
         {lastResult && (
           <Pressable onPress={() => router.push('/risultati')} style={({ pressed }) => [s.lastResult, pressed && { opacity: 0.7 }]}>
@@ -254,11 +260,13 @@ export default function ListaScreen() {
 
         {groupMode ? null : (
           <>
-        <Pressable onPress={loadHabitual} style={s.habitualBtn} disabled={loadingHabitual}>
+        <Pressable onPress={can(prefs, 'abituale') ? loadHabitual : () => showLocked('abituale')}
+          style={[s.habitualBtn, !can(prefs, 'abituale') && { opacity: 0.45 }]} disabled={loadingHabitual}>
           {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Icon name="repeat" size={18} color={colors.primary} />}
           <Text style={s.habitualText}>Carica la mia spesa abituale</Text>
         </Pressable>
-        <Pressable onPress={() => router.push('/ricette')} style={[s.habitualBtn, { marginTop: spacing.sm }]}>
+        <Pressable onPress={() => (can(prefs, 'ricette') ? router.push('/ricette') : showLocked('ricette'))}
+          style={[s.habitualBtn, { marginTop: spacing.sm }, !can(prefs, 'ricette') && { opacity: 0.45 }]}>
           <Icon name="book-outline" size={18} color={colors.primary} />
           <Text style={s.habitualText}>Dalle ricette</Text>
         </Pressable>
@@ -338,7 +346,17 @@ export default function ListaScreen() {
           ))}
         </View>
 
-        {prefs.transport === 'car' && (
+        {prefs.transport === 'car' && !can(prefs, 'carburante') && (
+          <Pressable onPress={() => showLocked('carburante')} style={[s.refuelRow, { marginTop: spacing.lg, opacity: 0.5 }]}
+            accessibilityRole="button" accessibilityLabel="Risparmio carburante, nell'app completa">
+            <Icon name="lock-closed" size={20} color={colors.textSecondary} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.itemName}>⛽ Risparmio carburante</Text>
+              <Text style={s.muted}>Il distributore più conveniente sulla strada: nell'app completa.</Text>
+            </View>
+          </Pressable>
+        )}
+        {prefs.transport === 'car' && can(prefs, 'carburante') && (
           <View style={{ marginTop: spacing.lg }}>
             <FuelCard
               fuel={prefs.fuelType}
@@ -495,6 +513,8 @@ const useStyles = makeStyles((c) => ({
   },
   habitualText: { color: c.primary, fontWeight: '600', fontSize: 14 },
   clear: { color: c.danger, fontSize: 14 },
+  guest: { backgroundColor: c.primarySoft, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
+  guestText: { color: c.text, fontSize: 13, lineHeight: 18 },
   aisleNote: { color: c.textSecondary, fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
   itemRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md,

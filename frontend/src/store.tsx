@@ -37,6 +37,8 @@ export interface Prefs {
   activeList: string | null;
   /** #24: la mia lista a righe o a card compatte */
   listView: 'lista' | 'griglia';
+  /** #23: entrato con l'invito a un gruppo, senza usare l'app per sé: funzioni personali ingrigite */
+  participant: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -57,6 +59,7 @@ const DEFAULT_PREFS: Prefs = {
   categoryRules: {},
   activeList: null,
   listView: 'griglia',
+  participant: false,
 };
 
 interface StoreValue {
