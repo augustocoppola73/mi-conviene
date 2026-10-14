@@ -54,7 +54,10 @@ export default function SpesaScreen() {
   const { userId, catalog, prefs, setPrefs, addItem, addCustom, setItems, items: listItems, reloadGroupMine } = useStore();
   // #24: in negozio le stesse card della Lista: un tocco e il prodotto va nel carrello
   const [gridW, setGridW] = useState(0);
-  const grid = prefs.listView === 'griglia';
+  // #41: modalità negozio: a tutto schermo solo la lista, card grandi
+  const full = !!prefs.storeFull;
+  const grid = full || prefs.listView === 'griglia';
+  const tw = (w: number) => tileW(w, full);
   const [shop, setShop] = useState<Shop | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -365,6 +368,7 @@ export default function SpesaScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <KeepAwake />
+      {!full && (<>
       <View style={s.header}>
         <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} hitSlop={10} accessibilityLabel="Indietro">
           <Icon name="chevron-back" size={24} color={colors.text} />
@@ -389,15 +393,23 @@ export default function SpesaScreen() {
         <HelpSheet shop={shop} visible={helpOpen} onClose={() => setHelpOpen(false)}
           onDone={(sh) => { setShop(applyPending(sh)); save(sh); setHelpOpen(false); }} />
       </View>
-      <View style={s.progressBox}>
+      </>)}
+      <View style={[s.progressBox, full && { paddingTop: spacing.sm }]}>
         <View style={s.progressTrack}><View style={[s.progressFill, { width: `${Math.round(pct * 100)}%` }]} /></View>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={[s.progressText, { flex: 1 }]}>
-            {done.length} di {shop.items.length} nel carrello · ~{euro(cart)} di ~{euro(estimated)}
+          <Text style={[s.progressText, { flex: 1 }, full && { fontSize: 16, fontWeight: '800' }]}>
+            {full ? `🛒 ${shop.store_name} · ${done.length}/${shop.items.length}` : `${done.length} di ${shop.items.length} nel carrello · ~${euro(cart)} di ~${euro(estimated)}`}
           </Text>
-          <Pressable onPress={() => setPrefs({ listView: grid ? 'lista' : 'griglia' })} hitSlop={10}
-            accessibilityRole="button" accessibilityLabel={grid ? 'Mostra a righe' : 'Mostra a card'}>
-            <Icon name={grid ? 'list-outline' : 'grid-outline'} size={22} color={colors.primary} />
+          {!full && (
+            <Pressable onPress={() => setPrefs({ listView: grid ? 'lista' : 'griglia' })} hitSlop={10} style={{ marginRight: spacing.md }}
+              accessibilityRole="button" accessibilityLabel={grid ? 'Mostra a righe' : 'Mostra a card'}>
+              <Icon name={grid ? 'list-outline' : 'grid-outline'} size={22} color={colors.primary} />
+            </Pressable>
+          )}
+          <Pressable onPress={() => setPrefs({ storeFull: !full })} hitSlop={10} style={full ? s.exitFull : s.goFull}
+            accessibilityRole="button" accessibilityLabel={full ? 'Esci dalla modalità negozio' : 'Modalità negozio: a tutto schermo, card grandi'}>
+            <Icon name={full ? 'contract-outline' : 'expand-outline'} size={18} color={full ? colors.primaryText : colors.primary} />
+            <Text style={[s.goFullText, full && { color: colors.primaryText }]}>{full ? 'Esci' : 'Negozio'}</Text>
           </Pressable>
         </View>
         {offline && <Text style={[s.muted, { color: colors.warning }]}>Senza rete: le spunte restano sul telefono e le invio appena torna.</Text>}
@@ -437,19 +449,19 @@ export default function SpesaScreen() {
                       const can = canActItem(shop, i, userId);
                       return (
                         <Pressable key={i.key} onPress={() => toggle(i)}
-                          style={({ pressed }) => [s.tile, { width: tileW(gridW) }, !can && { opacity: 0.6 }, pressed && { opacity: 0.6 }]}
+                          style={({ pressed }) => [s.tile, full && s.tileBig, { width: tw(gridW) }, !can && { opacity: 0.6 }, pressed && { opacity: 0.6 }]}
                           accessibilityRole="checkbox" accessibilityState={{ checked: false }}
                           accessibilityLabel={`${i.name}, ${formatQty(i.quantity, i.unit)}`} accessibilityHint="Tocca quando l'hai messo nel carrello">
-                          <ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={44} />
-                          <Text style={s.tileName} numberOfLines={2}>{i.name}</Text>
-                          <Text style={s.tileQty} numberOfLines={1}>
+                          <ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={full ? 64 : 44} />
+                          <Text style={[s.tileName, full && s.tileNameBig]} numberOfLines={2}>{i.name}</Text>
+                          <Text style={[s.tileQty, full && s.tileQtyBig]} numberOfLines={1}>
                             {formatQty(i.quantity, i.unit)}{i.groups?.length ? ` ${i.groups.map((g) => g.emoji || '👥').join('')}` : ''}
                           </Text>
                           <Text style={[s.tilePrice, i.in_promo && { color: colors.success }]} numberOfLines={1}>
                             {i.price != null ? `~${euro(i.price)}` : i.product_id.startsWith('custom:') ? 'sul posto' : ' '}{i.in_promo ? ' %' : ''}{i.variant ? ' 💡' : ''}
                           </Text>
                           {can && (
-                            <Pressable onPress={() => openPrice(i)} hitSlop={10} style={s.tileEuro} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
+                            <Pressable onPress={() => openPrice(i)} hitSlop={10} style={[s.tileEuro, full && s.tileEuroBig]} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
                               <Text style={s.tileEuroText}>€</Text>
                             </Pressable>
                           )}
@@ -487,7 +499,7 @@ export default function SpesaScreen() {
           </View>
         ))}
 
-        {!canAct ? null : adding ? (
+        {!canAct || full ? null : adding ? (
           <View style={{ marginTop: spacing.md }}>
             <ProductSearch
               products={catalog?.products ?? []}
@@ -511,7 +523,7 @@ export default function SpesaScreen() {
             {grid ? (
               <View style={s.grid}>
                 {done.map((i) => (
-                  <Pressable key={i.key} onPress={() => toggle(i)} style={[s.tile, s.tileDone, { width: tileW(gridW) }]}
+                  <Pressable key={i.key} onPress={() => toggle(i)} style={[s.tile, s.tileDone, { width: tw(gridW) }]}
                     accessibilityRole="checkbox" accessibilityState={{ checked: true }} accessibilityLabel={`${i.name}, nel carrello`}>
                     <View style={{ opacity: 0.5 }}><ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={30} /></View>
                     <Text style={[s.tileName, s.nameDone]} numberOfLines={2}>{i.name}</Text>
@@ -538,7 +550,7 @@ export default function SpesaScreen() {
 
         {myStop >= 0 && myLeft === 0 && <Text style={s.allDone}>✅ La tua parte è fatta: grazie per la mano!</Text>}
         {canAct && myStop < 0 && <PrimaryButton label="Ho finito la spesa" icon="flag-outline" onPress={finish} style={{ marginTop: spacing.xl }} />}
-        {(canAct || shop.mine) && (
+        {(canAct || shop.mine) && !full && (
           <Pressable onPress={() => setConfirmCancel(true)} style={{ alignSelf: 'center', padding: spacing.md }}>
             <Text style={[s.muted, { color: colors.danger }]}>Annulla la spesa (la lista torna com'era)</Text>
           </Pressable>
@@ -614,6 +626,13 @@ const useStyles = makeStyles((c) => ({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tile: { minHeight: 112, paddingTop: 10, paddingBottom: 8, paddingHorizontal: 4, alignItems: 'center', gap: 2,
     borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  tileBig: { minHeight: 160, paddingTop: 14, borderWidth: 1.5 },
+  tileNameBig: { fontSize: 17, lineHeight: 21, fontWeight: '700' },
+  tileQtyBig: { fontSize: 16 },
+  tileEuroBig: { width: 34, height: 34, borderRadius: 17, top: 6, right: 6 },
+  goFull: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: c.primary },
+  exitFull: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: c.primary },
+  goFullText: { color: c.primary, fontWeight: '700', fontSize: 13 },
   tileDone: { backgroundColor: c.surfaceMuted, borderColor: c.surfaceMuted, minHeight: 84 },
   tileEmoji: { fontSize: 30, lineHeight: 36 },
   tileName: { color: c.text, fontSize: 12.5, fontWeight: '600', textAlign: 'center', lineHeight: 15 },
@@ -730,8 +749,9 @@ function TakeBtn({ label, onPress, secondary }: { label: string; onPress: () => 
 }
 
 /** larghezza della card: fino a 4 per riga (almeno 80 px), altrimenti 3 */
-function tileW(w: number): number | `${number}%` {
-  if (!w) return '23%';
-  const cols = Math.max(3, Math.min(4, Math.floor((w + 8) / 88)));
+function tileW(w: number, big = false): number | `${number}%` {
+  if (!w) return big ? '48%' : '23%';
+  // modalità negozio: card da almeno 130 px (2 per riga sul telefono, 3 se c'è spazio)
+  const cols = big ? Math.max(2, Math.min(3, Math.floor((w + 8) / 138))) : Math.max(3, Math.min(4, Math.floor((w + 8) / 88)));
   return Math.floor((w - 8 * (cols - 1)) / cols);
 }

@@ -43,6 +43,8 @@ export interface Prefs {
   offersOpen: boolean;
   /** #35: "Di solito lo ricompri": prodotto → fino a quando non riproporlo (AAAA-MM-GG) */
   restockSnooze: Record<string, string>;
+  /** #41: spesa in corso a tutto schermo con card grandi (modalità negozio) */
+  storeFull: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -66,6 +68,7 @@ const DEFAULT_PREFS: Prefs = {
   participant: false,
   offersOpen: true,
   restockSnooze: {},
+  storeFull: false,
 };
 
 interface StoreValue {
