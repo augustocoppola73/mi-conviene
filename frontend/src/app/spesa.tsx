@@ -220,6 +220,10 @@ export default function SpesaScreen() {
     if (!shop || !userId || !pricing) return;
     const v = parseFloat(priceText.replace(',', '.'));
     if (!Number.isFinite(v) || v <= 0) return;
+    // #53: «250» invece di «2,50»: se è molto lontano da quanto costa di solito, chiedo prima di salvarlo per tutti
+    const est = pricing.price;
+    if (est != null && est > 0 && (v > est * 4 || v < est / 4)
+      && !(await ask('Prezzo giusto?', `Hai scritto ${euro(v)}, ma di solito costa circa ${euro(est)}. Lo salvo così?`, `Sì, ${euro(v)}`))) return;
     try {
       const r = await api.shopPrice(shop.id, { user_id: userId, key: pricing.key, price: Math.round(v * 100) / 100, kind: priceKind,
         note: priceKind === 'variante' ? priceNote.trim() || null : null, display_name: name });

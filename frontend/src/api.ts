@@ -312,7 +312,7 @@ export interface InvitePreview { valid: boolean; reason?: string; kind?: GroupKi
   /** gruppo evento: chi è dentro senza account (per "Sono Luca, rientro") */
   returning?: { id: string; name: string }[] }
 export interface OpenInvite { code: string; expires_at: string; uses: number; max_uses: number | null; created_by_name: string | null }
-export interface JoinRequest { user_id: string; display_name: string | null; created_at: string }
+export interface JoinRequest { user_id: string; display_name: string | null; created_at: string; /** #58: vuole rientrare al posto di… */ rejoin_name?: string | null }
 export interface JoinResult { status: 'joined' | 'pending' | 'already' | 'invalid'; reason?: string; kind?: GroupKind; group_id?: string }
 export interface MyJoinRequest { group_id: string; kind: GroupKind; status: 'attesa' | 'accettata' | 'rifiutata'; invited_by: string | null; created_at: string }
 export interface FamilyList { code: string; items: ListItem[]; updated_by?: string; updated_at?: string }

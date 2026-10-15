@@ -68,7 +68,7 @@ function InviteLogin({ code, onOther }: { code: string; onOther: () => void }) {
                     <PrimaryButton key={b.id} label={`Sono ${b.name}, rientro`} variant="secondary" onPress={() => enter(b)} disabled={busy} />
                   ))}
                 </View>
-                <Text style={s.note}>Ritrovi quello che avevi aggiunto e preso. Gli altri ricevono un avviso.</Text>
+                <Text style={s.note}>Chi ha creato il gruppo conferma che sei tu: poi ritrovi quello che avevi aggiunto e preso.</Text>
               </View>
             )}
             <Text style={s.note}>{info.needs_approval

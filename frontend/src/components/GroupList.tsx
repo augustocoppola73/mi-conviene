@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { api, HelpOption, ListItem } from '../api';
+import { api, HelpOption, JoinRequest, ListItem } from '../api';
 import { IS_CLOUD, uid } from '../cloud/client';
 import {
   addGroupExpense, addGroupItem, eventLabel, Group, GroupItem, groupItems, GroupMember, groupMembers, myGroups, removeGroupItem, similarName,
@@ -231,6 +231,15 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
   const [bringOpen, setBringOpen] = useState(false); // #50
   const [valueOf, setValueOf] = useState<GroupItem | null>(null);
   const money = useGroupMoney(group?.id ?? null);    // #47
+  const [requests, setRequests] = useState<JoinRequest[]>([]);   // #58: rientri da confermare
+  const gid = group?.id ?? null;
+  useEffect(() => {
+    if (!gid) return;
+    const load = () => api.joinRequests(gid).then(setRequests).catch(() => setRequests([]));
+    load();
+    const t = setInterval(load, 20_000);
+    return () => clearInterval(t);
+  }, [gid]);
   if (gl.missing) {
     return (
       <View style={s.card}>
@@ -288,6 +297,20 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
           )}
         </View>
       </View>
+
+      {/* #58: chi chiede di rientrare da un altro telefono (decide il proprietario) */}
+      {requests.filter((r) => owner || (r.rejoin_name && members.some((m) => m.role === 'proprietario' && m.display_name === r.rejoin_name))).map((r) => (
+        <View key={r.user_id} style={[s.card, { borderColor: colors.primary }]}>
+          <Text style={s.name}>🔁 Qualcuno chiede di rientrare come <Text style={{ fontWeight: '800' }}>{r.rejoin_name || r.display_name || 'un membro'}</Text> da un altro telefono.</Text>
+          <Text style={s.meta}>Accetta solo se sei sicuro che sia lui (chiediglielo): prende il suo posto, con quello che aveva preso e pagato.</Text>
+          <View style={[s.headRow, { justifyContent: 'flex-end' }]}>
+            <Text onPress={() => after(async () => { await api.joinDecide(group.id, r.user_id, false); setRequests((x) => x.filter((y) => y.user_id !== r.user_id)); })}
+              style={[s.link, { color: colors.danger, padding: 6 }]}>Non è lui</Text>
+            <Pressable onPress={() => after(async () => { await api.joinDecide(group.id, r.user_id, true); setRequests((x) => x.filter((y) => y.user_id !== r.user_id)); await gl.reload(); })}
+              style={s.take} accessibilityRole="button"><Text style={s.takeText}>Sì, è lui</Text></Pressable>
+          </View>
+        </View>
+      ))}
 
       {/* #47: cassa comune */}
       <BudgetCard group={money.group ?? group} items={items} owner={owner} spent={money.spent} onChanged={() => { money.reload(); gl.reload(); }} />

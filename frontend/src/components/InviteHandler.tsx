@@ -94,8 +94,10 @@ export function InviteHandler() {
     );
   } else if (view.mode === 'pending') {
     title = 'Richiesta inviata';
-    body = `${view.info?.invited_by || 'Chi ti ha invitato'} (o un altro familiare) deve accettarti: gli è arrivato un avviso. ` +
-      'Appena ti accetta vedi la spesa di famiglia. Intanto puoi usare l\'app.';
+    body = view.info?.kind === 'evento'
+      ? `Chi ha creato «${view.info?.name || 'il gruppo'}» deve confermare che sei tu: gli è arrivato un avviso. Appena conferma ritrovi quello che avevi aggiunto e preso.`
+      : `${view.info?.invited_by || 'Chi ti ha invitato'} (o un altro familiare) deve accettarti: gli è arrivato un avviso. ` +
+        'Appena ti accetta vedi la spesa di famiglia. Intanto puoi usare l\'app.';
     actions = <PrimaryButton label="Ok" onPress={() => { setView(null); router.push('/profilo'); }} />;
   } else {
     title = 'Invito';
