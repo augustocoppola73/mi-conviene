@@ -32,6 +32,7 @@ import { UsualPanel } from '@/components/UsualPanel';
 import { listText, myListRows, shareList } from '@/listShare';
 import { can, showLocked } from '@/features';
 import { GroupListPanel, useGroupList } from '@/components/GroupList';
+import { EventPlanner } from '@/components/EventPlanner';
 import { IS_CLOUD } from '@/cloud/client';
 import { mergeShopping } from '@/groupShare';
 import { updateGroupItem } from '@/cloud/groups';
@@ -54,6 +55,7 @@ export default function ListaScreen() {
   // #21: la lista che si sta compilando: la mia, o quella di un gruppo (stessa ricerca, categorie, offerte)
   const groupMode = IS_CLOUD && !!prefs.activeList;
   const gl = useGroupList(groupMode ? prefs.activeList : null);
+  const [partyOpen, setPartyOpen] = useState(false);   // #46 anche nella lista personale
   useFocusEffect(useCallback(() => { reloadGroupMine(); }, [reloadGroupMine]));
   const L = groupMode
     ? { toggle: gl.facade.toggle, addCustom: gl.facade.addCustom, updateQty: gl.facade.updateQty, itemFor: gl.facade.itemFor, has: gl.facade.has }
@@ -218,6 +220,9 @@ export default function ListaScreen() {
               <Pressable onPress={() => (can(prefs, 'ricette') ? router.push('/ricette') : showLocked('ricette'))}
                 style={[s.miniBtn, !can(prefs, 'ricette') && { opacity: 0.45 }]} accessibilityRole="button">
                 <Text style={s.miniText}>📖 Ricette</Text>
+              </Pressable>
+              <Pressable onPress={() => setPartyOpen(true)} style={s.miniBtn} accessibilityRole="button">
+                <Text style={s.miniText}>✨ Festa</Text>
               </Pressable>
             </>
         </View>
@@ -388,6 +393,7 @@ export default function ListaScreen() {
         </View>
       </Modal>
       <TripSheet visible={tripOpen} onClose={() => setTripOpen(false)} suggestion={suggestion} />
+      {!groupMode && <EventPlanner visible={partyOpen} onClose={() => setPartyOpen(false)} />}
       {habitualProposal && catalog && (
         <HabitualPicker
           items={habitualProposal.items}

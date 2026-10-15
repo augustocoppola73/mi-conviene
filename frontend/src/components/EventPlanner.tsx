@@ -1,6 +1,7 @@
 /**
  * #46 "Organizza la festa": tipo di evento + quante persone → lista con le quantità, da correggere, poi nella lista del gruppo.
  * Se la rifai (es. cambiano le persone) le quantità dei prodotti già in lista e non ancora presi si aggiornano.
+ * Funziona nella lista di un gruppo (gl) e nella lista personale (senza gl: un rinfresco a casa tua).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
@@ -31,15 +32,15 @@ function Counter({ label, value, onChange, min = 0 }: { label: string; value: nu
 
 const step = (unit: string) => (unit === 'kg' ? 0.1 : unit === 'L' ? 0.5 : 1);
 
-export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClose: () => void; gl: GroupListState }) {
+export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClose: () => void; gl?: GroupListState }) {
   const s = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { prefs, setPrefs, catalog } = useStore();
-  const gid = gl.group?.id ?? '';
+  const { prefs, setPrefs, catalog, items, addItem, addCustom, updateQty } = useStore();
+  const gid = gl ? gl.group?.id ?? '' : 'mine';
   const saved = prefs.eventPlans?.[gid];
-  const [type, setType] = useState(saved?.type ?? 'grigliata');
-  const [adults, setAdults] = useState(saved?.adults ?? Math.max(2, gl.members.length));
+  const [type, setType] = useState(saved?.type ?? (gl ? 'grigliata' : 'aperitivo'));
+  const [adults, setAdults] = useState(saved?.adults ?? Math.max(gl ? 2 : 6, gl?.members.length ?? 0));
   const [kids, setKids] = useState(saved?.kids ?? 0);
   const [rows, setRows] = useState<PlanRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -49,8 +50,28 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
   const catEmoji = useMemo(() => new Map((catalog?.categories ?? []).map((c) => [c.id, c.emoji])), [catalog]);
   const t = EVENT_TYPES.find((x) => x.id === type)!;
   const active = (st: string) => st === 'da_prendere' || st === 'proposto';
+  /** cosa c'è già in lista per quel prodotto (gruppo: solo se non mancava; personale: sempre ancora da prendere) */
+  const existing = (pid: string): { quantity: number; taken: boolean } | undefined => {
+    if (!gl) { const i = items.find((x) => x.product_id === pid); return i && { quantity: i.quantity, taken: false }; }
+    const i = gl.items.find((x) => x.product_id === pid && x.status !== 'mancava');
+    return i && { quantity: Number(i.quantity), taken: !active(i.status) };
+  };
+
+  const applyMine = () => {
+    let added = 0, updated = 0, skipped = 0;
+    for (const r of rows) {
+      const ex = existing(r.product_id);
+      if (ex) { if (ex.quantity !== r.quantity) { updateQty(r.product_id, r.quantity); updated++; } else skipped++; }
+      else if (r.product_id.startsWith('custom:')) { addCustom(r.name, r.category_id, r.quantity, r.unit); added++; }
+      else { addItem(r.product_id, r.quantity); added++; }
+    }
+    setPrefs({ eventPlans: { ...(prefs.eventPlans ?? {}), [gid]: { type, adults, kids } } });
+    onClose();
+    globalThis.alert?.(`${t.emoji} Lista pronta: ${added} aggiunti${updated ? `, ${updated} quantità aggiornate` : ''}${skipped ? `, ${skipped} già a posto` : ''}.`);
+  };
 
   const apply = async () => {
+    if (!gl) { applyMine(); return; }
     if (!gl.group) return;
     const listId = gl.group.list_id;
     if (!listId) { setMsg('Lista del gruppo non trovata'); return; }
@@ -103,13 +124,13 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
             <Text style={s.hint}>I bambini contano mezza porzione e niente alcolici. Puoi correggere tutto qui sotto.</Text>
             <Text style={s.label}>La lista ({rows.length})</Text>
             {rows.map((r, k) => {
-              const ex = gl.items.find((i) => i.product_id === r.product_id && i.status !== 'mancava');
+              const ex = existing(r.product_id);
               return (
                 <View key={r.product_id} style={s.row}>
                   <ProductIcon name={r.name} productId={r.product_id} categoryEmoji={catEmoji.get(r.category_id)} size={34} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={s.name} numberOfLines={1}>{r.name}</Text>
-                    {ex && <Text style={s.hint}>già in lista: {formatQty(Number(ex.quantity), r.unit)}{active(ex.status) ? '' : ' (preso)'}</Text>}
+                    {ex && <Text style={s.hint}>già in lista: {formatQty(ex.quantity, r.unit)}{ex.taken ? ' (preso)' : ''}</Text>}
                   </View>
                   <Pressable onPress={() => setRows(rows.map((x, j) => (j === k ? { ...x, quantity: Math.max(step(x.unit), Math.round((x.quantity - step(x.unit)) * 10) / 10) } : x)))} style={s.qBtn} hitSlop={4} accessibilityLabel={`Meno ${r.name}`}>
                     <Icon name="remove" size={16} />
