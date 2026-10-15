@@ -290,6 +290,10 @@ export function canActOn(shop: Shop, userId: string | null): boolean {
   const t = shop.taken_by;
   return !t || t.user_id === userId || !!t.helpers?.some((h) => h.user_id === userId);
 }
+/** #60: chi può chiudere o annullare la spesa: chi la sta facendo (non chi aiuta) */
+export function canCloseShop(shop: Shop, userId: string | null): boolean {
+  return !!userId && (shop.taken_by ? shop.taken_by.user_id === userId : !!shop.mine);
+}
 /** "Ti do una mano": la tappa di cui sei il proprietario (indice), o -1 */
 export function myHelpStop(shop: Shop, userId: string | null): number {
   return shop.stops?.findIndex((st) => !!userId && st.by?.user_id === userId && !st.released) ?? -1;

@@ -305,6 +305,7 @@ async function updateShop(id: string, change: (row: any) => void): Promise<any> 
  * "Ti do una mano": i prodotti di una tappa con un proprietario ("by") li smarca solo lui, e lui solo quelli.
  */
 function guardAct(shop: any, me: string, item?: any) {
+  if (shop.status && shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
   const owner = item && item.stop != null ? shop.stops?.[item.stop]?.by : null;
   if (owner) {
     if (owner.user_id !== me) throw new Error(`Questo lo prende ${owner.name || 'un familiare'} da ${shop.stops[item.stop].store_name}`);
@@ -314,6 +315,13 @@ function guardAct(shop: any, me: string, item?: any) {
   if (t && t.user_id !== me && !(t.helpers || []).some((h: any) => h.user_id === me)) {
     throw new Error(`La sta facendo ${t.name || 'un familiare'}: chiedi di aiutare per smarcare anche tu`);
   }
+}
+
+/** #60: la spesa la chiude o la annulla solo chi la sta facendo (chi aiuta no) */
+function guardClose(shop: any, me: string, what: 'chiude' | 'annulla') {
+  if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
+  const doer = shop.taken_by?.user_id ?? shop.user_id;
+  if (doer !== me) throw new Error(`La ${what} chi la sta facendo (${shop.taken_by?.name || 'un familiare'})`);
 }
 
 async function learnFromShop(row: any) {
@@ -1051,9 +1059,11 @@ export const cloudApi = {
 
   shopFinish: async (id: string, _user_id: string) => {
     const shop = await shopRow(id);
-    guardAct(shop, await uid());
+    guardClose(shop, await uid(), 'chiude');
+    // #59: una volta sola (due telefoni insieme, o una spesa già annullata): passa a "done" solo se è ancora attiva
+    const closed = check(await sb().from('shops').update({ status: 'done', finished_at: nowIso() }).eq('id', id).eq('status', 'active').select('id')) as any[];
+    if (!closed?.length) throw new Error('Questa spesa è già chiusa');
     await learnFromShop(shop).catch(() => {});
-    check(await sb().from('shops').update({ status: 'done', finished_at: nowIso() }).eq('id', id));
     await finalizeSaving(shop).catch(() => {});
     const items: T.ShopItem[] = shop.items;
     const group_receipts = items.some((i) => i.groups?.length) ? await shopGroupSync(id, true).catch(() => []) : [];
@@ -1063,7 +1073,9 @@ export const cloudApi = {
 
   shopCancel: async (id: string, _user_id: string) => {
     const shop = await shopRow(id);
-    check(await sb().from('shops').update({ status: 'cancelled' }).eq('id', id));
+    guardClose(shop, await uid(), 'annulla');
+    const closed = check(await sb().from('shops').update({ status: 'cancelled' }).eq('id', id).eq('status', 'active').select('id')) as any[];
+    if (!closed?.length) throw new Error('Questa spesa è già chiusa');
     return { items: shop.items as T.ShopItem[] };
   },
 

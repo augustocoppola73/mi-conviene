@@ -7,7 +7,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import {
-  addGroupExpense, Balance, deleteExpense, GroupExpense, groupBalances, groupExpenses, GroupMember, setExcluded, settle, transfers, watchAccounts,
+  addGroupExpense, Balance, confirmSettlement, deleteExpense, deleteSettlement, GroupExpense, groupBalances, groupExpenses, GroupMember, GroupSettlement,
+  groupSettlements, setExcluded, settle, transfers, watchAccounts,
 } from '../cloud/groups';
 import { euro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
@@ -21,14 +22,15 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
   const { colors } = useTheme();
   const [bal, setBal] = useState<Balance[]>([]);
   const [exp, setExp] = useState<GroupExpense[]>([]);
+  const [stl, setStl] = useState<GroupSettlement[]>([]);   // #56
   const [open, setOpen] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [b, e] = await Promise.all([groupBalances(groupId).catch(() => []), groupExpenses(groupId).catch(() => [])]);
-    setBal(b); setExp(e);
+    const [b, e, st] = await Promise.all([groupBalances(groupId).catch(() => []), groupExpenses(groupId).catch(() => []), groupSettlements(groupId).catch(() => [])]);
+    setBal(b); setExp(e); setStl(st);
   }, [groupId]);
   useFocusEffect(useCallback(() => {
     load();
@@ -43,6 +45,10 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
   const confirmed = exp.filter((e) => e.status === 'confermata');
   const total = confirmed.reduce((t, e) => t + e.amount, 0);
   const moves = transfers(bal);
+  const inAcc = (b: Balance) => !!me && b.members.includes(me);
+  const accOf = (u: string | null) => bal.find((b) => !!u && b.members.includes(u));
+  const who = (u: string | null) => (u === me ? 'tu' : accOf(u)?.label || nameOf(u));
+  const verb = (label: string) => (label.includes(' e ') ? 'hanno' : 'ha');
   const money = useGroupMoney(groupId);   // #47
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -94,12 +100,47 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
           {moves.map((m, k) => (
             <View key={k} style={s.row}>
               <Text style={[s.text, { flex: 1 }]}><Text style={{ fontWeight: '700' }}>{m.from.label}</Text> → {m.to.label}: <Text style={{ fontWeight: '800' }}>{euro(m.amount)}</Text></Text>
-              <Text onPress={async () => {
-                if (await ask(`${m.from.label} ha dato ${euro(m.amount)} a ${m.to.label}?`, 'Sì, saldato')) run(() => settle(groupId, m.from.members[0], m.to.members[0], m.amount));
-              }} style={s.link}>Segna come saldato</Text>
+              {inAcc(m.to) ? (
+                <Text onPress={async () => {
+                  if (await ask(`Hai ricevuto ${euro(m.amount)} da ${m.from.label}?`, 'Sì, ricevuto')) run(() => settle(groupId, m.from.members[0], m.to.members[0], m.amount));
+                }} style={s.link}>Ricevuto</Text>
+              ) : inAcc(m.from) ? (
+                <Text onPress={async () => {
+                  if (await ask(`Hai dato ${euro(m.amount)} a ${m.to.label}? Lo conferma ${m.to.label} quando li riceve.`, 'Sì, ho dato')) run(() => settle(groupId, m.from.members[0], m.to.members[0], m.amount));
+                }} style={s.link}>Ho dato</Text>
+              ) : null}
             </View>
           ))}
-          <Text style={s.small}>I soldi non passano dall'app: vi date i soldi di persona e lo segnate qui.</Text>
+          <Text style={s.small}>I soldi non passano dall'app: vi date i soldi di persona; chi dà tocca «Ho dato», chi riceve conferma.</Text>
+        </View>
+      )}
+
+      {stl.length > 0 && (
+        <View style={s.card}>
+          <Text style={s.title}>Pareggi</Text>
+          {stl.map((x) => {
+            const toMe = !!accOf(x.to_user) && inAcc(accOf(x.to_user)!);
+            const fromLabel = who(x.from_user), toLabel = x.to_user === me ? 'te' : who(x.to_user);
+            return (
+              <View key={x.id} style={s.row}>
+                <Text style={[s.text, { flex: 1 }]}>
+                  {x.status === 'da_confermare'
+                    ? <>⏳ {fromLabel === 'tu' ? 'Hai' : `${fromLabel} ${verb(fromLabel) === 'hanno' ? 'dicono' : 'dice'} di aver`} dato <Text style={{ fontWeight: '800' }}>{euro(x.amount)}</Text> a {toLabel}</>
+                    : <>✓ {fromLabel === 'tu' ? 'Hai' : `${fromLabel} ${verb(fromLabel)}`} dato {euro(x.amount)} a {toLabel}</>}
+                </Text>
+                {x.status === 'da_confermare' && toMe && (
+                  <>
+                    <Text onPress={() => run(() => confirmSettlement(x.id, false))} style={[s.link, { color: colors.danger }]}>Non li ho</Text>
+                    <Text onPress={() => run(() => confirmSettlement(x.id, true))} style={s.link}>Confermo</Text>
+                  </>
+                )}
+                {(toMe ? x.status === 'confermato' : x.status === 'da_confermare' && x.created_by === me) ? (
+                  <Text onPress={async () => { if (await ask(`Annullare il pareggio di ${euro(x.amount)}?`, 'Annulla pareggio', 'No')) run(() => deleteSettlement(x.id)); }}
+                    style={[s.link, { color: colors.danger }]}>Annulla</Text>
+                ) : null}
+              </View>
+            );
+          })}
         </View>
       )}
 

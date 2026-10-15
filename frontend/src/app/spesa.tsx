@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, canActItem, canActOn, GroupReceipt, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
+import { api, canActItem, canActOn, canCloseShop, GroupReceipt, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
 import { shareLabel } from '@/groupShare';
 import { GroupReceiptEditor } from '@/components/GroupReceipt';
 import { IS_CLOUD } from '@/cloud/client';
@@ -22,6 +22,9 @@ import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
 const CACHE_KEY = 'mc_shop_cache';
 const PENDING_KEY = 'mc_shop_pending';
+const FINISH_KEY = 'mc_shop_finished';   // #62: la schermata «Spesa finita» sopravvive a un ricaricamento
+/** errore di rete (si riprova) o della spesa (chiusa, presa da un altro: non si riprova) */
+const isNetErr = (e: unknown) => /fetch|network|timeout|connessione|Load failed|aborted/i.test(String((e as Error)?.message ?? e));
 type Pending = { shopId: string; key: string; checked: boolean };
 
 /** Lo schermo resta acceso mentre sei in negozio (dove si può). */
@@ -97,9 +100,13 @@ export default function SpesaScreen() {
         await api.shopCheck(p.shopId, userId, p.key, p.checked, name);
         pending.current.shift();
         savePending();
-      } catch {
-        setOffline(true);
-        return false;
+      } catch (e) {
+        if (isNetErr(e)) { setOffline(true); return false; }
+        // #61: la spesa è stata chiusa o presa da un altro: queste spunte non si possono più mandare, le scarto
+        const dropped = pending.current.filter((x) => x.shopId === p.shopId).length;
+        pending.current = pending.current.filter((x) => x.shopId !== p.shopId);
+        savePending();
+        tell('Spunte non salvate', `${(e as Error).message}. ${dropped === 1 ? 'Una spunta fatta senza rete non è stata salvata' : `${dropped} spunte fatte senza rete non sono state salvate`}.`);
       }
     }
     return true;
@@ -125,8 +132,9 @@ export default function SpesaScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, p] = await Promise.all([AsyncStorage.getItem(CACHE_KEY), AsyncStorage.getItem(PENDING_KEY)]);
+        const [c, p, f] = await Promise.all([AsyncStorage.getItem(CACHE_KEY), AsyncStorage.getItem(PENDING_KEY), AsyncStorage.getItem(FINISH_KEY)]);
         if (p) pending.current = JSON.parse(p);
+        if (f) { const fin = JSON.parse(f); if (fin?.missing) { setFinishing(fin.data ?? fin); setPutBack(new Set(fin.putBack ?? fin.missing.map((m: ShopItem) => m.key))); } }
         if (c) { const sh = JSON.parse(c) as Shop | null; if (sh) setShop(applyPending(sh)); }
       } catch { /* */ }
       refresh();
@@ -237,13 +245,24 @@ export default function SpesaScreen() {
 
   const finish = async () => {
     if (!shop || !userId) return;
+    // #60: chi aiuta in un altro negozio non ha ancora finito
+    const helping = (shop.stops ?? []).map((st, k) => ({ st, left: shop.items.filter((i) => (i.stop ?? 0) === k && !i.checked).length }))
+      .filter((x) => x.st.by && !x.st.released && x.st.by.user_id !== userId && x.left > 0);
+    const left = shop.items.filter((i) => !i.checked).length;
+    const msg = helping.length
+      ? `${helping.map((h) => `${h.st.by!.name || 'Un familiare'} sta ancora prendendo ${h.left} ${h.left === 1 ? 'prodotto' : 'prodotti'} da ${h.st.store_name}`).join('; ')}. Se chiudi ora, finiscono tra i non presi.`
+      : left ? `${left === 1 ? 'Un prodotto non è spuntato' : `${left} prodotti non sono spuntati`}: dopo scegli se rimetterli nella lista.` : 'Chiudo la spesa e la segno nel Salvadanaio.';
+    if (!(await ask('Hai finito la spesa?', msg, 'Sì, ho finito'))) return;
     await flush();
     try {
       const r = await api.shopFinish(shop.id, userId);
+      const keys = r.missing.map((m) => m.key);
       setFinishing(r);
-      setPutBack(new Set(r.missing.map((m) => m.key)));
-    } catch {
-      setOffline(true);
+      setPutBack(new Set(keys));
+      AsyncStorage.setItem(FINISH_KEY, JSON.stringify({ ...r, putBack: keys })).catch(() => {});
+    } catch (e) {
+      if (isNetErr(e)) setOffline(true);
+      else { tell('Non posso chiuderla', (e as Error).message); refresh(); }
     }
   };
   const closeFinished = (goVerify: boolean) => {
@@ -260,6 +279,7 @@ export default function SpesaScreen() {
     setShop(null);
     save(null);
     setFinishing(null);
+    AsyncStorage.removeItem(FINISH_KEY).catch(() => {});
     router.replace(goVerify ? '/salvadanaio' : '/');
   };
   const cancel = async () => {
@@ -283,8 +303,9 @@ export default function SpesaScreen() {
       setShop(null);
       save(null);
       router.replace('/');
-    } catch {
-      setOffline(true);
+    } catch (e) {
+      if (isNetErr(e)) setOffline(true);
+      else { setConfirmCancel(false); tell('Non posso annullarla', (e as Error).message); refresh(); }
     }
   };
 
@@ -553,8 +574,8 @@ export default function SpesaScreen() {
         )}
 
         {myStop >= 0 && myLeft === 0 && <Text style={s.allDone}>✅ La tua parte è fatta: grazie per la mano!</Text>}
-        {canAct && myStop < 0 && <PrimaryButton label="Ho finito la spesa" icon="flag-outline" onPress={finish} style={{ marginTop: spacing.xl }} />}
-        {(canAct || shop.mine) && !full && (
+        {canCloseShop(shop, userId) && myStop < 0 && <PrimaryButton label="Ho finito la spesa" icon="flag-outline" onPress={finish} style={{ marginTop: spacing.xl }} />}
+        {canCloseShop(shop, userId) && !full && (
           <Pressable onPress={() => setConfirmCancel(true)} style={{ alignSelf: 'center', padding: spacing.md }}>
             <Text style={[s.muted, { color: colors.danger }]}>Annulla la spesa (la lista torna com'era)</Text>
           </Pressable>

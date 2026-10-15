@@ -10,14 +10,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/api';
 import { uid } from '@/cloud/client';
 import {
-  addGroupItem, eventLabel, Group, GroupItem, groupInfo, groupItems, GroupMember, groupMembers, leaveGroup,
+  addGroupItem, eventLabel, Group, GroupItem, groupBalances, groupInfo, groupItems, GroupMember, groupMembers, leaveGroup,
   removeGroupItem, setMuted, updateGroupItem, watchList,
 } from '@/cloud/groups';
 import { GroupSheet } from '@/components/GroupSheet';
 import { GroupAccounts } from '@/components/GroupAccounts';
 import { QtyStepper } from '@/components/QtyStepper';
 import { Icon, PrimaryButton } from '@/components/ui';
-import { formatQty, qtyStep } from '@/format';
+import { euro, formatQty, qtyStep } from '@/format';
 import { shareInvite } from '@/invite';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
@@ -110,6 +110,11 @@ export default function GruppoScreen() {
   });
   const leave = async () => {
     const last = members.length <= 1;
+    // #57: prima di uscire, i soldi da dare o da avere (i conti restano, ma è meglio saperlo)
+    const mine = (await groupBalances(group.id).catch(() => [])).find((b) => !!me && b.members.includes(me));
+    if (!last && mine && Math.abs(mine.balance) > 0.005
+      && !(await ask(mine.balance > 0 ? `Hai ancora da avere ${euro(mine.balance)} dal gruppo. I conti restano anche se esci: esci lo stesso?`
+        : `Devi ancora ${euro(-mine.balance)} al gruppo. I conti restano anche se esci: esci lo stesso?`, 'Esci lo stesso'))) return;
     if (!(await ask(last ? 'Sei l\'ultimo: il gruppo va in archivio (Profilo › Gruppi › Archiviati) con la lista e i conti, e lo puoi ripristinare. Archivio?' : 'Esci dal gruppo? Quello che avevi preso e non comprato torna libero.', last ? 'Archivia' : 'Esci'))) return;
     await run('leave', () => leaveGroup(group.id));
     router.replace('/');

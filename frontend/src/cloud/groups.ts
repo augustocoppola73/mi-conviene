@@ -179,6 +179,16 @@ export async function settle(g: string, from: string, to: string, amount: number
   check(await sb().rpc('settle_group', { g, p_from: from, p_to: to, p_amount: Math.round(amount * 100) / 100 }));
 }
 
+/** #56: pareggi («Ho dato» da confermare, «Ricevuto» confermato) */
+export interface GroupSettlement { id: string; group_id: string; from_user: string | null; to_user: string | null; amount: number;
+  status: 'da_confermare' | 'confermato'; created_by: string | null; settled_at: string }
+export async function groupSettlements(g: string): Promise<GroupSettlement[]> {
+  const rows = (check(await sb().from('group_settlements').select('*').eq('group_id', g).order('settled_at', { ascending: false })) ?? []) as any[];
+  return rows.map((r) => ({ ...r, amount: Number(r.amount), status: r.status ?? 'confermato' }));
+}
+export async function confirmSettlement(id: string, ok: boolean): Promise<void> { check(await sb().rpc('confirm_settlement', { p_id: id, p_ok: ok })); }
+export async function deleteSettlement(id: string): Promise<void> { check(await sb().rpc('delete_settlement', { p_id: id })); }
+
 export async function setExcluded(g: string, u: string, excluded: boolean): Promise<void> {
   check(await sb().rpc('set_split_excluded', { g, u, p_excluded: excluded }));
 }
