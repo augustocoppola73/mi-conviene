@@ -48,7 +48,7 @@ export default function ListaScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const {
-    catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems, setItemCategory,
+    catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems, setItemCategory, setItems,
     prefs, setPrefs, userId, setLastResult, lastResult, groupMine, reloadGroupMine,
   } = useStore();
 
@@ -56,6 +56,10 @@ export default function ListaScreen() {
   const groupMode = IS_CLOUD && !!prefs.activeList;
   const gl = useGroupList(groupMode ? prefs.activeList : null);
   const [partyOpen, setPartyOpen] = useState(false);   // #46 anche nella lista personale
+  // #64: Svuota con «Annulla» per qualche secondo
+  const [cleared, setCleared] = useState<typeof items | null>(null);
+  useEffect(() => { if (!cleared) return; const t = setTimeout(() => setCleared(null), 8000); return () => clearTimeout(t); }, [cleared]);
+  const clearWithUndo = () => { setCleared(items); clearItems(); };
   useFocusEffect(useCallback(() => { reloadGroupMine(); }, [reloadGroupMine]));
   const L = groupMode
     ? { toggle: gl.facade.toggle, addCustom: gl.facade.addCustom, updateQty: gl.facade.updateQty, itemFor: gl.facade.itemFor, has: gl.facade.has }
@@ -263,11 +267,19 @@ export default function ListaScreen() {
                 accessibilityRole="button" accessibilityLabel={prefs.listView === 'griglia' ? 'Mostra a righe' : 'Mostra a card'}>
                 <Icon name={prefs.listView === 'griglia' ? 'list-outline' : 'grid-outline'} size={22} color={colors.primary} />
               </Pressable>
-              <Pressable onPress={clearItems} hitSlop={8}><Text style={s.clear}>Svuota</Text></Pressable>
+              <Pressable onPress={clearWithUndo} hitSlop={8} accessibilityRole="button" accessibilityLabel="Svuota la lista"><Text style={s.clear}>Svuota</Text></Pressable>
             </View>
           )}>
           La tua lista
         </SectionTitle>
+        {cleared && items.length === 0 && (
+          <View style={s.undoBar}>
+            <Text style={[s.muted, { flex: 1 }]}>Lista svuotata ({cleared.length} {cleared.length === 1 ? 'prodotto' : 'prodotti'})</Text>
+            <Pressable onPress={() => { setItems(cleared); setCleared(null); }} hitSlop={10} accessibilityRole="button">
+              <Text style={s.link}>Annulla</Text>
+            </Pressable>
+          </View>
+        )}
         {items.length > 0 && aisle && (
           <Text style={s.aisleNote}>🧭 Reparti nell'ordine in cui giri da {aisle.store}</Text>
         )}
@@ -457,6 +469,7 @@ const useStyles = makeStyles((c) => ({
   },
   habitualText: { color: c.primary, fontWeight: '600', fontSize: 14 },
   clear: { color: c.danger, fontSize: 14 },
+  undoBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: c.surfaceMuted, marginTop: spacing.sm },
   link: { color: c.primary, fontSize: 14, fontWeight: '700' },
   shareListRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, alignSelf: 'center', padding: spacing.md },
   mini: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },

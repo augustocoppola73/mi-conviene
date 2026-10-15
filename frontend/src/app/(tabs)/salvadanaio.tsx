@@ -12,6 +12,7 @@ import { MonthSummary } from '@/components/MonthSummary';
 import { SavingGoalCard } from '@/components/SavingGoalCard';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { euro, formatDate } from '@/format';
+import { confirmAsk } from '@/confirm';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -66,8 +67,9 @@ export default function SalvadanaioScreen() {
   // ricarica ogni volta che si apre il tab
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const remove = async (id: string) => {
-    await api.deleteSaving(id).catch(() => {});
+  const remove = async (e: SavingEntry) => {
+    if (!(await confirmAsk('Eliminare questa spesa?', `${e.store_name} del ${formatDate(e.created_at)}: il suo risparmio (${euro(e.amount)}) esce dal Salvadanaio.`, 'Elimina'))) return;
+    await api.deleteSaving(e.id).catch(() => {});
     load();
   };
 
@@ -97,6 +99,7 @@ export default function SalvadanaioScreen() {
   };
 
   const undoVerify = async (e: SavingEntry) => {
+    if (!(await confirmAsk('Annullare la verifica?', `Torna al risparmio stimato (${euro(e.amount)}) e perdi quanto hai pagato davvero (${euro(e.paid ?? 0)}).`, 'Annulla la verifica', 'No'))) return;
     await api.unverifySaving(e.id).catch(() => {});
     load();
   };
@@ -196,8 +199,9 @@ export default function SalvadanaioScreen() {
                         {e.estimated_spend != null && <Text style={s.rowMeta}>Spesa prevista {euro(e.estimated_spend)}</Text>}
                         <View style={{ flex: 1 }} />
                         {e.mine !== false && (
-                          <Pressable onPress={() => remove(e.id)} hitSlop={6} accessibilityLabel="Elimina">
-                            <Icon name="trash-outline" size={18} color={colors.danger} />
+                          <Pressable onPress={() => remove(e)} hitSlop={10} accessibilityLabel="Elimina questa spesa" accessibilityRole="button"
+                            style={{ padding: 8, marginRight: spacing.sm }}>
+                            <Icon name="trash-outline" size={20} color={colors.danger} />
                           </Pressable>
                         )}
                         {!IS_CLOUD && (

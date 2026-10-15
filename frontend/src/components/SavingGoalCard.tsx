@@ -7,6 +7,7 @@ import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api, SavingEntry, SavingGoal } from '../api';
+import { confirmAsk } from '../confirm';
 import { euro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { DatePicker } from './DatePicker';
@@ -84,7 +85,9 @@ function GoalSheet({ visible, goal, onClose, onSaved }: { visible: boolean; goal
     try { await api.setSavingGoal(title.trim() || 'Il nostro obiettivo', n, deadline, restart || !goal); onSaved(); }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
-  const remove = async () => { setBusy(true); try { await api.deleteSavingGoal(); onSaved(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
+  const remove = async () => {
+    if (!(await confirmAsk('Togliere l\'obiettivo?', 'Sparisce per tutta la famiglia. Puoi fissarne uno nuovo quando vuoi.', 'Togli'))) return;
+    setBusy(true); try { await api.deleteSavingGoal(); onSaved(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

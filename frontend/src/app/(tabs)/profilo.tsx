@@ -16,6 +16,7 @@ import { ArchivedGroup, deleteGroup, eventLabel, Group, myArchivedGroups, myGrou
 import { PUSH_SUPPORTED } from '@/push';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS } from '@/format';
+import { confirmAsk } from '@/confirm';
 import { useStore } from '@/store';
 import { makeStyles, radius, setThemeMode, spacing, ThemeMode, useTheme, useThemeMode } from '@/theme';
 
@@ -334,7 +335,10 @@ export default function ProfiloScreen() {
                 />
               </View>
               <Pressable
-                onPress={() => run(async () => { await api.familyLeave(userId!); setFamily(null); })}
+                onPress={async () => {
+                  if (!(await confirmAsk('Uscire dalla famiglia?', 'Non vedrai più la lista, la spesa in corso e il Salvadanaio della famiglia. Per rientrare serve un nuovo invito.', 'Esci'))) return;
+                  run(async () => { await api.familyLeave(userId!); setFamily(null); });
+                }}
                 style={{ marginTop: spacing.md, alignSelf: 'center' }}>
                 <Text style={s.leave}>Esci dalla famiglia</Text>
               </Pressable>
