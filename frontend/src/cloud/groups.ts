@@ -6,6 +6,8 @@ export interface Group {
   role: 'proprietario' | 'membro'; members: number; todo: number; muted: boolean; list_id: string | null;
   /** chi aggiunge alla lista: tutti, o solo il proprietario (gli altri propongono) */
   add_policy: AddPolicy; proposals: number;
+  /** #47 cassa comune: budget dell'evento (in tutto, o a testa) */
+  budget: number | null; budget_per_head: boolean;
 }
 export type AddPolicy = 'tutti' | 'proprietario';
 /** un prodotto che prendo io per un gruppo: compare nella mia lista di casa (#21) */
@@ -18,6 +20,8 @@ export type ItemStatus = 'proposto' | 'da_prendere' | 'preso' | 'mancava';
 export interface GroupItem {
   id: string; list_id: string; product_id: string; name: string | null; quantity: number; unit: string | null;
   category_id: string | null; added_by: string | null; assigned_to: string | null; status: ItemStatus;
+  /** #50: 'compra' (si compra) o 'porta' (qualcuno lo porta: niente negozio né prezzo) */
+  kind: 'compra' | 'porta';
   created_at: string; updated_at: string;
 }
 
@@ -28,8 +32,16 @@ const msg = (e: { message: string } | null, fallback?: string) => {
 };
 
 export async function myGroups(): Promise<Group[]> {
-  return (check(await sb().rpc('my_groups')) ?? []) as Group[];
+  return ((check(await sb().rpc('my_groups')) ?? []) as Group[]).map((g) => ({ ...g, budget: g.budget == null ? null : Number(g.budget), budget_per_head: !!g.budget_per_head }));
 }
+
+/** #47: budget dell'evento (null = niente budget). A testa: per ogni persona del gruppo. */
+export async function setGroupBudget(g: string, amount: number | null, perHead: boolean): Promise<void> {
+  check(await sb().rpc('set_group_budget', { g, p_amount: amount, p_per_head: perHead }));
+}
+/** il budget in tutto (a testa × persone) */
+export const budgetTotal = (g: Pick<Group, 'budget' | 'budget_per_head' | 'members'>) =>
+  g.budget == null ? null : g.budget_per_head ? Math.round(g.budget * Math.max(1, g.members) * 100) / 100 : g.budget;
 
 export async function groupInfo(id: string): Promise<Group | null> {
   return (await myGroups()).find((g) => g.id === id) ?? null;
@@ -90,7 +102,7 @@ export async function groupItems(listId: string): Promise<GroupItem[]> {
   return (check(await sb().from('group_list_items').select('*').eq('list_id', listId).order('created_at')) ?? []) as GroupItem[];
 }
 
-export async function addGroupItem(listId: string, it: { product_id: string; name: string; quantity: number; unit: string | null; category_id: string | null }) {
+export async function addGroupItem(listId: string, it: { product_id: string; name: string; quantity: number; unit: string | null; category_id: string | null; kind?: 'compra' | 'porta' }) {
   const me = await uid();
   const { error } = await sb().from('group_list_items').insert({ list_id: listId, added_by: me, ...it });
   const e = msg(error); if (e) throw e;
@@ -198,5 +210,5 @@ export function watchAccounts(g: string, onChange: () => void): () => void {
 
 // solo per le prove automatiche (build con EXPO_PUBLIC_E2E=1)
 if (process.env.EXPO_PUBLIC_E2E === '1') {
-  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem, myGroupItems, addGroupExpense, groupExpenses, confirmExpense, deleteExpense, groupBalances, settle, setExcluded };
+  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem, myGroupItems, addGroupExpense, setGroupBudget, groupExpenses, confirmExpense, deleteExpense, groupBalances, settle, setExcluded };
 }

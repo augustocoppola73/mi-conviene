@@ -8,13 +8,14 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { confirmExpense, ExpenseLine } from '../cloud/groups';
 import { euro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { BudgetWarning } from './GroupBudget';
 import { PrimaryButton } from './ui';
 
 const num = (t: string) => { const n = parseFloat(t.replace(',', '.')); return Number.isFinite(n) && n >= 0 ? n : null; };
 const fmt = (n: number) => n.toFixed(2).replace('.', ',');
 
-export function GroupReceiptEditor({ expenseId, title, lines, amount, onDone }: {
-  expenseId: string; title: string; lines: ExpenseLine[]; amount: number; onDone?: (amount: number) => void;
+export function GroupReceiptEditor({ expenseId, title, lines, amount, onDone, groupId }: {
+  expenseId: string; title: string; lines: ExpenseLine[]; amount: number; onDone?: (amount: number) => void; groupId?: string;
 }) {
   const s = useStyles();
   const { colors } = useTheme();
@@ -72,6 +73,7 @@ export function GroupReceiptEditor({ expenseId, title, lines, amount, onDone }: 
           <Text style={s.link}>{byTotal ? 'Correggi i prezzi dei prodotti' : 'Scrivo solo il totale per il gruppo'}</Text>
         </Pressable>
       )}
+      {groupId && <BudgetWarning groupId={groupId} amount={final} />}
       {err && <Text style={[s.help, { color: colors.danger }]}>{err}</Text>}
       <PrimaryButton label="Conferma e manda al gruppo" icon="send-outline" onPress={confirm} loading={busy} disabled={!final} />
     </View>

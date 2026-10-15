@@ -415,6 +415,7 @@ export const localApi = {
   aisleOrderFor: async (_storeId: string): Promise<{ order: string[]; learned: number } | null> => null,
   usualAndDue: async (): Promise<{ usual: { product_id: string; name: string; count: number; quantity: number }[];
     due: { product_id: string; name: string; count: number; quantity: number; every_days: number; since_days: number }[] }> => ({ usual: [], due: [] }),
+  estimateList: async (_items: { product_id: string; quantity: number }[]): Promise<{ total: number; priced: number; missing: number }> => ({ total: 0, priced: 0, missing: 0 }),
   savingGoal: async (): Promise<SavingGoal | null> => null,
   setSavingGoal: async (_title: string, _amount: number, _deadline: string | null, _restart?: boolean): Promise<void> => {
     throw new Error('Funziona nella versione online');

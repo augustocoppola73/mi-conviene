@@ -12,6 +12,7 @@ import {
 import { euro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { ask, tell } from './GroupList';
+import { useGroupMoney } from './GroupBudget';
 import { GroupReceiptEditor } from './GroupReceipt';
 import { PrimaryButton } from './ui';
 
@@ -42,6 +43,7 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
   const confirmed = exp.filter((e) => e.status === 'confermata');
   const total = confirmed.reduce((t, e) => t + e.amount, 0);
   const moves = transfers(bal);
+  const money = useGroupMoney(groupId);   // #47
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -61,6 +63,11 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
         <Text style={s.help}>
           Speso in tutto {euro(total)}{bal.filter((b) => !b.excluded).length ? ` · ${euro(bal.find((b) => !b.excluded)?.share ?? 0)} a testa` : ''} · una famiglia è un conto solo.
         </Text>
+        {money.total != null && (
+          <Text style={[s.help, total > money.total && { color: colors.danger, fontWeight: '700' }]}>
+            💰 Budget {euro(money.total)} · {total > money.total ? `sforato di ${euro(total - money.total)}` : `restano ${euro(money.total - total)}`}
+          </Text>
+        )}
         {mine && (
           <Text style={[s.me, { color: mine.balance < -0.005 ? colors.danger : mine.balance > 0.005 ? colors.success : colors.text }]}>
             {mine.members.length > 1 ? `${mine.label}: ` : 'Tu: '}{status(mine)}
@@ -98,7 +105,7 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
 
       {pending.map((e) => (
         <GroupReceiptEditor key={e.id} expenseId={e.id} title={`Da confermare: ${e.store_name || e.note || 'spesa'} (${nameOf(e.paid_by)})`}
-          lines={e.lines ?? []} amount={e.amount} onDone={() => load()} />
+          lines={e.lines ?? []} amount={e.amount} onDone={() => load()} groupId={groupId} />
       ))}
 
       <View style={s.card}>

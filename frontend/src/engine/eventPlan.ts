@@ -99,3 +99,16 @@ export function planEvent(typeId: string, adults: number, kids: number): PlanRow
   }
   return out;
 }
+
+/** #50 «Chi porta cosa»: le cose che di solito non si comprano ma qualcuno porta, per tipo di festa */
+export const BRING_SUGGESTIONS: Record<string, string[]> = {
+  grigliata: ['Carbonella', 'Griglia', 'Ghiaccio', 'Sedie', 'Cassa per la musica', 'Tovaglia', 'Dolce fatto in casa'],
+  pizzata: ['Teglie', 'Vino', 'Dolce fatto in casa', 'Giochi da tavolo'],
+  compleanno: ['Torta', 'Candeline', 'Palloncini', 'Regalo', 'Cassa per la musica', 'Sedie'],
+  aperitivo: ['Ghiaccio', 'Bicchieri', 'Cassa per la musica', 'Sedie'],
+  rinfresco: ['Vassoi', 'Tovaglia', 'Sedie', 'Ghiaccio', 'Dolce fatto in casa', 'Torta'],
+  cena: ['Vino', 'Dolce fatto in casa', 'Sedie', 'Tovaglia'],
+  colazione: ['Torta fatta in casa', 'Moka', 'Tovaglia'],
+  picnic: ['Coperta', 'Borsa frigo', 'Pallone', 'Giochi per bambini', 'Tovaglia'],
+};
+export const BRING_DEFAULT = ['Torta', 'Ghiaccio', 'Sedie', 'Cassa per la musica', 'Stoviglie', 'Tovaglia', 'Dolce fatto in casa'];

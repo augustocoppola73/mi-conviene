@@ -292,7 +292,7 @@ export default function SpesaScreen() {
           <Text style={s.text}>Nel carrello circa {euro(finishing.cart)}. Ho imparato l'ordine dei reparti di questo negozio: la prossima volta la lista è già in ordine.</Text>
           {(finishing.group_receipts ?? []).map((g) => g.saved && g.expense_id ? (
             <GroupReceiptEditor key={g.group_id} expenseId={g.expense_id} title={`${g.emoji || '👥'} Scontrino di «${g.group_name}»`}
-              lines={g.lines} amount={g.amount} />
+              lines={g.lines} amount={g.amount} groupId={g.group_id} />
           ) : (
             <View key={g.group_id} style={[s.row, { alignItems: 'flex-start' }]}>
               <Text style={{ fontSize: 22 }}>{g.emoji || '👥'}</Text>

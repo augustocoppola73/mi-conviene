@@ -63,7 +63,7 @@ export default function ListaScreen() {
         toggle: toggleItem, addCustom: (n: string, c: string) => addCustom(n, c), updateQty,
         itemFor: (id: string) => items.find((i) => i.product_id === id), has: (id: string) => items.some((i) => i.product_id === id),
       };
-  const myGroupTodo = gl.items.filter((i) => i.status === 'da_prendere' && i.assigned_to === gl.me).length;
+  const myGroupTodo = gl.items.filter((i) => i.status === 'da_prendere' && i.assigned_to === gl.me && i.kind !== 'porta').length;
   const shopCount = items.length + groupMine.length;
 
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -128,7 +128,7 @@ export default function ListaScreen() {
     if (!catalog || !gl.group) return;
     const rows = gl.items.filter((i) => i.status === 'da_prendere' || i.status === 'proposto').map((i) => {
       const p = productById(i.product_id);
-      return { name: (p?.name ?? i.name ?? i.product_id.slice(7)) + (i.assigned_to ? ` (${gl.nameOf(i.assigned_to)})` : ''),
+      return { name: (i.kind === 'porta' ? '🎒 ' : '') + (p?.name ?? i.name ?? i.product_id.slice(7)) + (i.kind === 'porta' ? ' — da portare' : '') + (i.assigned_to ? ` (${gl.nameOf(i.assigned_to)})` : ''),
         quantity: Number(i.quantity), unit: p?.unit ?? i.unit ?? 'pz', category_id: p?.category_id ?? i.category_id ?? 'altro' };
     });
     const r = await shareList(listText(`Lista ${gl.group.emoji ?? ''} ${gl.group.name}`.replace(/\s+/g, ' '), rows, catalog.categories,

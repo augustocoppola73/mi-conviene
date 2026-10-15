@@ -53,7 +53,7 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
   /** cosa c'è già in lista per quel prodotto (gruppo: solo se non mancava; personale: sempre ancora da prendere) */
   const existing = (pid: string): { quantity: number; taken: boolean } | undefined => {
     if (!gl) { const i = items.find((x) => x.product_id === pid); return i && { quantity: i.quantity, taken: false }; }
-    const i = gl.items.find((x) => x.product_id === pid && x.status !== 'mancava');
+    const i = gl.items.find((x) => x.product_id === pid && x.status !== 'mancava' && x.kind !== 'porta');
     return i && { quantity: Number(i.quantity), taken: !active(i.status) };
   };
 
@@ -78,7 +78,7 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
     setBusy(true); setMsg(null);
     let added = 0, updated = 0, skipped = 0;
     for (const r of rows) {
-      const ex = gl.items.find((i) => i.product_id === r.product_id && i.status !== 'mancava');
+      const ex = gl.items.find((i) => i.product_id === r.product_id && i.status !== 'mancava' && i.kind !== 'porta');
       try {
         if (ex) {
           if (active(ex.status) && Number(ex.quantity) !== r.quantity) { await updateGroupItem(ex.id, { quantity: r.quantity }); updated++; }

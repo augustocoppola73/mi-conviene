@@ -689,6 +689,22 @@ export const cloudApi = {
     return { ...(suggestBudget(ids, shops) as any), last_similar: lastSimilarShop(ids, shops) };
   },
 
+  /** #47: quanto costerà circa una lista (mediana dei prezzi che conosciamo nei negozi); i prodotti senza prezzo si contano a parte */
+  estimateList: async (items: { product_id: string; quantity: number }[]): Promise<{ total: number; priced: number; missing: number }> => {
+    const [book, cp] = await Promise.all([priceBook(), customPrices()]);
+    let total = 0, priced = 0, missing = 0;
+    for (const it of items) {
+      let ps: number[];
+      if (it.product_id.startsWith('custom:')) {
+        ps = [...cp.entries()].filter(([k]) => k.endsWith(`|${it.product_id}`)).map(([, v]) => v.unit_price * it.quantity);
+      } else {
+        ps = STORES.map((st) => shopItem(book, it, st.id).price).filter((x): x is number => x != null);
+      }
+      if (ps.length) { total += median(ps); priced++; } else missing++;
+    }
+    return { total: r2(total), priced, missing };
+  },
+
   /** #44/#35: "Di solito compri" e "Di solito lo ricompri" (dallo storico, mio e della famiglia) */
   usualAndDue: async () => usualAndDue(await historyRows(60)),
 

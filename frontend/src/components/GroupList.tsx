@@ -4,19 +4,21 @@
  */
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { api, HelpOption, ListItem } from '../api';
 import { IS_CLOUD, uid } from '../cloud/client';
 import {
-  addGroupItem, eventLabel, Group, GroupItem, groupItems, GroupMember, groupMembers, myGroups, removeGroupItem, similarName,
+  addGroupExpense, addGroupItem, eventLabel, Group, GroupItem, groupItems, GroupMember, groupMembers, myGroups, removeGroupItem, similarName,
   updateGroupItem, watchList,
 } from '../cloud/groups';
 import { euro, formatQty, qtyStep } from '../format';
 import { shareInvite } from '../invite';
 import { customId, useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { BRING_DEFAULT, BRING_SUGGESTIONS } from '../engine/eventPlan';
 import { EventPlanner } from './EventPlanner';
+import { BudgetCard, useGroupMoney } from './GroupBudget';
 import { QtyStepper } from './QtyStepper';
 import { Icon, PrimaryButton } from './ui';
 
@@ -30,6 +32,8 @@ export function ask(m: string, ok: string, no = 'Annulla'): Promise<boolean> {
 }
 
 const active = (i: GroupItem) => i.status === 'da_prendere' || i.status === 'proposto';
+/** #50: da portare (non si compra) */
+export const isBring = (i: GroupItem) => i.kind === 'porta';
 
 /** Stato della lista di un gruppo + le azioni che usa la scheda Lista (aggiungi, togli, quantità). */
 export function useGroupList(groupId: string | null) {
@@ -62,7 +66,7 @@ export function useGroupList(groupId: string | null) {
 
   const owner = group?.role === 'proprietario';
   const nameOf = (u: string | null) => (u === me ? 'tu' : members.find((m) => m.user_id === u)?.display_name || 'qualcuno');
-  const rowOf = (pid: string) => items.find((i) => i.product_id === pid && active(i));
+  const rowOf = (pid: string) => items.find((i) => i.product_id === pid && active(i) && !isBring(i));
 
   const after = async (fn: () => Promise<unknown>) => {
     try { await fn(); } catch (e) { tell((e as Error).message); }
@@ -110,7 +114,7 @@ export function useGroupList(groupId: string | null) {
     addCustom: async (name: string, category_id: string, quantity = 1, unit = 'pz') => {
       const clean = name.trim();
       if (!clean) return;
-      const same = items.find((i) => active(i) && similarName(i.name || '', clean));
+      const same = items.find((i) => active(i) && !isBring(i) && similarName(i.name || '', clean));
       if (same) {
         if (await ask(`C'è già «${same.name}» (${nameOf(same.added_by)}, ${formatQty(Number(same.quantity), same.unit || 'pz')}). È la stessa cosa?`, 'Sì, aumento', 'No, è un\'altra')) {
           return offerMore(same, 1);
@@ -126,13 +130,22 @@ export function useGroupList(groupId: string | null) {
     },
   };
 
-  return { me, group, members, items, missing, owner, nameOf, reload, after, canRemove, facade };
+  /** #50: una cosa da portare (torta della nonna, sedie, cassa per la musica…) */
+  const addBring = async (name: string) => {
+    const clean = name.trim();
+    if (!clean || !listId) return;
+    const same = items.find((i) => active(i) && isBring(i) && similarName(i.name || '', clean));
+    if (same) { tell(`C'è già «${same.name}» tra le cose da portare.`); return; }
+    await after(() => addGroupItem(listId, { product_id: customId(clean), name: clean, quantity: 1, unit: 'pz', category_id: 'altro', kind: 'porta' }));
+  };
+
+  return { me, group, members, items, missing, owner, nameOf, reload, after, canRemove, facade, addBring };
 }
 
 export type GroupListState = ReturnType<typeof useGroupList>;
 
 /** Una riga della lista del gruppo. */
-export function GroupItemRow({ it, gl }: { it: GroupItem; gl: GroupListState }) {
+export function GroupItemRow({ it, gl, onValue }: { it: GroupItem; gl: GroupListState; onValue?: (it: GroupItem) => void }) {
   const s = useStyles();
   const { colors } = useTheme();
   const { productById } = useStore();
@@ -143,6 +156,7 @@ export function GroupItemRow({ it, gl }: { it: GroupItem; gl: GroupListState }) 
   const free = !it.assigned_to;
   const canTick = it.status !== 'proposto' && (free || isMine || owner);
   const initial = (u: string | null) => (nameOf(u).trim()[0] || '?').toUpperCase();
+  const bring = isBring(it);
 
   if (it.status === 'proposto') {
     return (
@@ -167,24 +181,28 @@ export function GroupItemRow({ it, gl }: { it: GroupItem; gl: GroupListState }) 
       <View style={{ flex: 1 }}>
         <Text style={[s.name, it.status === 'preso' && s.strike]} numberOfLines={2}>{it.name || p?.name || it.product_id}</Text>
         <Text style={s.meta}>
-          {formatQty(Number(it.quantity), unit)}
+          {bring ? (Number(it.quantity) > 1 ? `${formatQty(Number(it.quantity), unit)} · da portare` : 'da portare') : formatQty(Number(it.quantity), unit)}
           {it.status === 'mancava' ? ` · mancava (${nameOf(it.assigned_to)})` : ''}
-          {it.status === 'preso' && it.assigned_to ? ` · preso da ${nameOf(it.assigned_to)}` : ''}
+          {it.status === 'preso' && it.assigned_to ? ` · ${bring ? 'portato' : 'preso'} da ${nameOf(it.assigned_to)}` : ''}
+          {it.status === 'da_prendere' && bring && it.assigned_to ? ` · lo porta ${nameOf(it.assigned_to)}` : ''}
           {it.status === 'da_prendere' && it.added_by && it.added_by !== me ? ` · aggiunto da ${nameOf(it.added_by)}` : ''}
         </Text>
       </View>
-      {it.status === 'da_prendere' && (free || isMine) && (
+      {it.status === 'preso' && bring && isMine && onValue && (
+        <Text onPress={() => onValue(it)} style={s.link}>+ € nei conti</Text>
+      )}
+      {it.status === 'da_prendere' && (free || isMine) && !bring && (
         <QtyStepper compact quantity={Number(it.quantity)} unit={unit} step={qtyStep(p?.default_qty ?? 1, unit)}
           onChange={(n) => (n <= 0 ? canRemove(it) && after(() => removeGroupItem(it.id)) : after(() => updateGroupItem(it.id, { quantity: n })))} />
       )}
       {it.status === 'da_prendere' && free && (
         <Pressable onPress={() => me && after(() => updateGroupItem(it.id, { assigned_to: me }))} style={s.take} accessibilityRole="button">
-          <Text style={s.takeText}>Lo prendo io</Text>
+          <Text style={s.takeText}>{bring ? 'Lo porto io' : 'Lo prendo io'}</Text>
         </Pressable>
       )}
       {it.status === 'da_prendere' && isMine && (
         <Pressable onPress={() => after(() => updateGroupItem(it.id, { assigned_to: null }))} style={[s.badge, { backgroundColor: colorOf(me) }]}
-          accessibilityLabel="Lo prendi tu: tocca per lasciarlo">
+          accessibilityLabel={bring ? 'Lo porti tu: tocca per lasciarlo' : 'Lo prendi tu: tocca per lasciarlo'}>
           <Text style={s.badgeText}>Io</Text>
         </Pressable>
       )}
@@ -210,6 +228,9 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
   const [showDone, setShowDone] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);   // #46
+  const [bringOpen, setBringOpen] = useState(false); // #50
+  const [valueOf, setValueOf] = useState<GroupItem | null>(null);
+  const money = useGroupMoney(group?.id ?? null);    // #47
   if (gl.missing) {
     return (
       <View style={s.card}>
@@ -220,8 +241,9 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
   }
   if (!group) return <Text style={s.meta}>Carico il gruppo…</Text>;
   const proposals = items.filter((i) => i.status === 'proposto');
-  const todo = items.filter((i) => i.status === 'da_prendere');
-  const done = items.filter((i) => i.status === 'preso' || i.status === 'mancava');
+  const todo = items.filter((i) => i.status === 'da_prendere' && !isBring(i));
+  const done = items.filter((i) => (i.status === 'preso' || i.status === 'mancava') && !isBring(i));
+  const bring = items.filter((i) => isBring(i) && i.status !== 'proposto');
   const freeOnes = todo.filter((i) => !i.assigned_to);
   const mine = todo.filter((i) => i.assigned_to === me).length;
   const invite = () => after(async () => {
@@ -267,6 +289,9 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
         </View>
       </View>
 
+      {/* #47: cassa comune */}
+      <BudgetCard group={money.group ?? group} items={items} owner={owner} spent={money.spent} onChanged={() => { money.reload(); gl.reload(); }} />
+
       {/* #46: tipo di festa + persone → lista con le quantità */}
       <Pressable onPress={() => setPlanOpen(true)} style={s.planBtn} accessibilityRole="button">
         <Text style={{ fontSize: 22 }}>✨</Text>
@@ -300,7 +325,7 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
       <GroupHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} gl={gl} />
 
       <View style={s.sectionRow}>
-        <Text style={[s.section, { flex: 1 }]}>Da prendere · {todo.length}{mine ? ` · ${mine === 1 ? '1 lo prendi tu' : `${mine} li prendi tu`}` : ''}</Text>
+        <Text style={[s.section, { flex: 1 }]}>🛒 Da comprare · {todo.length}{mine ? ` · ${mine === 1 ? '1 lo prendi tu' : `${mine} li prendi tu`}` : ''}</Text>
         {freeOnes.length > 1 && <Text onPress={takeAll} style={s.link}>Prendo tutti i liberi</Text>}
       </View>
       {!todo.length && <Text style={s.meta}>Niente da prendere. Cerca o tocca una categoria qui sopra: lo vedono subito tutti.</Text>}
@@ -312,7 +337,97 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
         </Text>
       )}
       {showDone && done.map((it) => <GroupItemRow key={it.id} it={it} gl={gl} />)}
+
+      {/* #50: chi porta cosa (non si compra) */}
+      <View style={s.sectionRow}>
+        <Text style={[s.section, { flex: 1 }]}>🎒 Da portare · {bring.filter((i) => i.status === 'da_prendere').length}</Text>
+        <Text onPress={() => setBringOpen(true)} style={s.link}>+ Aggiungi</Text>
+      </View>
+      {!bring.length && (
+        <Pressable onPress={() => setBringOpen(true)} style={s.helpBtn} accessibilityRole="button">
+          <Text style={{ fontSize: 18 }}>🎒</Text>
+          <Text style={[s.meta, { flex: 1, marginTop: 0 }]}>Le cose che non si comprano: la torta della nonna, le sedie, la cassa per la musica… Ognuno dice «Lo porto io».</Text>
+        </Pressable>
+      )}
+      {[...bring.filter((i) => i.status === 'da_prendere' && !i.assigned_to), ...bring.filter((i) => i.status === 'da_prendere' && i.assigned_to),
+        ...bring.filter((i) => i.status !== 'da_prendere')].map((it) => (
+        <GroupItemRow key={it.id} it={it} gl={gl}
+          onValue={money.expenses.some((e) => e.paid_by === me && e.note === `🎒 ${it.name}`) ? undefined : setValueOf} />
+      ))}
+      <BringSheet visible={bringOpen} onClose={() => setBringOpen(false)} gl={gl} type={prefs.eventPlans?.[group.id]?.type} />
+      <BringValueSheet item={valueOf} onClose={() => setValueOf(null)} onSave={async (v) => {
+        const it = valueOf!; setValueOf(null);
+        await after(() => addGroupExpense(group.id, v, `🎒 ${it.name}`));
+        money.reload();
+        tell(`Fatto: «${it.name}» vale ${euro(v)} nei conti, come se l'avessi comprato tu.`);
+      }} />
     </View>
+  );
+}
+
+/** #50: aggiungi cose da portare: scritte a mano o tra i suggerimenti per il tipo di festa */
+function BringSheet({ visible, onClose, gl, type }: { visible: boolean; onClose: () => void; gl: GroupListState; type?: string }) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const [text, setText] = useState('');
+  useEffect(() => { if (visible) setText(''); }, [visible]);
+  const already = (n: string) => gl.items.some((i) => isBring(i) && active(i) && similarName(i.name || '', n));
+  const sugg = (type && BRING_SUGGESTIONS[type]) || BRING_DEFAULT;
+  const add = async (n: string) => { await gl.addBring(n); setText(''); };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={s.backdrop} onPress={onClose}>
+        <Pressable style={s.sheet} onPress={() => {}}>
+          <View style={s.headRow}>
+            <Text style={[s.title, { flex: 1 }]}>🎒 Cosa portare</Text>
+            <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Chiudi"><Icon name="close" size={24} color={colors.textSecondary} /></Pressable>
+          </View>
+          <Text style={s.meta}>Non si compra: niente negozio né prezzo. Chi lo porta tocca «Lo porto io».</Text>
+          <View style={[s.headRow, { marginTop: spacing.sm }]}>
+            <TextInput value={text} onChangeText={setText} placeholder="Torta della nonna, sedie…" placeholderTextColor={colors.textSecondary}
+              style={s.input} returnKeyType="done" onSubmitEditing={() => text.trim() && add(text)} maxLength={60} />
+            <Pressable onPress={() => text.trim() && add(text)} style={s.take} accessibilityRole="button"><Text style={s.takeText}>Aggiungi</Text></Pressable>
+          </View>
+          <Text style={[s.meta, { marginTop: spacing.md }]}>Idee</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {sugg.map((n) => {
+              const on = already(n);
+              return (
+                <Pressable key={n} disabled={on} onPress={() => add(n)} style={[s.chip, on && s.chipOn]} accessibilityRole="button">
+                  <Text style={[s.name, { fontSize: 13 }, on && { color: colors.primaryText }]}>{on ? '✓ ' : '+ '}{n}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <PrimaryButton label="Fatto" onPress={onClose} style={{ marginTop: spacing.lg }} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/** #50: quanto vale quello che hai portato (facoltativo): va nei conti come una spesa tua */
+function BringValueSheet({ item, onClose, onSave }: { item: GroupItem | null; onClose: () => void; onSave: (v: number) => void }) {
+  const s = useStyles();
+  const { colors } = useTheme();
+  const [v, setV] = useState('');
+  useEffect(() => { if (item) setV(''); }, [item]);
+  const n = parseFloat(v.replace(',', '.'));
+  return (
+    <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={s.backdrop} onPress={onClose}>
+        <Pressable style={s.sheet} onPress={() => {}}>
+          <Text style={s.title}>🎒 {item?.name}: quanto vale?</Text>
+          <Text style={s.meta}>Facoltativo. Se lo metti, conta nei conti come se l'avessi comprato: gli altri ti ridanno la loro parte.</Text>
+          <View style={[s.headRow, { marginTop: spacing.sm }]}>
+            <Text style={s.title}>€</Text>
+            <TextInput value={v} onChangeText={(t) => setV(t.replace(/[^0-9.,]/g, ''))} keyboardType="decimal-pad" inputMode="decimal" placeholder="15"
+              placeholderTextColor={colors.textSecondary} style={s.input} autoFocus />
+          </View>
+          <PrimaryButton label="Metti nei conti" icon="cash-outline" disabled={!(n > 0)} onPress={() => onSave(Math.round(n * 100) / 100)} style={{ marginTop: spacing.md }} />
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -332,7 +447,7 @@ function GroupHelpSheet({ visible, onClose, gl }: { visible: boolean; onClose: (
     if (!visible) return;
     setOpts(null); setErr(null); setK(0);
     if (!loc) { setErr('Attiva la posizione (Profilo › Negozi): mi serve per sapere quali negozi hai vicino.'); return; }
-    const free = gl.items.filter((i) => i.status === 'da_prendere' && !i.assigned_to)
+    const free = gl.items.filter((i) => i.status === 'da_prendere' && !i.assigned_to && !isBring(i))
       .map((i) => ({ id: i.id, product_id: i.product_id, name: i.name || i.product_id, quantity: Number(i.quantity), unit: i.unit || 'pz', category_id: i.category_id }));
     api.groupHelpPlan(free, loc.lat, loc.lon, prefs.transport, prefs.fuelType)
       .then((o) => { setOpts(o); if (o[0]) setSel(new Set(o[0].lines.slice(0, o[0].suggested).map((l) => l.key))); })
@@ -423,5 +538,6 @@ const useStyles = makeStyles((c) => ({
   badge: { minWidth: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   badgeText: { color: '#fff', fontWeight: '800', fontSize: 13 },
   link: { color: c.primary, fontWeight: '700', fontSize: 13 },
+  input: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, color: c.text, backgroundColor: c.background, fontSize: 15 },
   contiBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: c.primary },
 }));

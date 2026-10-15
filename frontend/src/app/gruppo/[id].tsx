@@ -131,7 +131,7 @@ export default function GruppoScreen() {
             color={it.status === 'preso' ? colors.success : it.status === 'mancava' ? colors.danger : canTick ? colors.primary : colors.border} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={[s.itemName, it.status === 'preso' && s.strike]} numberOfLines={2}>{it.name || p?.name || it.product_id}</Text>
+          <Text style={[s.itemName, it.status === 'preso' && s.strike]} numberOfLines={2}>{it.kind === 'porta' ? '🎒 ' : ''}{it.name || p?.name || it.product_id}</Text>
           <Text style={s.meta}>
             {formatQty(Number(it.quantity), unit)}
             {it.status === 'mancava' ? ` · mancava${it.assigned_to ? ` (${nameOf(it.assigned_to)})` : ''}` : ''}
