@@ -359,6 +359,7 @@ export const localApi = {
   addSaving: (body: {
     user_id: string; store_id: string; amount: number; note?: string;
     reference_type?: 'habitual' | 'median'; price_basis?: PriceBasis;
+    /** #63 */ reference_store_id?: string | null; no_saving?: boolean;
     history_id?: string; estimated_spend?: number; estimated_total?: number;
     fuel_saving?: number; fuel_liters?: number; fuel_median?: number; fuel_detour_cost?: number; fuel_station?: string;
     snapshot?: RankedStore | Record<string, unknown>;
@@ -441,7 +442,7 @@ export const localApi = {
   shopPrice: (id: string, body: { user_id: string; key: string; price: number; kind: PriceKind; note?: string | null; display_name?: string | null }) =>
     post<Shop>(`/shops/${id}/price`, body),
   shopFinish: (id: string, user_id: string) =>
-    post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number; group_receipts?: GroupReceipt[] }>(`/shops/${id}/finish`, { user_id }),
+    post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null }>(`/shops/${id}/finish`, { user_id }),
   shopCancel: (id: string, user_id: string) => post<{ items: ShopItem[] }>(`/shops/${id}/cancel`, { user_id }),
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>

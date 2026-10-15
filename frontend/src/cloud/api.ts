@@ -392,6 +392,34 @@ async function finalizeSaving(shop: any) {
     snap.effective_cost = r2(snap.total_cost - (snap.fuel_stop?.saving ?? 0));
     data.snapshot = snap;
   }
+  // #63: il risparmio conta solo i prodotti presi davvero. Calcolo quanto pesa ogni prodotto nel risparmio
+  // (riferimento − negozio scelto, con gli stessi prezzi) e tengo la parte dei prodotti comprati.
+  const before = Number(data.amount) || 0;
+  if (!data.no_saving && before > 0 && data.amount_planned == null) {
+    const book = await priceBook();
+    const storeOf = (i: T.ShopItem) => i.store_id ?? shop.store_id;
+    const refPrice = (pid: string, q: number): number | null => {
+      if (data.reference_store_id) return shopItem(book, { product_id: pid, quantity: q }, data.reference_store_id).price;
+      const ps = STORES.map((st) => shopItem(book, { product_id: pid, quantity: q }, st.id).price).filter((x): x is number => x != null);
+      return ps.length ? median(ps) : null;
+    };
+    const gain = (list: T.ShopItem[]) => list.reduce((t, i) => {
+      const q = mineQty(i);
+      if (q <= 0 || i.product_id.startsWith('custom:')) return t;
+      const here = shopItem(book, { product_id: i.product_id, quantity: q }, storeOf(i)).price;
+      const ref = refPrice(i.product_id, q);
+      return here != null && ref != null ? t + (ref - here) : t;
+    }, 0);
+    const all = gain(shop.items.filter((i: T.ShopItem) => !i.added_in_store));
+    const got = gain(bought);
+    const fuel = Number(data.fuel_saving) || 0;
+    const shopPart = Math.max(0, before - fuel);
+    const newShop = all > 0.01 ? r2(Math.max(0, shopPart * Math.min(1, got / all))) : r2(Math.max(0, got));
+    if (Math.abs(newShop - shopPart) > 0.005) {
+      data.amount_planned = before;              // quello promesso alla conferma
+      data.amount = r2(newShop + fuel);
+    }
+  }
   const travel = (data.estimated_total ?? 0) - (data.estimated_spend ?? 0);
   data.planned_spend = data.planned_spend ?? data.estimated_spend ?? null;   // quello previsto alla conferma
   data.estimated_spend = receipt.total;
@@ -402,6 +430,7 @@ async function finalizeSaving(shop: any) {
   check(await sb().from('savings').update({ data }).eq('id', row.id));
   // lo storico (abitudini, budget) registra quello che è stato comprato davvero
   if (data.history_id) await sb().from('history').update({ items: listItems }).eq('id', data.history_id);
+  return { before, after: Number(data.amount) || 0 };
 }
 
 // ------------------------------------------------------------------ API
@@ -1064,11 +1093,12 @@ export const cloudApi = {
     const closed = check(await sb().from('shops').update({ status: 'done', finished_at: nowIso() }).eq('id', id).eq('status', 'active').select('id')) as any[];
     if (!closed?.length) throw new Error('Questa spesa è già chiusa');
     await learnFromShop(shop).catch(() => {});
-    await finalizeSaving(shop).catch(() => {});
+    const saving_change = await finalizeSaving(shop).catch(() => undefined);
     const items: T.ShopItem[] = shop.items;
     const group_receipts = items.some((i) => i.groups?.length) ? await shopGroupSync(id, true).catch(() => []) : [];
     return { missing: items.filter((i) => !i.checked), saving_id: shop.saving_id ?? null, store_name: shop.store_name as string,
-      cart: r2(items.filter((i) => i.checked).reduce((s, i) => s + (i.price || 0), 0)), group_receipts };
+      cart: r2(items.filter((i) => i.checked).reduce((s, i) => s + (i.price || 0), 0)), group_receipts,
+      saving_change: saving_change && Math.abs(saving_change.after - saving_change.before) > 0.005 ? saving_change : null };
   },
 
   shopCancel: async (id: string, _user_id: string) => {

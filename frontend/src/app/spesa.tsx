@@ -65,7 +65,7 @@ export default function SpesaScreen() {
   const [loaded, setLoaded] = useState(false);
   const [offline, setOffline] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number; group_receipts?: GroupReceipt[] } | null>(null);
+  const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null } | null>(null);
   const [putBack, setPutBack] = useState<Set<string>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [pricing, setPricing] = useState<ShopItem | null>(null);
@@ -315,6 +315,9 @@ export default function SpesaScreen() {
         <ScrollView contentContainerStyle={s.content}>
           <Text style={s.title}>🏁 Spesa finita</Text>
           <Text style={s.text}>Nel carrello circa {euro(finishing.cart)}. Ho imparato l'ordine dei reparti di questo negozio: la prossima volta la lista è già in ordine.</Text>
+          {finishing.saving_change && (
+            <Text style={s.text}>🐷 Risparmio aggiornato sui prodotti che hai preso: {euro(finishing.saving_change.after)} (alla conferma era {euro(finishing.saving_change.before)}).</Text>
+          )}
           {(finishing.group_receipts ?? []).map((g) => g.saved && g.expense_id ? (
             <GroupReceiptEditor key={g.group_id} expenseId={g.expense_id} title={`${g.emoji || '👥'} Scontrino di «${g.group_name}»`}
               lines={g.lines} amount={g.amount} groupId={g.group_id} />

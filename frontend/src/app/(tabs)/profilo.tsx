@@ -328,8 +328,17 @@ export default function ProfiloScreen() {
                   onPress={() => run(async () => {
                     const l = await api.familyPullList(family.code);
                     if (!l.items.length) return notify('La lista di famiglia è vuota.');
-                    setItems(l.items);
-                    notify(`Caricati ${l.items.length} prodotti nella tua lista.`);
+                    // #65: non si perde quello che hai già in lista: le due liste si uniscono (resta la quantità più grande)
+                    if (items.length && !(await confirmAsk('Unire le liste?', `Aggiungo i ${l.items.length} prodotti della famiglia alla tua lista: i tuoi ${items.length} restano.`, 'Unisci'))) return;
+                    const byId = new Map(items.map((i) => [i.product_id, i]));
+                    let added = 0;
+                    for (const it of l.items) {
+                      const mine = byId.get(it.product_id);
+                      if (!mine) { byId.set(it.product_id, it); added++; }
+                      else if (it.quantity > mine.quantity) byId.set(it.product_id, { ...mine, quantity: it.quantity });
+                    }
+                    setItems([...byId.values()]);
+                    notify(added ? `Aggiunti ${added} prodotti della famiglia alla tua lista.` : 'Avevi già tutti i prodotti della famiglia.');
                   })}
                   style={{ flex: 1 }}
                 />

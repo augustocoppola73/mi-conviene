@@ -81,6 +81,8 @@ export default function VicinoScreen() {
       const g = await getCurrentPosition();
       const p = { lat: g.lat, lon: g.lon, live: true };
       setPos(p); load(p, radiusKm);
+      // #69: il GPS concesso qui vale per tutta l'app (Lista, Profilo, Volantini), se non hai scelto un indirizzo
+      if (!prefs.locationMode) setPrefs({ location: g, locationMode: 'gps' });
     } catch (e) {
       // senza GPS: la posizione salvata nel Profilo
       if (prefs.location) {
@@ -89,7 +91,7 @@ export default function VicinoScreen() {
       }
       setPosError((e as Error).message);
     } finally { setLocating(false); }
-  }, [load, prefs.location, radiusKm]);
+  }, [load, prefs.location, prefs.locationMode, setPrefs, radiusKm]);
 
   useFocusEffect(useCallback(() => { if (!pos) locate(); }, [pos, locate]));
 

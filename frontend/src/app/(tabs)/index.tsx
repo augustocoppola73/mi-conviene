@@ -49,7 +49,7 @@ export default function ListaScreen() {
   const insets = useSafeAreaInsets();
   const {
     catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems, setItemCategory, setItems,
-    prefs, setPrefs, userId, setLastResult, lastResult, groupMine, reloadGroupMine,
+    prefs, setPrefs, userId, setLastResult, lastResult, lastResultStale, groupMine, reloadGroupMine,
   } = useStore();
 
   // #21: la lista che si sta compilando: la mia, o quella di un gruppo (stessa ricerca, categorie, offerte)
@@ -149,6 +149,16 @@ export default function ListaScreen() {
       if (prefs.locationMode === 'gps') {
         const fresh = await quietPosition(4000);
         if (fresh) { loc = fresh; setPrefs({ location: fresh }); }
+      } else if (!prefs.locationMode || !loc) {
+        // #69: senza posizione km e carburante sarebbero di esempio: la chiedo prima del confronto
+        const fresh = await quietPosition(6000);
+        if (fresh) { loc = fresh; setPrefs({ location: fresh, locationMode: 'gps' }); }
+        else {
+          setLoading(false);
+          setTripOpen(true);
+          notify('Da dove parti?', 'Per dirti dove conviene davvero (km, tempo, carburante) mi serve la posizione: attivala o scrivi il tuo indirizzo qui sotto, poi tocca di nuovo «Trova la spesa migliore».');
+          return;
+        }
       }
       const mine = await reloadGroupMine();   // i prodotti che prendo per i gruppi: un solo giro (#21)
       const r = await api.optimize(optimizeRequest(userId, mergeShopping(items, mine), prefs, loc));
@@ -193,7 +203,7 @@ export default function ListaScreen() {
           </Pressable>
         )}
         <ActiveShopBanner />
-        {lastResult && (
+        {lastResult && !lastResultStale && (
           <Pressable onPress={() => router.push('/risultati')} style={({ pressed }) => [s.lastResult, pressed && { opacity: 0.7 }]}>
             <Icon name="trophy-outline" size={20} color={colors.primary} />
             <View style={{ flex: 1 }}>

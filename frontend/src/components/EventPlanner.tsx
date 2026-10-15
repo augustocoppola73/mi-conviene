@@ -40,7 +40,7 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
   const gid = gl ? gl.group?.id ?? '' : 'mine';
   const saved = prefs.eventPlans?.[gid];
   const [type, setType] = useState(saved?.type ?? (gl ? 'grigliata' : 'rinfresco'));
-  const [adults, setAdults] = useState(saved?.adults ?? Math.max(gl ? 2 : 6, gl?.members.length ?? 0));
+  const [adults, setAdults] = useState(saved?.adults ?? Math.max(6, gl?.members.length ?? 0));   // #67: un numero da festa, non 2
   const [kids, setKids] = useState(saved?.kids ?? 0);
   const [rows, setRows] = useState<PlanRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -58,14 +58,30 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
   };
 
   const applyMine = () => {
-    let added = 0, updated = 0, skipped = 0;
+    // #67: nella lista personale la festa si AGGIUNGE a quello che hai già (la spesa della settimana resta);
+    // se la rifai, tolgo quello che aveva messo la volta prima e metto il nuovo
+    const prev = saved?.added ?? {};
+    const nowAdded: Record<string, number> = {};
+    let added = 0, updated = 0;
+    const round = (x: number) => Math.round(x * 1000) / 1000;
     for (const r of rows) {
       const ex = existing(r.product_id);
-      if (ex) { if (ex.quantity !== r.quantity) { updateQty(r.product_id, r.quantity); updated++; } else skipped++; }
-      else if (r.product_id.startsWith('custom:')) { addCustom(r.name, r.category_id, r.quantity, r.unit); added++; }
+      nowAdded[r.product_id] = r.quantity;
+      if (ex) {
+        const base = Math.max(0, ex.quantity - (prev[r.product_id] ?? 0));
+        const next = round(base + r.quantity);
+        if (next !== ex.quantity) { updateQty(r.product_id, next); updated++; }
+      } else if (r.product_id.startsWith('custom:')) { addCustom(r.name, r.category_id, r.quantity, r.unit); added++; }
       else { addItem(r.product_id, r.quantity); added++; }
     }
-    setPrefs({ eventPlans: { ...(prefs.eventPlans ?? {}), [gid]: { type, adults, kids } } });
+    // prodotti della festa di prima che ora non ci sono più: tolgo la parte della festa
+    for (const [pid, q] of Object.entries(prev)) {
+      if (nowAdded[pid] != null) continue;
+      const ex = existing(pid);
+      if (ex) { updateQty(pid, round(Math.max(0, ex.quantity - q))); updated++; }
+    }
+    const skipped = 0;
+    setPrefs({ eventPlans: { ...(prefs.eventPlans ?? {}), [gid]: { type, adults, kids, added: nowAdded } } });
     onClose();
     globalThis.alert?.(`${t.emoji} Lista pronta: ${added} aggiunti${updated ? `, ${updated} quantità aggiornate` : ''}${skipped ? `, ${skipped} già a posto` : ''}.`);
   };
@@ -77,23 +93,33 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
     if (!listId) { setMsg('Lista del gruppo non trovata'); return; }
     setBusy(true); setMsg(null);
     let added = 0, updated = 0, skipped = 0;
+    const notes: string[] = [];
+    const round = (x: number) => Math.round(x * 1000) / 1000;
     for (const r of rows) {
-      const ex = gl.items.find((i) => i.product_id === r.product_id && i.status !== 'mancava' && i.kind !== 'porta');
+      // #67: quello che c'è già (da prendere, proposto o già preso) conta; l'attivo si porta alla quantità che manca
+      const rowsP = gl.items.filter((i) => i.product_id === r.product_id && i.status !== 'mancava' && i.kind !== 'porta');
+      const act = rowsP.find((i) => active(i.status));
+      const taken = rowsP.filter((i) => i.status === 'preso').reduce((t, i) => t + Number(i.quantity), 0);
+      const want = round(Math.max(0, r.quantity - taken));
       try {
-        if (ex) {
-          if (active(ex.status) && Number(ex.quantity) !== r.quantity) { await updateGroupItem(ex.id, { quantity: r.quantity }); updated++; }
-          else skipped++;
-        } else {
-          await addGroupItem(listId, { product_id: r.product_id, name: r.name, quantity: r.quantity, unit: r.unit, category_id: r.category_id });
+        if (act) {
+          const mineOrFree = !act.assigned_to || act.assigned_to === gl.me || gl.owner;
+          if (Number(act.quantity) === want || want <= 0) skipped++;
+          else if (mineOrFree) { await updateGroupItem(act.id, { quantity: want }); updated++; }
+          else { notes.push(`${r.name}: lo prende ${gl.nameOf(act.assigned_to)}, digli che ne servono ${formatQty(want, r.unit)}`); skipped++; }
+        } else if (want > 0) {
+          await addGroupItem(listId, { product_id: r.product_id, name: r.name, quantity: want, unit: r.unit, category_id: r.category_id });
           added++;
-        }
-      } catch { skipped++; }
+          if (taken > 0) notes.push(`${r.name}: già presi ${formatQty(taken, r.unit)}, ne ho aggiunti ${formatQty(want, r.unit)}`);
+        } else skipped++;
+      } catch (e) { notes.push(`${r.name}: ${(e as Error).message}`); }
     }
     setPrefs({ eventPlans: { ...(prefs.eventPlans ?? {}), [gid]: { type, adults, kids } } });
     await gl.reload();
     setBusy(false);
     onClose();
     globalThis.alert?.(`${t.emoji} Lista pronta: ${added} aggiunti${updated ? `, ${updated} quantità aggiornate` : ''}${skipped ? `, ${skipped} già a posto` : ''}.` +
+      (notes.length ? `\n\n${notes.join('\n')}` : '') +
       (gl.group.add_policy === 'proprietario' && !gl.owner ? '\nSono proposte: decide chi ha creato il gruppo.' : ''));
   };
 

@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 
 import { api, Bootstrap, FavoriteStore, FuelType, ListItem, MenuEntry, OptimizeResult, Product, Transport } from './api';
 import type { GeoPoint } from './location';
@@ -46,7 +46,7 @@ export interface Prefs {
   /** #41: spesa in corso a tutto schermo con card grandi (modalità negozio) */
   storeFull: boolean;
   /** #46: l'ultima "Organizza la festa" per gruppo (per rifarla con altre persone) */
-  eventPlans: Record<string, { type: string; adults: number; kids: number }>;
+  eventPlans: Record<string, { type: string; adults: number; kids: number; /** #67: quanto ha aggiunto la festa (lista personale) */ added?: Record<string, number> }>;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -95,12 +95,19 @@ interface StoreValue {
   setPrefs: (patch: Partial<Prefs>) => void;
   lastResult: OptimizeResult | null;
   setLastResult: (r: OptimizeResult | null) => void;
+  /** #66: la lista è cambiata dopo l'ultimo calcolo (il risultato non vale più) */
+  lastResultStale: boolean;
   /** #21: i prodotti che prendo io nei gruppi (entrano nella mia spesa) */
   groupMine: MyGroupItem[];
   reloadGroupMine: () => Promise<MyGroupItem[]>;
 }
 
 /** id di un prodotto scritto a mano: "custom:coca-cola" */
+/** #66: impronta della lista (mia + parte dei gruppi) per capire se un risultato è ancora valido */
+export function shoppingSig(items: { product_id: string; quantity: number }[], mine: { product_id: string; quantity: number }[]): string {
+  return [...items, ...mine].map((i) => `${i.product_id}:${i.quantity}`).sort().join('|');
+}
+
 export function customId(name: string): string {
   return 'custom:' + name.trim().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
@@ -114,7 +121,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [items, setItemsState] = useState<ListItem[]>([]);
   const [prefs, setPrefsState] = useState<Prefs>(DEFAULT_PREFS);
-  const [lastResult, setLastResult] = useState<OptimizeResult | null>(null);
+  const [lastResult, setLastResultState] = useState<OptimizeResult | null>(null);
+  const [resultSig, setResultSig] = useState('');
 
   // Idratazione: leggiamo PRIMA di scrivere, altrimenti i default sovrascrivono i dati salvati.
   useEffect(() => {
@@ -229,6 +237,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setPrefs = useCallback((patch: Partial<Prefs>) => setPrefsState((p) => ({ ...p, ...patch })), []);
 
   const [groupMine, setGroupMine] = useState<MyGroupItem[]>([]);
+  const itemsRef = useRef(items); itemsRef.current = items;
+  const groupMineRef = useRef(groupMine); groupMineRef.current = groupMine;
+  const setLastResult = useCallback((r: OptimizeResult | null) => {
+    setLastResultState(r);
+    setResultSig(r ? shoppingSig(itemsRef.current, groupMineRef.current) : '');
+  }, []);
   const reloadGroupMine = useCallback(async () => {
     if (!IS_CLOUD) return [];
     try {
@@ -262,6 +276,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPrefs,
     lastResult,
     setLastResult,
+    lastResultStale: !!lastResult && resultSig !== shoppingSig(items, groupMine),
     groupMine,
     reloadGroupMine,
   };

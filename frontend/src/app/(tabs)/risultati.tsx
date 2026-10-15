@@ -25,7 +25,7 @@ function shortDate(iso: string | null) {
 export default function RisultatiScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { lastResult, setLastResult, userId, items, prefs, setPrefs, catalog, clearItems, groupMine, reloadGroupMine } = useStore();
+  const { lastResult, setLastResult, lastResultStale, userId, items, prefs, setPrefs, catalog, clearItems, groupMine, reloadGroupMine } = useStore();
   const [ruleMsg, setRuleMsg] = useState<string | null>(null);
   const [carBusy, setCarBusy] = useState(false);
   const [shopError, setShopError] = useState<string | null>(null);
@@ -39,6 +39,18 @@ export default function RisultatiScreen() {
   const [chosenId, setChosenId] = useState<string | null>(null);
   // #25: sono già dentro un supermercato della classifica?
   const [hereId, setHereId] = useState<string | null>(null);
+
+  // #66: la lista è cambiata dopo il calcolo (riaperto «Ultimo risultato»): ricalcolo prima di poter confermare
+  const [recalc, setRecalc] = useState(false);
+  const stale = lastResultStale && !confirmed;
+  useEffect(() => {
+    if (!stale || !userId || recalc) return;
+    if (!items.length && !groupMine.length) return;
+    setRecalc(true);
+    api.optimize(optimizeRequest(userId, mergeShopping(items, groupMine), prefs, prefs.location))
+      .then(setLastResult).catch(() => {}).finally(() => setRecalc(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stale, userId]);
 
   // ogni nuova ricerca è una nuova spesa da confermare
   useEffect(() => {
@@ -108,7 +120,8 @@ export default function RisultatiScreen() {
     finally { setCarBusy(false); }
   };
   const lastToday = last_similar ? ranked.find((r) => r.store_id === last_similar.store_id) : undefined;
-  const others = ranked.filter((r) => r.store_id !== recommended.store_id);
+  // #68: le alternative nell'ordine del totale mostrato (prima il più economico)
+  const others = ranked.filter((r) => r.store_id !== recommended.store_id).sort((a, b) => a.total_cost - b.total_cost);
   // parcheggio: se il consigliato non ha il parcheggio clienti e un'alternativa quasi uguale sì, lo segnalo (scegli tu)
   const recPark = recommended.branch?.parking;
   const parkAlt = recPark && recPark.kind !== 'clienti'
@@ -137,8 +150,12 @@ export default function RisultatiScreen() {
     ? Math.max(0, Math.round((refRow.total_cost - chosen.total_cost) * 100) / 100)
     : estimatedSaving;
   const refLabel = refRow ? `rispetto a ${refRow.store_name}` : savings.reference.label;
+  // quello che va davvero nel Salvadanaio (senza la parte per i gruppi): lo stesso numero del pulsante
+  const gSpendPreview = groupSpend(chosen.receipt.lines, mergeShopping(items, groupMine));
+  const previewSaving = Math.round((shopSaving * (chosen.receipt.total > 0 ? Math.max(0, 1 - gSpendPreview / chosen.receipt.total) : 1) + fuelSaving) * 100) / 100;
 
   const openConfirm = (storeId?: string) => {
+    if (stale) { globalThis.alert?.('La lista è cambiata: sto ricalcolando i prezzi, riprova tra un attimo.'); return; }
     setChosenId(storeId ?? null);
     // di solito saresti andato nel migliore dei tuoi preferiti (quello usato per il confronto)
     const favHere = savings.reference.type === 'habitual' ? savings.reference.store_id : null;
@@ -165,6 +182,9 @@ export default function RisultatiScreen() {
         amount,
         note: (addToPiggyBank ? refLabel : 'spesa registrata senza risparmio') + (!isRec ? ` · scelto da me (consigliato ${recommended.store_name})` : '') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
         reference_type: refRow ? 'habitual' : savings.reference.type,
+        // #63: per ricalcolare il risparmio a fine spesa sui prodotti presi davvero
+        reference_store_id: refRow?.store_id ?? (savings.reference.type === 'habitual' ? savings.reference.store_id : null),
+        no_saving: !addToPiggyBank,
         price_basis: savings.price_basis,
         history_id: h.id,
         estimated_spend: Math.round((chosen.receipt.total - gSpend) * 100) / 100,
@@ -242,6 +262,15 @@ export default function RisultatiScreen() {
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
       <ScrollView contentContainerStyle={s.content}>
+        {stale && (
+          <Card style={[s.hereBox, { borderColor: colors.warning ?? colors.primary }]}>
+            <Text style={s.hereTitle}>🔄 La lista è cambiata dopo questo calcolo: {recalc ? 'sto ricalcolando…' : 'tocca Ricalcola'}</Text>
+            {!recalc && <PrimaryButton label="Ricalcola" icon="refresh" variant="secondary" onPress={() => {
+              if (!userId) return; setRecalc(true);
+              api.optimize(optimizeRequest(userId, mergeShopping(items, groupMine), prefs, prefs.location)).then(setLastResult).catch((e) => globalThis.alert?.((e as Error).message)).finally(() => setRecalc(false));
+            }} style={{ marginTop: spacing.sm }} />}
+          </Card>
+        )}
         {hereStore && !confirmed && (
           <Card style={[s.hereBox, { borderColor: colors.primary }]}>
             <Text style={s.hereTitle}>📍 Sei da {hereStore.store_name}: fai la spesa qui?</Text>
@@ -551,7 +580,7 @@ export default function RisultatiScreen() {
               {r.fuel_stop && (
                 <Text style={s.altMeta}>⛽ sulla strada {r.fuel_stop.brand} {r.fuel_stop.price.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l · −{euro(r.fuel_stop.saving)} sul pieno</Text>
               )}
-              <DeltaBadge delta={r.effective_cost - recommended.effective_cost} />
+              <DeltaBadge total={r.total_cost - recommended.total_cost} effective={r.effective_cost - recommended.effective_cost} />
               <ReceiptToggle store={r} expanded={expanded === r.store_id} onToggle={() => setExpanded(expanded === r.store_id ? null : r.store_id)} />
               {confirmed === r.store_id ? (
                 <Text style={[s.confirmNote, { marginTop: spacing.xs }]}>✓ Fai la spesa qui</Text>
@@ -641,7 +670,7 @@ export default function RisultatiScreen() {
 
 
             <PrimaryButton
-              label={!prefs.participant && shopSaving + fuelSaving > 0 ? `Conferma e aggiungi ${euro(shopSaving + fuelSaving)}` : 'Conferma la spesa'}
+              label={!prefs.participant && previewSaving > 0 ? `Conferma e aggiungi ${euro(previewSaving)}` : 'Conferma la spesa'}
               icon="wallet-outline"
               loading={saving}
               onPress={() => confirm(!prefs.participant && shopSaving + fuelSaving > 0)}
@@ -662,13 +691,17 @@ export default function RisultatiScreen() {
   );
 }
 
-function DeltaBadge({ delta }: { delta: number }) {
+/** #68: la differenza con il consigliato, sullo stesso totale che si vede; il pieno (se c'è) detto a parte */
+function DeltaBadge({ total, effective }: { total: number; effective: number }) {
   const s = useStyles();
   const { colors } = useTheme();
-  const cheaper = delta < -0.005;
+  const diff = (d: number) => (Math.abs(d) < 0.005 ? 'stesso prezzo' : d > 0 ? `${euro(d)} in più` : `${euro(-d)} in meno`);
+  const fuel = Math.abs(effective - total) > 0.005;   // lo sconto sul pieno cambia il confronto
+  const cheaper = total < -0.005;
   return (
     <Text style={[s.delta, { color: cheaper ? colors.success : colors.textSecondary }]}>
-      {cheaper ? `${euro(-delta)} in meno, ma non vale il cambio` : `${euro(Math.max(0, delta))} in più`}
+      {diff(total)}{fuel ? ` · contando lo sconto sul pieno ${diff(effective)}` : ''}
+      {cheaper && effective > -0.005 ? ': non conviene' : cheaper ? ', ma più lontano: non vale il cambio' : ''}
     </Text>
   );
 }
