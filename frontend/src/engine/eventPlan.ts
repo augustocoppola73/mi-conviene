@@ -40,6 +40,15 @@ export const EVENT_TYPES: EventType[] = [
     { p: 'salame', a: 0.03 }, { p: 'prosciutto_crudo', a: 0.03 }, { p: 'grana_padano', a: 0.03 }, { p: 'focaccia', a: 1 / 6 },
     { c: 'Ghiaccio', cat: 'surgelati', per: 10, k: SAME }, { c: 'Bicchieri di plastica', cat: 'casa', per: 25, k: SAME },
   ] },
+  { id: 'rinfresco', label: 'Rinfresco', emoji: '🥪', hint: 'pizzette, panini, tramezzini, pasticcini', rows: [
+    { c: 'Pizzette rosse (vassoio da 20)', cat: 'gastronomia', per: 5 }, { p: 'tramezzini', a: 0.5 },
+    { c: 'Panini al latte (conf. da 12)', cat: 'pane', per: 5 }, { p: 'prosciutto', a: 0.03 }, { p: 'salame', a: 0.02 },
+    { p: 'formaggio_spalmabile', a: 1 / 8 }, { c: 'Salatini', cat: 'pane', per: 8 }, { p: 'olive', a: 1 / 8 }, { p: 'patatine', a: 0.1 },
+    { c: 'Pasticcini (vassoio da 500 g)', cat: 'dolci', per: 6, k: SAME },
+    { p: 'prosecco', a: 0.25, k: ALC }, { p: 'aranciata', a: 0.15, k: SAME }, { p: 'cola', a: 0.15, k: SAME },
+    { p: 'succo', a: 0.1, k: SAME }, { p: 'acqua', a: 0.1, k: SAME },
+    { c: 'Piatti e bicchieri di carta', cat: 'casa', per: 20, k: SAME }, { p: 'tovaglioli', a: 1 / 20, k: SAME },
+  ] },
   { id: 'cena', label: 'Cena con amici', emoji: '🍝', hint: 'primo, contorno, vino, dolce', rows: [
     { p: 'pasta', a: 0.1 }, { p: 'sugo_pronto', a: 1 / 4 }, { p: 'parmigiano', a: 0.02 }, { p: 'pane', a: 0.07 },
     { p: 'insalata', a: 0.15 }, { p: 'pomodori', a: 0.08 }, { p: 'vino', a: 0.3, k: ALC }, { p: 'acqua', a: 0.15, k: SAME },

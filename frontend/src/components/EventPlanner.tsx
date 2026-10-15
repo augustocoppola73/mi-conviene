@@ -39,7 +39,7 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
   const { prefs, setPrefs, catalog, items, addItem, addCustom, updateQty } = useStore();
   const gid = gl ? gl.group?.id ?? '' : 'mine';
   const saved = prefs.eventPlans?.[gid];
-  const [type, setType] = useState(saved?.type ?? (gl ? 'grigliata' : 'aperitivo'));
+  const [type, setType] = useState(saved?.type ?? (gl ? 'grigliata' : 'rinfresco'));
   const [adults, setAdults] = useState(saved?.adults ?? Math.max(gl ? 2 : 6, gl?.members.length ?? 0));
   const [kids, setKids] = useState(saved?.kids ?? 0);
   const [rows, setRows] = useState<PlanRow[]>([]);
