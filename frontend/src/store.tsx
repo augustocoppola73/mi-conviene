@@ -45,6 +45,8 @@ export interface Prefs {
   restockSnooze: Record<string, string>;
   /** #41: spesa in corso a tutto schermo con card grandi (modalità negozio) */
   storeFull: boolean;
+  /** #46: l'ultima "Organizza la festa" per gruppo (per rifarla con altre persone) */
+  eventPlans: Record<string, { type: string; adults: number; kids: number }>;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -69,6 +71,7 @@ const DEFAULT_PREFS: Prefs = {
   offersOpen: true,
   restockSnooze: {},
   storeFull: false,
+  eventPlans: {},
 };
 
 interface StoreValue {

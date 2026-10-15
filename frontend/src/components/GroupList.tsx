@@ -16,6 +16,7 @@ import { euro, formatQty, qtyStep } from '../format';
 import { shareInvite } from '../invite';
 import { customId, useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { EventPlanner } from './EventPlanner';
 import { QtyStepper } from './QtyStepper';
 import { Icon, PrimaryButton } from './ui';
 
@@ -208,6 +209,7 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
   const { group, members, items, me, owner, after } = gl;
   const [showDone, setShowDone] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);   // #46
   if (gl.missing) {
     return (
       <View style={s.card}>
@@ -264,6 +266,19 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
           )}
         </View>
       </View>
+
+      {/* #46: tipo di festa + persone → lista con le quantità */}
+      <Pressable onPress={() => setPlanOpen(true)} style={s.planBtn} accessibilityRole="button">
+        <Text style={{ fontSize: 22 }}>✨</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[s.name, { fontWeight: '800' }]}>{prefs.eventPlans?.[group.id] ? 'Ricalcola la festa' : 'Organizza la festa'}</Text>
+          <Text style={s.meta}>{prefs.eventPlans?.[group.id]
+            ? `Cambiate le persone? Aggiorno le quantità (${prefs.eventPlans[group.id].adults} adulti${prefs.eventPlans[group.id].kids ? `, ${prefs.eventPlans[group.id].kids} bambini` : ''})`
+            : 'Grigliata, pizzata, compleanno…: dimmi quante persone, preparo io la lista con le quantità.'}</Text>
+        </View>
+        <Icon name="chevron-forward" size={18} color={colors.primary} />
+      </Pressable>
+      <EventPlanner visible={planOpen} onClose={() => setPlanOpen(false)} gl={gl} />
 
       {proposals.length > 0 && (
         <>
@@ -382,6 +397,7 @@ function GroupHelpSheet({ visible, onClose, gl }: { visible: boolean; onClose: (
 }
 
 const useStyles = makeStyles((c) => ({
+  planBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.surface },
   helpBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: c.primarySoft },
   backdrop: { flex: 1, backgroundColor: c.overlay, justifyContent: 'flex-end' },
   sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg,
