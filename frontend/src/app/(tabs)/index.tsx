@@ -15,6 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { api, BudgetSuggestion, Category, HabitualItem, Offer } from '@/api';
 import { ActiveShopBanner } from '@/components/ActiveShopBanner';
+import { FamilyRequestsBanner } from '@/components/FamilyRequestsBanner';
 import { HabitualPicker } from '@/components/HabitualPicker';
 import { HScroll } from '@/components/HScroll';
 import { ProductSearch } from '@/components/ProductSearch';
@@ -203,6 +204,7 @@ export default function ListaScreen() {
           </Pressable>
         )}
         <ActiveShopBanner />
+        {!groupMode && <FamilyRequestsBanner />}
         {lastResult && !lastResultStale && (
           <Pressable onPress={() => router.push('/risultati')} style={({ pressed }) => [s.lastResult, pressed && { opacity: 0.7 }]}>
             <Icon name="trophy-outline" size={20} color={colors.primary} />
@@ -229,7 +231,7 @@ export default function ListaScreen() {
             <>
               <Pressable onPress={can(prefs, 'abituale') ? loadHabitual : () => showLocked('abituale')}
                 style={[s.miniBtn, !can(prefs, 'abituale') && { opacity: 0.45 }]} disabled={loadingHabitual} accessibilityRole="button">
-                {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Text style={s.miniText}>🔁 Abituale</Text>}
+                {loadingHabitual ? <ActivityIndicator color={colors.primary} /> : <Text style={s.miniText}>📋 Abituale</Text>}
               </Pressable>
               <Pressable onPress={() => (can(prefs, 'ricette') ? router.push('/ricette') : showLocked('ricette'))}
                 style={[s.miniBtn, !can(prefs, 'ricette') && { opacity: 0.45 }]} accessibilityRole="button">
@@ -310,7 +312,7 @@ export default function ListaScreen() {
           />
         )}
         {groupMine.length > 0 && <MyGroupShares />}
-        {items.length >= 1 && <SmartSuggestions items={items} />}
+        {items.length >= 1 && <SmartSuggestions items={items} usual={false} />}
         <UsualPanel />
           </>
         )}

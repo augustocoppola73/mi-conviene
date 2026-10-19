@@ -113,7 +113,7 @@ export default function ProfiloScreen() {
   useFocusEffect(useCallback(() => { if (IS_CLOUD) sb().auth.getUser().then(({ data }) => setMyEmail(data.user?.email ?? null)).catch(() => {}); }, []));
   const summaryTu = `${prefs.displayName.trim() || 'Senza nome'} · ${IS_CLOUD ? (myEmail || 'senza email') : `tema ${themeMode === 'auto' ? 'come il telefono' : themeMode === 'dark' ? 'scuro' : 'chiaro'}`}`;
   const tr = TRANSPORTS.find((t) => t.id === prefs.transport)?.label ?? '';
-  const summarySpesa = `${prefs.budget ? `budget €${prefs.budget}` : 'nessun budget'} · soglia €${prefs.minSavingsThreshold} · ${tr.toLowerCase()}${prefs.transport === 'car' ? `, ${prefs.fuelType}` : ''}`;
+  const summarySpesa = `${prefs.budget ? `budget €${prefs.budget}` : 'nessun budget'} · cambio negozio da €${prefs.minSavingsThreshold} · ${tr.toLowerCase()}${prefs.transport === 'car' ? `, ${prefs.fuelType}` : ''}`;
   const chainName = (id: string) => catalog?.stores.find((x) => x.id === id)?.name ?? id;
   const favNames = [...new Set(prefs.favorites.map((f) => chainName(f.store_id)))];
   const summaryNegozi = `${loc ? (loc.label || 'posizione attiva') : 'posizione non attiva'} · ${favNames.length ? `${prefs.favorites.length === 1 ? '1 preferito' : `${prefs.favorites.length} preferiti`}: ${favNames.join(', ')}` : 'nessun preferito'}`;
@@ -176,7 +176,7 @@ export default function ProfiloScreen() {
             />
           </View>
 
-          <SectionTitle>Soglia minima di convenienza</SectionTitle>
+          <SectionTitle>Cambio supermercato solo se risparmio almeno…</SectionTitle>
           <Text style={s.help}>
             Ti consiglio di cambiare supermercato solo se risparmi almeno questa cifra. Sotto, resti dove sei: niente fatica per pochi centesimi.
           </Text>

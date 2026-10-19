@@ -491,7 +491,7 @@ export default function SpesaScreen() {
                             {formatQty(i.quantity, i.unit)}{i.groups?.length ? ` ${i.groups.map((g) => g.emoji || '👥').join('')}` : ''}
                           </Text>
                           <Text style={[s.tilePrice, i.in_promo && { color: colors.success }]} numberOfLines={1}>
-                            {i.price != null ? `~${euro(i.price)}` : i.product_id.startsWith('custom:') ? 'sul posto' : ' '}{i.in_promo ? ' %' : ''}{i.variant ? ' 💡' : ''}
+                            {i.price != null ? `~${euro(i.price)}` : i.product_id.startsWith('custom:') ? 'prezzo da scrivere' : ' '}{i.in_promo ? ' %' : ''}{i.variant ? ' 💡' : ''}
                           </Text>
                           {can && (
                             <Pressable onPress={() => openPrice(i)} hitSlop={10} style={[s.tileEuro, full && s.tileEuroBig]} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
@@ -509,7 +509,7 @@ export default function SpesaScreen() {
                       <Text style={s.name}>{i.name}</Text>
                       <Text style={s.muted}>
                         {formatQty(i.quantity, i.unit)}{i.price != null ? ` · ~${euro(i.price)}` : ''}
-                        {i.product_id.startsWith('custom:') ? (i.price == null ? ' · prezzo da verificare sul posto'
+                        {i.product_id.startsWith('custom:') ? (i.price == null ? ' · prezzo da scrivere in negozio'
                           : i.price_seen_on ? ` (visto il ${i.price_seen_on.slice(8, 10)}/${i.price_seen_on.slice(5, 7)})` : '') : ''}
                         {i.in_promo ? ` · in offerta${i.promo_until ? ` fino al ${i.promo_until.slice(8, 10)}/${i.promo_until.slice(5, 7)}` : ''}` : ''}
                       </Text>

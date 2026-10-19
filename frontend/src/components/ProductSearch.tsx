@@ -203,8 +203,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
                 <View style={{ flex: 1 }}>
                   <Text style={s.name}>Aggiungi «{q.trim()}»</Text>
                   <Text style={s.meta}>
-                    Prodotto nuovo · {catById.get(newCat)?.name ?? 'Altro'}
-                    {!catPick && cls && cls.category_id !== 'altro' ? ' (riconosciuta)' : ''} · senza prezzo
+                    Prodotto scritto da te · {catById.get(newCat)?.name ?? 'Altro'} · senza prezzo
                   </Text>
                 </View>
                 <Icon name="add-circle-outline" size={24} color={colors.primary} />

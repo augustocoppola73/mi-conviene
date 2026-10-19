@@ -12,6 +12,7 @@ import {
 } from '../cloud/groups';
 import { euro, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
+import { shareText } from '../invite';
 import { ask, tell } from './GroupList';
 import { useGroupMoney } from './GroupBudget';
 import { GroupReceiptEditor } from './GroupReceipt';
@@ -67,18 +68,45 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
       <View style={s.card}>
         <Text style={s.title}>💶 Conti</Text>
         <Text style={s.help}>
-          Speso in tutto {euro(total)}{bal.filter((b) => !b.excluded).length ? ` · ${euro(bal.find((b) => !b.excluded)?.share ?? 0)} a testa` : ''} · una famiglia è un conto solo.
+          Speso in tutto {euro(total)}{bal.filter((b) => !b.excluded).length ? ` · ${euro(bal.find((b) => !b.excluded)?.share ?? 0)} a testa` : ''} · una famiglia conta come una persona sola.
         </Text>
         {money.total != null && (
           <Text style={[s.help, total > money.total && { color: colors.danger, fontWeight: '700' }]}>
             💰 Budget {euro(money.total)} · {total > money.total ? `sforato di ${euro(total - money.total)}` : `restano ${euro(money.total - total)}`}
           </Text>
         )}
-        {mine && (
-          <Text style={[s.me, { color: mine.balance < -0.005 ? colors.danger : mine.balance > 0.005 ? colors.success : colors.text }]}>
-            {mine.members.length > 1 ? `${mine.label}: ` : 'Tu: '}{status(mine)}
-          </Text>
+        {mine && !moves.some((m) => inAcc(m.from) || inAcc(m.to)) && (
+          <Text style={[s.me, { color: colors.text }]}>{Math.abs(mine.balance) < 0.005 ? '✓ Sei in pari' : `${mine.members.length > 1 ? `${mine.label}: ` : 'Tu: '}${status(mine)}`}</Text>
         )}
+        {/* #96: al centro «Devi 7,25 € a Luca» / «Luca ti deve 7,25 €», con l'azione diretta */}
+        {moves.filter((m) => inAcc(m.from) || inAcc(m.to)).map((m, k) => {
+          const iPay = inAcc(m.from);
+          const other = iPay ? m.to : m.from;
+          const waiting = stl.some((x) => x.status === 'da_confermare' && !!x.from_user && m.from.members.includes(x.from_user));
+          return (
+            <View key={k} style={s.oweBox}>
+              <Text style={[s.me, { color: iPay ? colors.danger : colors.success }]}>
+                {iPay ? `Devi ${euro(m.amount)} ${/^[AEIOUaeiou]/.test(other.label) ? 'ad' : 'a'} ${other.label}` : `${other.label} ${verb(other.label) === 'hanno' ? 'ti devono' : 'ti deve'} ${euro(m.amount)}`}
+              </Text>
+              {waiting ? <Text style={s.small}>⏳ «Ho dato» da confermare</Text> : (
+                <View style={s.row}>
+                  {iPay ? (
+                    <Text onPress={async () => {
+                      if (await ask(`Hai dato ${euro(m.amount)} a ${other.label}? Lo conferma ${other.label} quando li riceve.`, 'Sì, ho dato')) run(() => settle(groupId, m.from.members[0], m.to.members[0], m.amount));
+                    }} style={s.bigLink}>Gli ho dato i soldi</Text>
+                  ) : (
+                    <>
+                      <Text onPress={async () => {
+                        if (await ask(`Hai ricevuto ${euro(m.amount)} da ${other.label}?`, 'Sì, ricevuto')) run(() => settle(groupId, m.from.members[0], m.to.members[0], m.amount));
+                      }} style={s.bigLink}>Li ho ricevuti</Text>
+                      <Text onPress={() => shareText(`Ciao ${other.label}! Per i conti del gruppo mi devi ${euro(m.amount)}. Quando me li dai lo segno su Mi Conviene 🙂`)} style={s.bigLink}>Chiedi su WhatsApp</Text>
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
+          );
+        })}
         {bal.map((b) => (
           <View key={b.account} style={s.row}>
             <Text style={[s.text, { flex: 1 }]} numberOfLines={1}>{b.label}{b.excluded ? ' (escluso)' : ''}</Text>
@@ -87,7 +115,7 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
               { color: b.balance < -0.005 ? colors.danger : b.balance > 0.005 ? colors.success : colors.textSecondary }]}>{status(b)}</Text>
             {owner && (
               <Text onPress={() => run(async () => { for (const u of b.members) await setExcluded(groupId, u, !b.excluded); })} style={s.link}>
-                {b.excluded ? 'Includi' : 'Escludi'}
+                {b.excluded ? 'Rimetti nei conti' : 'Non partecipa'}
               </Text>
             )}
           </View>
@@ -205,5 +233,7 @@ const useStyles = makeStyles((c) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 },
   detail: { paddingLeft: spacing.md, paddingBottom: spacing.sm, gap: 2 },
   link: { color: c.primary, fontWeight: '700', fontSize: 13 },
+  oweBox: { padding: spacing.md, borderRadius: radius.md, backgroundColor: c.surfaceMuted, gap: 4 },
+  bigLink: { color: c.primary, fontWeight: '800', fontSize: 15, paddingVertical: 6, paddingRight: spacing.lg },
   input: { borderWidth: 1, borderColor: c.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, color: c.text, backgroundColor: c.background, fontSize: 15 },
 }));

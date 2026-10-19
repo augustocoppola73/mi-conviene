@@ -42,3 +42,12 @@ export function parseEuro(t: string): number {
   const n = Number(norm);
   return Number.isFinite(n) ? n : NaN;
 }
+
+/** #93: frasi del motore dette in modo semplice (il motore resta uguale per i test di confronto con quello Python) */
+export function plain(t: string | null | undefined): string {
+  return (t ?? '')
+    .replace(/rispetto alla spesa tipica in zona \(mediana delle catene\)/g, 'rispetto alla spesa media nei supermercati qui vicino')
+    .replace(/spesa tipica in zona/g, 'spesa media qui vicino')
+    .replace(/mediana di (\d+) ([^(]+?) \(([^)]+)\) \+ 10%/g, 'di solito spendi circa $3 ($1 $2), più un margine del 10%')
+    .replace(/sotto la tua soglia di/g, 'meno dei');
+}

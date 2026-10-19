@@ -13,8 +13,10 @@ import { Card, Icon } from './ui';
  * ricette già pronte, ricette a cui manca poco, cose che compri di solito e non ci sono,
  * e, se c'è un budget, cosa ci sta ancora dentro.
  */
-export function SmartSuggestions({ items, storeId, budget, spent, onListChanged }: {
+export function SmartSuggestions({ items, storeId, budget, spent, onListChanged, recipes = true, usual = true }: {
   items: ListItem[]; storeId?: string; budget?: number | null; spent?: number | null; onListChanged?: () => void;
+  /** #94: in Lista niente «di solito compri» (c'è già il riquadro delle solite cose); #92: nei Risultati niente ricette */
+  recipes?: boolean; usual?: boolean;
 }) {
   const s = useStyles();
   const { colors } = useTheme();
@@ -36,9 +38,11 @@ export function SmartSuggestions({ items, storeId, budget, spent, onListChanged 
 
   if (!data) return null;
   const remaining = data.remaining;
-  const almost = data.almost.filter((r) => !added.has(r.id));
-  const habitual = data.habitual_missing.filter((h) => !added.has(h.product_id));
-  if (!data.ready.length && !almost.length && !habitual.length) {
+  const almost = recipes ? data.almost.filter((r) => !added.has(r.id)) : [];
+  const ready = recipes ? data.ready : [];
+  const habitual = usual ? data.habitual_missing.filter((h) => !added.has(h.product_id)) : [];
+  if (!recipes && !habitual.length) return null;
+  if (!ready.length && !almost.length && !habitual.length) {
     return (
       <Card style={s.card}>
         <Text style={s.title}>💡 Con questa lista…</Text>
@@ -68,11 +72,11 @@ export function SmartSuggestions({ items, storeId, budget, spent, onListChanged 
         <Text style={s.budget}>Ti restano {euro(remaining!)} nel budget{storeId ? '' : ''}.</Text>
       )}
 
-      {data.ready.length > 0 && (
+      {ready.length > 0 && (
         <>
           <Text style={s.section}>Puoi già cucinare</Text>
           <View style={s.chips}>
-            {data.ready.slice(0, 6).map((r) => (
+            {ready.slice(0, 6).map((r) => (
               <Pressable key={r.id} onPress={() => open(r.id)} style={s.chip}>
                 <Text style={s.chipText}>🍽️ {r.name}</Text>
               </Pressable>

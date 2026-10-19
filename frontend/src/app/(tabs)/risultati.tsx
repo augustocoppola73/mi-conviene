@@ -7,7 +7,7 @@ import { api, RankedStore } from '@/api';
 import { SmartSuggestions } from '@/components/SmartSuggestions';
 import { PaperReceipt } from '@/components/PaperReceipt';
 import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
-import { euro, km } from '@/format';
+import { euro, km, plain } from '@/format';
 import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
 import { showError } from '@/errors';
@@ -32,6 +32,9 @@ export default function RisultatiScreen() {
   const [shopError, setShopError] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [refStore, setRefStore] = useState<string | null>(null); // negozio di confronto scelto alla conferma
+  const [refAll, setRefAll] = useState(false);       // #92: tutte le catene solo se le chiedi
+  const [moreAlt, setMoreAlt] = useState(false);     // #92: le altre alternative solo se le chiedi
+  const [openAlt, setOpenAlt] = useState<string | null>(null);
   const [addedAmount, setAddedAmount] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<string | null>(null);
@@ -62,6 +65,7 @@ export default function RisultatiScreen() {
     setAskOpen(false);
     setChosenId(null);
     setHereId(null);
+    setMoreAlt(false); setOpenAlt(null); setRefAll(false);
     if (!lastResult) return;
     let alive = true;
     quietPosition(6000).then((pos) => {
@@ -150,7 +154,7 @@ export default function RisultatiScreen() {
   const shopSaving = refRow
     ? Math.max(0, Math.round((refRow.total_cost - chosen.total_cost) * 100) / 100)
     : estimatedSaving;
-  const refLabel = refRow ? `rispetto a ${refRow.store_name}` : savings.reference.label;
+  const refLabel = refRow ? `rispetto a ${refRow.store_name}` : plain(savings.reference.label);
   // quello che va davvero nel Salvadanaio (senza la parte per i gruppi): lo stesso numero del pulsante
   const gSpendPreview = groupSpend(chosen.receipt.lines, mergeShopping(items, groupMine));
   const previewSaving = Math.round((shopSaving * (chosen.receipt.total > 0 ? Math.max(0, 1 - gSpendPreview / chosen.receipt.total) : 1) + fuelSaving) * 100) / 100;
@@ -238,7 +242,7 @@ export default function RisultatiScreen() {
       const h = onlyGroups ? { id: '' } : await api.addHistory({ user_id: userId, items, store_id: first.store_id, total_cost: Math.round((split.total_cost - gSpend) * 100) / 100 });
       const entry = onlyGroups ? null : await api.addSaving({
         user_id: userId, store_id: first.store_id, store_name: names, amount: Math.round(splitSaving * share * 100) / 100,
-        note: (splitSaving > 0 ? `${savings.reference.label} · spesa in due negozi` : 'spesa in due negozi') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
+        note: (splitSaving > 0 ? `${plain(savings.reference.label)} · spesa in due negozi` : 'spesa in due negozi') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
         reference_type: savings.reference.type, price_basis: savings.price_basis, history_id: h.id,
         estimated_spend: Math.round((split.items_total - gSpend) * 100) / 100, estimated_total: Math.round((split.total_cost - gSpend) * 100) / 100,
         snapshot: { store_id: first.store_id, store_name: names, split: true, stops: split.stops, travel: split.travel, total_cost: split.total_cost,
@@ -335,15 +339,16 @@ export default function RisultatiScreen() {
               <Text style={s.heroSub}>
                 ✍️ Scritti a mano: {known > 0 ? `+ ${euro(recommended.receipt.custom_total ?? 0)} col prezzo già visto qui` : ''}
                 {known > 0 && known < cs.length ? ' · ' : ''}
-                {known < cs.length ? `${cs.length - known} da verificare sul posto` : ''} (fuori dal confronto)
+                {known < cs.length ? `${cs.length - known} senza prezzo: lo scrivi in negozio` : ''} (non contano nel confronto)
               </Text>
             );
           })()}
           <View style={s.sourceRow}>
             <Icon name={price_coverage.real_lines > 0 ? 'checkmark-done-outline' : 'information-circle-outline'} size={15} color={colors.textSecondary} />
             <Text style={s.sourceText}>
-              Prezzi reali: {price_coverage.real_lines} su {price_coverage.total_lines}
-              {price_coverage.real_lines < price_coverage.total_lines ? ' · il resto è stimato' : ''}
+              {price_coverage.real_lines === price_coverage.total_lines
+                ? 'Tutti i prezzi sono controllati'
+                : `${price_coverage.real_lines} ${price_coverage.real_lines === 1 ? 'prezzo' : 'prezzi'} su ${price_coverage.total_lines} ${price_coverage.real_lines === 1 ? 'è controllato' : 'sono controllati'}, gli altri sono stimati`}
             </Text>
           </View>
           {recommended.travel.fuel_cost > 0 && (
@@ -357,7 +362,7 @@ export default function RisultatiScreen() {
           )}
           <View style={s.reasonBox}>
             <Icon name="bulb-outline" size={18} color={colors.primary} />
-            <Text style={s.reason}>{reasoning}</Text>
+            <Text style={s.reason}>{plain(reasoning)}</Text>
           </View>
           {car_hint && lim && (
             <Pressable onPress={tryCar} disabled={carBusy} style={s.savingBox} accessibilityRole="button">
@@ -423,10 +428,10 @@ export default function RisultatiScreen() {
             <Icon name="wallet-outline" size={16} color={estimatedSaving > 0 ? colors.success : colors.textSecondary} />
             <Text style={[s.savingText, estimatedSaving > 0 && { color: colors.success }]}>
               {estimatedSaving > 0
-                ? `Risparmi ${euro(estimatedSaving)} ${savings.reference.label}`
+                ? `Risparmi ${euro(estimatedSaving)} ${plain(savings.reference.label)}`
                 : savings.reference.type === 'habitual'
                   ? 'Resti nel tuo supermercato preferito: nessun risparmio da aggiungere'
-                  : 'Nessun risparmio rispetto alla spesa tipica in zona'}
+                  : 'Nessun risparmio rispetto alla spesa media qui vicino'}
               {estimatedSaving > 0 && savings.price_basis !== 'reale' ? ' · stima, da verificare con lo scontrino' : ''}
             </Text>
           </View>
@@ -561,17 +566,26 @@ export default function RisultatiScreen() {
           budget={budget_status?.budget ?? null}
           spent={budget_status ? budget_status.spend : null}
           onListChanged={() => {}}
+          recipes={false}
         />
 
         <SectionTitle>Le alternative</SectionTitle>
         <View style={{ gap: spacing.sm }}>
-          {others.map((r) => (
+          {/* #92: due alternative compatte (nome, totale, differenza); il resto con «Mostra le altre». Si apre toccando. */}
+          {(moreAlt ? others : others.slice(0, 2)).map((r) => {
+            const open = openAlt === r.store_id || confirmed === r.store_id;
+            return (
             <Card key={r.store_id} style={{ padding: spacing.md }}>
-              <View style={s.altRow}>
-                <StoreDot storeId={r.store_id} size={14} />
-                <Text style={s.altName}>{r.store_name}</Text>
-                <Text style={s.altTotal}>{euro(r.total_cost)}</Text>
-              </View>
+              <Pressable onPress={() => setOpenAlt(open ? null : r.store_id)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+                <View style={s.altRow}>
+                  <StoreDot storeId={r.store_id} size={14} />
+                  <Text style={s.altName}>{r.store_name}</Text>
+                  <Text style={s.altTotal}>{euro(r.total_cost)}</Text>
+                  <Icon name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
+                </View>
+                <DeltaBadge total={r.total_cost - recommended.total_cost} effective={r.effective_cost - recommended.effective_cost} />
+              </Pressable>
+              {open && (<>
               {r.branch && (
                 <Pressable onPress={() => openNavigation(r.branch!.lat, r.branch!.lon, r.branch!.name)} hitSlop={4} style={s.altNav}>
                   <Text style={[s.altMeta, { flex: 1 }]}>{r.branch.name}{r.branch.address ? ` · ${r.branch.address}` : ''}</Text>
@@ -586,7 +600,6 @@ export default function RisultatiScreen() {
               {r.fuel_stop && (
                 <Text style={s.altMeta}>⛽ sulla strada {r.fuel_stop.brand} {r.fuel_stop.price.toLocaleString('it-IT', { minimumFractionDigits: 3 })} €/l · −{euro(r.fuel_stop.saving)} sul pieno</Text>
               )}
-              <DeltaBadge total={r.total_cost - recommended.total_cost} effective={r.effective_cost - recommended.effective_cost} />
               <ReceiptToggle store={r} expanded={expanded === r.store_id} onToggle={() => setExpanded(expanded === r.store_id ? null : r.store_id)} />
               {confirmed === r.store_id ? (
                 <Text style={[s.confirmNote, { marginTop: spacing.xs }]}>✓ Fai la spesa qui</Text>
@@ -594,8 +607,15 @@ export default function RisultatiScreen() {
                 <PrimaryButton label="Faccio la spesa qui" icon="cart-outline" variant="secondary" disabled={!!confirmed}
                   onPress={() => openConfirm(r.store_id)} style={{ marginTop: spacing.sm }} />
               )}
+              </>)}
             </Card>
-          ))}
+            );
+          })}
+          {others.length > 2 && (
+            <Pressable onPress={() => setMoreAlt(!moreAlt)} style={{ alignSelf: 'center', padding: spacing.sm }} accessibilityRole="button">
+              <Text style={{ color: colors.primary, fontWeight: '700' }}>{moreAlt ? 'Mostra meno' : `Mostra gli altri ${others.length - 2} supermercati`}</Text>
+            </Pressable>
+          )}
         </View>
         {location.habitual_far && !location.favorites_far && (
           <Text style={s.missing}>
@@ -642,7 +662,7 @@ export default function RisultatiScreen() {
             )}
             <Text style={s.modalText}>Rispetto a dove saresti andato di solito?</Text>
             <View style={s.refWrap}>
-              {ranked.map((r) => (
+              {ranked.filter((r) => refAll || isFav(r.store_id) || r.store_id === refStore || r.store_id === last_similar?.store_id).map((r) => (
                 <Pressable key={r.store_id} onPress={() => setRefStore(r.store_id)} style={[s.refChip, refStore === r.store_id && s.refChipOn]}>
                   <StoreDot storeId={r.store_id} size={12} />
                   <Text style={[s.refText, refStore === r.store_id && s.refTextOn]}>
@@ -651,8 +671,11 @@ export default function RisultatiScreen() {
                 </Pressable>
               ))}
               <Pressable onPress={() => setRefStore(null)} style={[s.refChip, refStore === null && s.refChipOn]}>
-                <Text style={[s.refText, refStore === null && s.refTextOn]}>Non saprei (spesa tipica in zona)</Text>
+                <Text style={[s.refText, refStore === null && s.refTextOn]}>Non saprei (spesa media qui vicino)</Text>
               </Pressable>
+              {!refAll && ranked.some((r) => !isFav(r.store_id) && r.store_id !== refStore && r.store_id !== last_similar?.store_id) && (
+                <Pressable onPress={() => setRefAll(true)} style={s.refChip}><Text style={s.refText}>Altro…</Text></Pressable>
+              )}
             </View>
 
             <View style={s.preview}>
@@ -663,7 +686,7 @@ export default function RisultatiScreen() {
               ) : refRow ? (
                 <Text style={s.modalText}>È proprio il negozio dove vai di solito: nessun risparmio da aggiungere.</Text>
               ) : (
-                <Text style={s.modalText}>Confronto con la spesa tipica in zona (mediana delle catene).</Text>
+                <Text style={s.modalText}>Confronto con quanto spenderesti in media nei supermercati qui vicino.</Text>
               )}
               <Text style={s.previewValue}>
                 {shopSaving > 0 ? `Risparmi ${euro(shopSaving)}` : 'Nessun risparmio'}

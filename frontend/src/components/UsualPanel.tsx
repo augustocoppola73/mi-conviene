@@ -33,15 +33,18 @@ export function UsualPanel() {
   const catEmoji = (id: string) => catalog?.categories.find((c) => c.id === catalog.products.find((p) => p.id === id)?.category_id)?.emoji;
   const later = (id: string, every: number) => setPrefs({ restockSnooze: { ...snooze, [id]: addDays(Math.max(1, Math.round(every / 2))) } });
 
+  // #94: un solo riquadro «Le tue solite cose»: prima quelle da ricomprare, sotto le tessere
+  if (!due.length && !data.usual.length) return null;
   return (
     <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+      <Text style={s.section}>🧺 Le tue solite cose <Text style={s.muted}>· un tocco e va in lista</Text></Text>
       {due.length > 0 && (
         <View style={s.dueBox}>
           <View style={s.dueHead}>
-            <Text style={s.dueTitle}>🔁 Di solito lo ricompri</Text>
+            <Text style={s.dueTitle}>⏰ È ora di ricomprarli</Text>
             {due.length > 1 && (
-              <Pressable onPress={() => due.forEach((d) => addItem(d.product_id, d.quantity))} hitSlop={8}>
-                <Text style={s.link}>Aggiungi tutti</Text>
+              <Pressable onPress={() => due.slice(0, 3).forEach((d) => addItem(d.product_id, d.quantity))} hitSlop={8}>
+                <Text style={s.link}>Aggiungi questi</Text>
               </Pressable>
             )}
           </View>
@@ -64,7 +67,6 @@ export function UsualPanel() {
       )}
       {data.usual.length > 0 && (
         <>
-          <Text style={s.section}>🧺 Di solito compri <Text style={s.muted}>· un tocco e va in lista</Text></Text>
           <HScroll style={s.bleed} contentContainerStyle={s.hRow}>
             {data.usual.map((u) => {
               const on = inList(u.product_id);

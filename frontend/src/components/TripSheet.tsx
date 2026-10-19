@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BudgetSuggestion, FuelType } from '../api';
 import { can, showLocked } from '../features';
-import { euro, formatDate, parseEuro, TRANSPORTS } from '../format';
+import { euro, formatDate, parseEuro, TRANSPORTS, plain } from '../format';
 import { useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { FuelCard } from './FuelCard';
@@ -27,17 +27,19 @@ export function TripSummary({ onPress }: { onPress: () => void }) {
   const t = TRANSPORTS.find((x) => x.id === prefs.transport);
   const car = prefs.transport === 'car';
   const where = prefs.location
-    ? (prefs.locationMode === 'address' && prefs.location.label ? prefs.location.label.split(',')[0] : 'qui (GPS)')
+    ? (prefs.locationMode === 'address' && prefs.location.label ? prefs.location.label.split(',')[0] : 'dove sei')
     : null;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.summary, pressed && { opacity: 0.8 }]} accessibilityRole="button"
       accessibilityLabel="Come faccio la spesa: trasporto, carburante, posizione e budget" accessibilityHint="Tocca per cambiare">
-      <Text style={s.summaryText} numberOfLines={2}>
-        {TRANSPORT_ICON[prefs.transport] ?? '🚗'} {t?.label ?? 'Auto'}
-        {car && can(prefs, 'carburante') ? (prefs.refuel ? ` · ⛽ pieno di ${FUEL[prefs.fuelType]}` : ' · ⛽ niente pieno') : ''}
-        {where ? ` · 📍 ${where}` : ''}
-        {!where && <Text style={{ color: colors.warning, fontWeight: '800' }}> · 📍 Posizione da attivare</Text>}
-        {prefs.budget != null ? ` · 💶 max ${euro(prefs.budget)}` : ' · 💶 nessun limite'}
+      {/* #94: una riga sola, a parole («In auto da Via Roma · col pieno · cambia») */}
+      <Text style={s.summaryText} numberOfLines={1}>
+        {TRANSPORT_ICON[prefs.transport] ?? '🚗'} {t?.id === 'car' ? 'In auto' : t?.id === 'walk' ? 'A piedi' : t?.id === 'bike' ? 'In bici' : t?.id === 'transit' ? 'Con i mezzi' : t?.label ?? 'In auto'}
+        {where ? ` da ${where}` : ''}
+        {car && can(prefs, 'carburante') && prefs.refuel ? ' · col pieno' : ''}
+        {prefs.budget != null ? ` · max ${euro(prefs.budget)}` : ''}
+        {!where && <Text style={{ color: colors.warning, fontWeight: '800' }}> · da dove parti?</Text>}
+        <Text style={{ color: colors.primary, fontWeight: '700' }}>  cambia</Text>
       </Text>
       <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
     </Pressable>
@@ -127,7 +129,7 @@ export function TripSheet({ visible, onClose, suggestion }: {
             {suggestion?.suggested != null && suggestion.suggested !== prefs.budget && (
               <Pressable style={s.suggest} onPress={() => setPrefs({ budget: suggestion.suggested })}>
                 <Icon name="bulb-outline" size={16} color={colors.primary} />
-                <Text style={s.suggestText}>Ti propongo <Text style={{ fontWeight: '700' }}>{euro(suggestion.suggested)}</Text> · {suggestion.reason}</Text>
+                <Text style={s.suggestText}>Ti propongo <Text style={{ fontWeight: '700' }}>{euro(suggestion.suggested)}</Text> · {plain(suggestion.reason)}</Text>
                 <Text style={s.link}>Usa</Text>
               </Pressable>
             )}

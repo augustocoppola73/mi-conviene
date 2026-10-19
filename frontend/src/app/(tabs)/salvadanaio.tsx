@@ -11,7 +11,7 @@ import { ReceiptScanner } from '@/components/ReceiptScanner';
 import { MonthSummary } from '@/components/MonthSummary';
 import { SavingGoalCard } from '@/components/SavingGoalCard';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
-import { euro, formatDate, parseEuro } from '@/format';
+import { euro, formatDate, parseEuro, plain } from '@/format';
 import { confirmAsk } from '@/confirm';
 import { showError } from '@/errors';
 import { useStore } from '@/store';
@@ -127,9 +127,10 @@ export default function SalvadanaioScreen() {
           <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
         ) : (
           <>
-            <Card style={s.hero}>
+            <Card style={[s.hero, thisMonth < 0 && s.heroNeg]}>
               <Text style={s.heroLabel}>Questo mese</Text>
               <Text style={s.heroValue}>{thisMonth < 0 ? '−' : ''}{euro(Math.abs(thisMonth))}</Text>
+              {thisMonth < 0 && <Text style={s.heroSmall}>Questo mese hai speso un po' più del riferimento: succede, la prossima lista andrà meglio.</Text>}
               <View style={s.totals}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.heroLabel}>✓ Verificato</Text>
@@ -154,7 +155,7 @@ export default function SalvadanaioScreen() {
               <Card style={s.helpCard}>
                 <Text style={s.helpText}>
                   <Text style={s.bold}>Stimato</Text>: quando confermi una spesa, l'app calcola il risparmio con i prezzi che conosce
-                  (in gran parte stime) rispetto al tuo supermercato abituale o alla spesa tipica in zona.{'\n\n'}
+                  (in gran parte stime) rispetto al tuo supermercato abituale o alla spesa media nei supermercati qui vicino.{'\n\n'}
                   <Text style={s.bold}>Verificato</Text>: dopo aver fatto la spesa tocca “Verifica” e scrivi il totale dello scontrino.
                   Il risparmio viene ricalcolato con quello che hai pagato davvero: se hai speso meno del previsto sale, se hai speso di più scende.
                   Se alla cassa hai speso più del riferimento, la differenza viene <Text style={s.bold}>tolta</Text> dal Salvadanaio.{'\n\n'}
@@ -167,7 +168,7 @@ export default function SalvadanaioScreen() {
               Storico
             </SectionTitle>
             {data.entries.length === 0 ? (
-              <EmptyState icon="wallet-outline" text="Ancora niente. Quando confermi una spesa dai Risultati, la trovi qui e puoi verificarla con lo scontrino." />
+              <EmptyState icon="wallet-outline" text="Ancora niente. Fai la lista, tocca «Trova la spesa migliore» e conferma: il risparmio arriva qui, e lo verifichi con lo scontrino." />
             ) : (
               <View style={{ gap: spacing.sm }}>
                 {data.entries.map((e) => (
@@ -176,7 +177,7 @@ export default function SalvadanaioScreen() {
                       <StoreDot storeId={e.store_id} size={14} />
                       <View style={{ flex: 1 }}>
                         <Text style={s.rowTitle}>{e.store_name}</Text>
-                        <Text style={s.rowMeta}>{formatDate(e.created_at)}{e.by ? ` · fatta da ${e.by}` : ''}{e.note ? ` · ${e.note}` : ''}</Text>
+                        <Text style={s.rowMeta}>{formatDate(e.created_at)}{e.by ? ` · fatta da ${e.by}` : ''}{e.note ? ` · ${plain(e.note)}` : ''}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={[s.amount, !e.verified && s.amountEstimated, value(e) < 0 && { color: colors.danger }]}>
@@ -369,6 +370,7 @@ const useStyles = makeStyles((c) => ({
   kicker: { color: c.textSecondary, fontSize: 14 },
   title: { color: c.text, fontSize: 28, fontWeight: '800', marginTop: 2 },
   hero: { marginTop: spacing.lg, backgroundColor: c.primary, borderColor: c.primary },
+  heroNeg: { backgroundColor: c.textSecondary, borderColor: c.textSecondary },   // #93: niente verde da festa quando si è speso di più
   heroLabel: { color: c.primaryText, opacity: 0.85, fontSize: 13 },
   heroValue: { color: c.primaryText, fontSize: 40, fontWeight: '800' },
   heroSmall: { color: c.primaryText, opacity: 0.75, fontSize: 12, marginTop: spacing.md },
