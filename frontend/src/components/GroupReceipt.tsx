@@ -6,12 +6,12 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { confirmExpense, ExpenseLine } from '../cloud/groups';
-import { euro } from '../format';
+import { euro, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { BudgetWarning } from './GroupBudget';
 import { PrimaryButton } from './ui';
 
-const num = (t: string) => { const n = parseFloat(t.replace(',', '.')); return Number.isFinite(n) && n >= 0 ? n : null; };
+const num = (t: string) => { const n = parseEuro(t); return Number.isFinite(n) && n >= 0 ? n : null; };
 const fmt = (n: number) => n.toFixed(2).replace('.', ',');
 
 export function GroupReceiptEditor({ expenseId, title, lines, amount, onDone, groupId }: {

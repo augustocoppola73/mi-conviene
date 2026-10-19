@@ -10,6 +10,7 @@ import { Card, EmptyState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@
 import { euro, km } from '@/format';
 import { useStore } from '@/store';
 import { optimizeRequest } from '@/optimizeRequest';
+import { showError } from '@/errors';
 import { groupSpend, mergeShopping } from '@/groupShare';
 import { openNavigation } from '@/navigate';
 import { metersBetween, quietPosition } from '@/location';
@@ -213,6 +214,8 @@ export default function RisultatiScreen() {
       } catch (e) {
         setShopError((e as Error).message);
       }
+    } catch (e) {
+      showError('Spesa non confermata', e, 'confermare la spesa');   // #71
     } finally {
       setSaving(false);
     }

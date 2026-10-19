@@ -10,7 +10,7 @@ import {
   addGroupExpense, Balance, confirmSettlement, deleteExpense, deleteSettlement, GroupExpense, groupBalances, groupExpenses, GroupMember, GroupSettlement,
   groupSettlements, setExcluded, settle, transfers, watchAccounts,
 } from '../cloud/groups';
-import { euro } from '../format';
+import { euro, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { ask, tell } from './GroupList';
 import { useGroupMoney } from './GroupBudget';
@@ -56,7 +56,7 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
     try { await fn(); } catch (e) { tell((e as Error).message); } finally { setBusy(false); load(); }
   };
   const addManual = () => {
-    const v = parseFloat(amount.replace(',', '.'));
+    const v = parseEuro(amount);
     if (!Number.isFinite(v) || v <= 0) return tell('Scrivi quanto hai speso');
     run(async () => { await addGroupExpense(groupId, v, note.trim() || 'Spesa'); setNote(''); setAmount(''); });
   };

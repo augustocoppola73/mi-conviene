@@ -27,3 +27,18 @@ export const km = (n: number) => `${n.toLocaleString('it-IT')} km`;
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+/**
+ * #81: importo scritto all'italiana: «1.234,50» = 1234,5 · «12,5» = 12,5 · «1.500» = 1500 · «2.50» = 2,5.
+ * Il punto vale come migliaia solo se segue lo schema 1.234 / 1.234.567 (o se c'è anche la virgola).
+ */
+export function parseEuro(t: string): number {
+  const s = (t ?? '').trim().replace(/\s|€/g, '');
+  if (!s) return NaN;
+  let norm = s;
+  if (s.includes(',') && s.includes('.')) norm = s.replace(/\./g, '').replace(',', '.');
+  else if (s.includes(',')) norm = s.replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) norm = s.replace(/\./g, '');
+  const n = Number(norm);
+  return Number.isFinite(n) ? n : NaN;
+}

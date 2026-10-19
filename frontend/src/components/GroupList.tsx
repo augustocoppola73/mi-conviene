@@ -12,7 +12,7 @@ import {
   addGroupExpense, addGroupItem, eventLabel, Group, GroupItem, groupItems, GroupMember, groupMembers, myGroups, removeGroupItem, similarName,
   updateGroupItem, watchList,
 } from '../cloud/groups';
-import { euro, formatQty, qtyStep } from '../format';
+import { euro, formatQty, qtyStep, parseEuro } from '../format';
 import { shareInvite } from '../invite';
 import { customId, useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
@@ -435,7 +435,7 @@ function BringValueSheet({ item, onClose, onSave }: { item: GroupItem | null; on
   const { colors } = useTheme();
   const [v, setV] = useState('');
   useEffect(() => { if (item) setV(''); }, [item]);
-  const n = parseFloat(v.replace(',', '.'));
+  const n = parseEuro(v);
   return (
     <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.backdrop} onPress={onClose}>

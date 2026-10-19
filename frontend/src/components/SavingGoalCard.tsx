@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api, SavingEntry, SavingGoal } from '../api';
 import { confirmAsk } from '../confirm';
-import { euro } from '../format';
+import { euro, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { DatePicker } from './DatePicker';
 import { Card, PrimaryButton } from './ui';
@@ -79,7 +79,7 @@ function GoalSheet({ visible, goal, onClose, onSaved }: { visible: boolean; goal
     setTitle(goal?.title ?? ''); setAmount(goal ? String(goal.amount).replace('.', ',') : ''); setDeadline(goal?.deadline ?? null); setPick(false); setErr(null);
   }, [visible]);
   const save = async (restart = false) => {
-    const n = parseFloat(amount.replace(',', '.'));
+    const n = parseEuro(amount);
     if (!Number.isFinite(n) || n <= 0) { setErr('Scrivi quanto vuoi risparmiare'); return; }
     setBusy(true); setErr(null);
     try { await api.setSavingGoal(title.trim() || 'Il nostro obiettivo', n, deadline, restart || !goal); onSaved(); }

@@ -42,6 +42,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
   const community = useCommunity();
   const [cls, setCls] = useState<ClassifyResult | null>(null);
   const [catPick, setCatPick] = useState<string | null>(null); // categoria scelta a mano per il prodotto nuovo
+  const [showCats, setShowCats] = useState(false);
   const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   // l'ultimo prodotto aggiunto: barra con quantità e Annulla
   const [last, setLast] = useState<{ id: string; name: string; unit: string; step: number } | null>(null);
@@ -56,15 +57,18 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
     const nq = norm(q);
     if (nq.length < 2) return [];
     const words = nq.split(' ').filter(Boolean);
+    const idq = nq.replace(/ /g, '_');
     return products
-      .map((p) => {
+      .map((p, k) => {
         const n = norm(p.name);
         const all = words.every((w) => n.includes(w));
         const starts = n.startsWith(nq) || n.split(' ').some((w) => w.startsWith(words[0]));
-        return { p, rank: all ? (starts ? 0 : 1) : 9 };
+        // #72: prima il prodotto «base» (latte → Latte intero, non Latte di crescita): id uguale alla parola, poi l'ordine del catalogo
+        const base = p.id === idq || p.id === `${idq}i` || p.id === `${idq}e` ? 0 : 1;
+        return { p, k, base, rank: all ? (starts ? 0 : 1) : 9 };
       })
       .filter((x) => x.rank < 9)
-      .sort((a, b) => a.rank - b.rank || a.p.name.localeCompare(b.p.name))
+      .sort((a, b) => a.rank - b.rank || a.base - b.base || a.k - b.k)
       .slice(0, 8)
       .map((x) => x.p);
   }, [q, products]);
@@ -91,11 +95,14 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
 
   // suggerimenti del backend che non sono già tra i risultati della ricerca
   const extra = (cls?.similar ?? []).filter((x) => !matches.some((m) => m.id === x.product_id)).slice(0, 2);
-  const exactInCatalog = matches.some((m) => norm(m.name) === norm(q)) || communityMatches.some((c) => norm(c.name) === norm(q));
+  // #72: anche un prodotto scritto a mano già in lista conta come «c'è già» (niente doppione e niente Annulla che lo cancella)
+  const alreadyCustom = q.trim().length >= 2 ? itemFor(customKey(q)) : undefined;
+  const exactInCatalog = matches.some((m) => norm(m.name) === norm(q)) || communityMatches.some((c) => norm(c.name) === norm(q)) || !!alreadyCustom;
   const newCat = catPick ?? cls?.category_id ?? 'altro';
 
   const addNew = () => {
     const name = q.trim();
+    if (itemFor(customKey(name))) { setQ(''); return; }   // già in lista
     onAddCustom(name, newCat);
     const id = customKey(name);
     api.rememberCustom(id, name, newCat, 'pz').catch(() => {});   // #27: entra nel catalogo di tutti
@@ -183,6 +190,12 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
             </Pressable>
           ))}
 
+          {alreadyCustom && (
+            <View style={s.row}>
+              <Icon name="checkmark-circle" size={22} color={colors.primary} />
+              <Text style={[s.meta, { flex: 1 }]}>«{q.trim()}» è già in lista ({formatQty(alreadyCustom.quantity, alreadyCustom.unit ?? 'pz')}): cambia la quantità dalla lista.</Text>
+            </View>
+          )}
           {!exactInCatalog && (
             <View style={s.newBox}>
               <Pressable onPress={addNew} style={s.row}>
@@ -191,19 +204,22 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
                   <Text style={s.name}>Aggiungi «{q.trim()}»</Text>
                   <Text style={s.meta}>
                     Prodotto nuovo · {catById.get(newCat)?.name ?? 'Altro'}
-                    {!catPick && cls ? ' (riconosciuta)' : ''} · senza prezzo
+                    {!catPick && cls && cls.category_id !== 'altro' ? ' (riconosciuta)' : ''} · senza prezzo
                   </Text>
                 </View>
                 <Icon name="add-circle-outline" size={24} color={colors.primary} />
               </Pressable>
-              <Text style={s.meta}>Categoria sbagliata? Toccane un'altra:</Text>
-              <View style={s.cats}>
+              {/* #72: i reparti solo se vuoi cambiarlo (prima erano sempre tutti lì) */}
+              <Pressable onPress={() => setShowCats(!showCats)} hitSlop={6}>
+                <Text style={[s.meta, { color: colors.primary, fontWeight: '700' }]}>{showCats ? 'Chiudi' : 'Reparto sbagliato? Cambialo'}</Text>
+              </Pressable>
+              {showCats && <View style={s.cats}>
                 {categories.map((c) => (
                   <Pressable key={c.id} onPress={() => setCatPick(c.id)} style={[s.cat, newCat === c.id && s.catOn]}>
                     <Text style={[s.catText, newCat === c.id && s.catTextOn]}>{c.emoji} {c.name}</Text>
                   </Pressable>
                 ))}
-              </View>
+              </View>}
             </View>
           )}
         </View>

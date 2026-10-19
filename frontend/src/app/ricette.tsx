@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, MenuPlan, PlanRow, ProposedRecipe, Recipe, RecipeSummary } from '@/api';
 import { IS_CLOUD } from '@/cloud/client';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
-import { euro, formatQty } from '@/format';
+import { euro, formatQty, parseEuro } from '@/format';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -407,7 +407,7 @@ function MenuView({ userId, people, onOpen, onAdded, addRows }: {
   const propose = async (exclude: string[] = []) => {
     setBusy(true);
     setError(null);
-    const b = parseFloat(budgetText.replace(',', '.'));
+    const b = parseEuro(budgetText);
     try {
       const r = await api.recipePropose({ user_id: userId, count, servings: people, budget: Number.isFinite(b) && b > 0 ? b : null, exclude, items });
       setProposal(r);

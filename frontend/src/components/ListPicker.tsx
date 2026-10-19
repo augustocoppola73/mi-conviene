@@ -13,7 +13,7 @@ import { HScroll } from './HScroll';
 
 export function ListPicker() {
   const s = useStyles();
-  const { prefs, setPrefs, items, groupMine } = useStore();
+  const { prefs, setPrefs, items, groupMine, familyId } = useStore();
   const [groups, setGroups] = useState<Group[]>([]);
   const [creating, setCreating] = useState(false);
   useFocusEffect(useCallback(() => {
@@ -31,7 +31,7 @@ export function ListPicker() {
     <>
       <HScroll contentContainerStyle={s.row}>
         <Pressable onPress={() => setPrefs({ activeList: null })} style={[s.chip, !sel && s.on]} accessibilityRole="tab" accessibilityState={{ selected: !sel }}>
-          <Text style={[s.text, !sel && s.onText]}>🧺 La mia lista{mineCount ? ` · ${mineCount}` : ''}</Text>
+          <Text style={[s.text, !sel && s.onText]}>{familyId ? '🏠 Lista di casa' : '🧺 La mia lista'}{mineCount ? ` · ${mineCount}` : ''}</Text>
         </Pressable>
         {groups.map((g) => {
           const on = sel === g.id;

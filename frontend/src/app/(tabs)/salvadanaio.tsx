@@ -11,8 +11,9 @@ import { ReceiptScanner } from '@/components/ReceiptScanner';
 import { MonthSummary } from '@/components/MonthSummary';
 import { SavingGoalCard } from '@/components/SavingGoalCard';
 import { Card, EmptyState, ErrorState, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
-import { euro, formatDate } from '@/format';
+import { euro, formatDate, parseEuro } from '@/format';
 import { confirmAsk } from '@/confirm';
+import { showError } from '@/errors';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
@@ -69,7 +70,7 @@ export default function SalvadanaioScreen() {
 
   const remove = async (e: SavingEntry) => {
     if (!(await confirmAsk('Eliminare questa spesa?', `${e.store_name} del ${formatDate(e.created_at)}: il suo risparmio (${euro(e.amount)}) esce dal Salvadanaio.`, 'Elimina'))) return;
-    await api.deleteSaving(e.id).catch(() => {});
+    await api.deleteSaving(e.id).catch((err) => showError('Non l\'ho eliminata', err, 'eliminarla'));
     load();
   };
 
@@ -82,7 +83,7 @@ export default function SalvadanaioScreen() {
   const fuelPrice = parseFloat(fuelText.replace(',', '.'));
   const fuelOk = Number.isFinite(fuelPrice) && fuelPrice > 0 && fuelPrice < 5;
   const hasFuel = (verifying?.fuel_saving ?? 0) > 0;
-  const paid = parseFloat(paidText.replace(',', '.'));
+  const paid = parseEuro(paidText);
   const paidOk = Number.isFinite(paid) && paid > 0;
 
   const doVerify = async () => {
@@ -93,6 +94,8 @@ export default function SalvadanaioScreen() {
         hasFuel && refueled !== false && fuelOk ? fuelPrice : undefined);
       setVerifying(null);
       await load();
+    } catch (err) {
+      showError('Verifica non salvata', err, 'salvare la verifica');   // #71: prima non diceva niente
     } finally {
       setBusy(false);
     }
@@ -100,7 +103,7 @@ export default function SalvadanaioScreen() {
 
   const undoVerify = async (e: SavingEntry) => {
     if (!(await confirmAsk('Annullare la verifica?', `Torna al risparmio stimato (${euro(e.amount)}) e perdi quanto hai pagato davvero (${euro(e.paid ?? 0)}).`, 'Annulla la verifica', 'No'))) return;
-    await api.unverifySaving(e.id).catch(() => {});
+    await api.unverifySaving(e.id).catch((err) => showError('Verifica non annullata', err, 'annullarla'));
     load();
   };
 

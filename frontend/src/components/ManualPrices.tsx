@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { api, PriceKind, SavingEntry } from '../api';
-import { euro, formatQty } from '../format';
+import { euro, formatQty, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { KIND_HELP, PriceKindPicker } from './PriceKindPicker';
 import { Card, PrimaryButton } from './ui';
 
 const toNum = (t: string) => {
-  const n = parseFloat(t.replace(',', '.'));
+  const n = parseEuro(t);
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
 };
 

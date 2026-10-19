@@ -16,6 +16,7 @@ import { C } from '@/engine/data';
 import { haversineKm, pyRound } from '@/engine/util';
 import { getCurrentPosition, metersBetween, watchPosition } from '@/location';
 import { openNavigation } from '@/navigate';
+import { isNetworkError } from '@/errors';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, storeColors, useTheme } from '@/theme';
 
@@ -217,7 +218,14 @@ export default function VicinoScreen() {
                 onPress={() => setPrefs({ nearOnlyPriced: !prefs.nearOnlyPriced })} />
             </View>
 
-            {error && <Text style={[s.muted, { color: colors.danger, marginTop: spacing.sm }]}>{error}</Text>}
+            {error && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+                <Text style={[s.muted, { color: colors.danger, flex: 1 }]}>
+                  {isNetworkError(error) ? 'Non riesco a caricare i negozi qui intorno: controlla la connessione.' : error}
+                </Text>
+                {pos && <Text onPress={() => load(pos, radiusKm)} style={{ color: colors.primary, fontWeight: '700', padding: 6 }}>Riprova</Text>}
+              </View>
+            )}
 
             {sel && (
               <Card style={{ marginTop: spacing.md, gap: spacing.sm, borderColor: colors.primary, borderWidth: 2 }}>

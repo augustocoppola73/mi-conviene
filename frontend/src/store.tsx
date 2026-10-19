@@ -6,6 +6,9 @@ import type { GeoPoint } from './location';
 import { getUserId } from './user';
 import { IS_CLOUD } from './cloud/client';
 import { MyGroupItem, myGroupItems } from './cloud/groups';
+import { diffLists, homeDelete, homeList, homeUpsert, myAppProfile, saveAppPrefs, saveDisplayName, watchHome } from './cloud/homeList';
+import { sb } from './cloud/client';
+import { AppState } from 'react-native';
 
 // Chiavi con prefisso storico "margine_": rinominarle cancellerebbe i dati salvati.
 const LIST_KEY = 'margine_list';
@@ -47,7 +50,14 @@ export interface Prefs {
   storeFull: boolean;
   /** #46: l'ultima "Organizza la festa" per gruppo (per rifarla con altre persone) */
   eventPlans: Record<string, { type: string; adults: number; kids: number; /** #67: quanto ha aggiunto la festa (lista personale) */ added?: Record<string, number> }>;
+  /** #75: quando le preferenze sono state allineate con il profilo online (ms) */
+  syncAt: number;
 }
+
+/** #75: le preferenze che seguono la persona su ogni telefono (le altre restano del telefono: GPS, vista, modalità…) */
+const SYNC_KEYS = ['displayName', 'favorites', 'budget', 'minSavingsThreshold', 'fuelType', 'transport', 'categoryRules',
+  'refuel', 'refuelLiters', 'nearOnlyPriced', 'restockSnooze', 'menu'] as const;
+const pickSync = (p: Prefs) => Object.fromEntries(SYNC_KEYS.map((k) => [k, p[k]]));
 
 const DEFAULT_PREFS: Prefs = {
   transport: 'car',
@@ -72,6 +82,7 @@ const DEFAULT_PREFS: Prefs = {
   restockSnooze: {},
   storeFull: false,
   eventPlans: {},
+  syncAt: 0,
 };
 
 interface StoreValue {
@@ -97,6 +108,12 @@ interface StoreValue {
   setLastResult: (r: OptimizeResult | null) => void;
   /** #66: la lista è cambiata dopo l'ultimo calcolo (il risultato non vale più) */
   lastResultStale: boolean;
+  /** #91: in famiglia la lista è la «lista di casa», in comune e in diretta */
+  familyId: string | null;
+  /** chi ha aggiunto i prodotti della lista di casa (se non sono io): product_id → nome */
+  addedBy: Record<string, string>;
+  /** rilegge famiglia e preferenze dal profilo online (dopo entrare/uscire dalla famiglia) */
+  reloadProfile: () => Promise<void>;
   /** #21: i prodotti che prendo io nei gruppi (entrano nella mia spesa) */
   groupMine: MyGroupItem[];
   reloadGroupMine: () => Promise<MyGroupItem[]>;
@@ -256,6 +273,106 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => { if (hydrated && userId) reloadGroupMine(); }, [hydrated, userId, reloadGroupMine]);
 
+  // ---------------------------------------------------------------- #91 lista di casa · #75 preferenze online
+  const [familyId, setFamilyId] = useState<string | null>(null);
+  const [addedBy, setAddedBy] = useState<Record<string, string>>({});
+  const prefsRef = useRef(prefs); prefsRef.current = prefs;
+  const lastPushed = useRef<string | null>(null);
+  const reloadProfile = useCallback(async () => {
+    if (!IS_CLOUD || !userId) return;
+    const pr = await myAppProfile();
+    if (!pr) return;
+    setFamilyId(pr.family_id ?? null);
+    const cur = prefsRef.current;
+    const patch: Partial<Prefs> = {};
+    // preferenze più nuove su un altro telefono: valgono quelle
+    if (pr.app?.at && pr.app.at > (cur.syncAt || 0)) Object.assign(patch, pr.app.data as Partial<Prefs>, { syncAt: pr.app.at });
+    else if (!pr.app) { const at = Date.now(); saveAppPrefs(at, pickSync(cur)).then(() => setPrefsState((p) => ({ ...p, syncAt: at }))).catch(() => {}); }   // prima volta: salvo le mie
+    // il nome: se qui non c'è ma è sul profilo, lo riprendo; se qui c'è e sul profilo no, lo salvo
+    const nm = (patch.displayName ?? cur.displayName ?? '').trim();
+    if (!nm && pr.display_name) patch.displayName = pr.display_name;
+    else if (nm && !pr.display_name) saveDisplayName(userId, nm).catch(() => {});
+    if (Object.keys(patch).length) {
+      if (patch.syncAt) lastPushed.current = JSON.stringify(pickSync({ ...cur, ...patch }));   // arrivate dal server: non le rimando indietro
+      setPrefsState((p) => ({ ...p, ...patch }));
+    }
+  }, [userId]);
+  useEffect(() => {
+    if (!hydrated || !userId || !IS_CLOUD) return;
+    reloadProfile();
+    const t = setInterval(reloadProfile, 60_000);
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') reloadProfile(); });
+    return () => { clearInterval(t); sub.remove(); };
+  }, [hydrated, userId, reloadProfile]);
+  // preferenze cambiate qui: le salvo online (dopo un attimo)
+  const syncSig = JSON.stringify(pickSync(prefs));
+  useEffect(() => {
+    if (!hydrated || !userId || !IS_CLOUD) return;
+    if (lastPushed.current === null) { lastPushed.current = syncSig; return; }   // all'avvio non spingo: prima rileggo
+    if (lastPushed.current === syncSig) return;
+    const t = setTimeout(() => {
+      const at = Date.now();
+      saveAppPrefs(at, pickSync(prefsRef.current)).then(() => { lastPushed.current = syncSig; setPrefsState((p) => ({ ...p, syncAt: at })); }).catch(() => {});
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [syncSig, hydrated, userId]);
+
+  // lista di casa: synced = quello che il server ha (per mandare solo le differenze)
+  const synced = useRef<ListItem[] | null>(null);
+  const syncing = useRef(false);
+  const pull = useCallback(async (fid: string) => {
+    const rows = await homeList(fid);
+    const me = userId;
+    const local = itemsRef.current;
+    if (synced.current === null) {
+      // prima volta in questa famiglia: quello che avevo in lista entra nella lista di casa (non si perde niente)
+      const byId = new Map(rows.map((r) => [r.product_id, r as ListItem]));
+      const extra = local.filter((i) => !byId.has(i.product_id));
+      if (extra.length) await homeUpsert(fid, extra);
+      const merged = [...rows.map(({ added_by: _a, ...r }) => r as ListItem), ...extra];
+      synced.current = merged;
+      setItemsState(merged);
+    } else {
+      const { upsert, remove } = diffLists(local, synced.current);
+      if (upsert.length || remove.length) return;   // ho modifiche da mandare: prima quelle
+      const list = rows.map(({ added_by: _a, ...r }) => r as ListItem);
+      synced.current = list;
+      setItemsState(list);
+    }
+    // chi ha aggiunto cosa (i nomi dei familiari)
+    const others = rows.filter((r) => r.added_by && r.added_by !== me);
+    if (others.length) {
+      const { data } = await sb().rpc('family_members');
+      const names = new Map(((data as any[]) ?? []).map((m) => [m.user_id, m.display_name || 'un familiare']));
+      setAddedBy(Object.fromEntries(others.map((r) => [r.product_id, names.get(r.added_by!) ?? 'un familiare'])));
+    } else setAddedBy({});
+  }, [userId]);
+  const push = useCallback(async (fid: string) => {
+    if (syncing.current || synced.current === null) return;
+    const { upsert, remove } = diffLists(itemsRef.current, synced.current);
+    if (!upsert.length && !remove.length) return;
+    syncing.current = true;
+    const snap = itemsRef.current;
+    try {
+      await homeUpsert(fid, upsert);
+      await homeDelete(fid, remove);
+      synced.current = snap;
+    } catch { /* senza rete: riprovo tra poco */ } finally { syncing.current = false; }
+  }, []);
+  useEffect(() => {
+    synced.current = null;
+    if (!familyId) { setAddedBy({}); return; }
+    pull(familyId).catch(() => {});
+    const stop = watchHome(familyId, () => { if (!syncing.current) pull(familyId).catch(() => {}); });
+    const t = setInterval(() => { push(familyId).then(() => pull(familyId)).catch(() => {}); }, 20_000);
+    return () => { stop(); clearInterval(t); };
+  }, [familyId, pull, push]);
+  useEffect(() => {
+    if (!familyId || synced.current === null) return;
+    const t = setTimeout(() => { push(familyId).catch(() => {}); }, 400);
+    return () => clearTimeout(t);
+  }, [items, familyId, push]);
+
   const value: StoreValue = {
     hydrated,
     userId,
@@ -277,6 +394,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     lastResult,
     setLastResult,
     lastResultStale: !!lastResult && resultSig !== shoppingSig(items, groupMine),
+    familyId,
+    addedBy,
+    reloadProfile,
     groupMine,
     reloadGroupMine,
   };

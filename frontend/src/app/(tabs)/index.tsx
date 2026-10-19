@@ -49,7 +49,7 @@ export default function ListaScreen() {
   const insets = useSafeAreaInsets();
   const {
     catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems, setItemCategory, setItems,
-    prefs, setPrefs, userId, setLastResult, lastResult, lastResultStale, groupMine, reloadGroupMine,
+    prefs, setPrefs, userId, setLastResult, lastResult, lastResultStale, groupMine, reloadGroupMine, familyId, addedBy,
   } = useStore();
 
   // #21: la lista che si sta compilando: la mia, o quella di un gruppo (stessa ricerca, categorie, offerte)
@@ -280,7 +280,7 @@ export default function ListaScreen() {
               <Pressable onPress={clearWithUndo} hitSlop={8} accessibilityRole="button" accessibilityLabel="Svuota la lista"><Text style={s.clear}>Svuota</Text></Pressable>
             </View>
           )}>
-          La tua lista
+          {familyId ? '🏠 Lista di casa' : 'La tua lista'}
         </SectionTitle>
         {cleared && items.length === 0 && (
           <View style={s.undoBar}>
@@ -299,6 +299,7 @@ export default function ListaScreen() {
         ) : (
           <ShoppingList
             items={items}
+            addedBy={addedBy}
             categories={catalog.categories}
             productById={productById}
             updateQty={updateQty}

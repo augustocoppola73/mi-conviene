@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { api } from '../api';
 import { budgetTotal, Group, GroupExpense, GroupItem, groupExpenses, myGroups, setGroupBudget, watchAccounts } from '../cloud/groups';
-import { euro } from '../format';
+import { euro, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { PrimaryButton } from './ui';
 
@@ -106,7 +106,7 @@ function BudgetSheet({ visible, group, onClose, onSaved }: { visible: boolean; g
     if (!visible) return;
     setAmount(group.budget != null ? String(group.budget).replace('.', ',') : ''); setPerHead(group.budget_per_head); setErr(null);
   }, [visible]);
-  const v = parseFloat(amount.replace(',', '.'));
+  const v = parseEuro(amount);
   const save = async (value: number | null) => {
     if (value != null && !(value > 0)) { setErr('Scrivi quanto'); return; }
     setBusy(true); setErr(null);

@@ -14,7 +14,7 @@ import { KIND_HELP, PriceKindPicker } from '@/components/PriceKindPicker';
 import { ProductSearch } from '@/components/ProductSearch';
 import { ProductIcon } from '@/components/ProductIcon';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
-import { euro, formatQty } from '@/format';
+import { euro, formatQty, parseEuro } from '@/format';
 import { ParkingLine } from '@/components/ParkingLine';
 import { openNavigation } from '@/navigate';
 import { customId, useStore } from '@/store';
@@ -166,6 +166,8 @@ export default function SpesaScreen() {
     } catch (e) { tell('Spesa', (e as Error).message); return false; }
   };
   const canAct = shop ? canActOn(shop, userId) : false;
+  // #95: spesa da soli (senza famiglia): niente «chi la prende», è già tua
+  const solo = !!shop && !(shop as Shop & { family_id?: string | null }).family_id;
   const addStop = useRef(0); // spesa in due negozi: le cose aggiunte in negozio vanno nella tappa in corso
   const [helpOpen, setHelpOpen] = useState(false);
   const helpRelease = async () => {
@@ -182,7 +184,7 @@ export default function SpesaScreen() {
         : `La sta facendo ${shop.taken_by?.name ?? 'un familiare'}: per smarcare chiedi di prenderla o di aiutare.`);
       return;
     }
-    if (!shop.taken_by && !it.checked) {
+    if (!shop.taken_by && !it.checked && !solo) {
       // spesa libera: prima di smarcare la prendi (con conferma), poi la spunta parte da sola
       take('take').then((ok) => { if (ok) toggleNow(it); });
       return;
@@ -226,7 +228,7 @@ export default function SpesaScreen() {
   };
   const savePrice = async () => {
     if (!shop || !userId || !pricing) return;
-    const v = parseFloat(priceText.replace(',', '.'));
+    const v = parseEuro(priceText);
     if (!Number.isFinite(v) || v <= 0) return;
     // #53: «250» invece di «2,50»: se è molto lontano da quanto costa di solito, chiedo prima di salvarlo per tutti
     const est = pricing.price;
@@ -388,7 +390,9 @@ export default function SpesaScreen() {
   const currentStop = myStop >= 0 ? myStop
     : stops ? (sections.find((x) => x.left > 0 && !x.st?.by)?.k ?? 0) : 0;
   const myLeft = myStop >= 0 ? todo.filter((i) => (i.stop ?? 0) === myStop).length : 0;
-  addStop.current = currentStop;
+  // #82: le cose viste in negozio vanno nella tappa dove sei (quella dell'ultima cosa che hai preso), non nella prossima
+  const lastMine = [...done].filter((i) => i.checked_by_id === userId && i.checked_at).sort((a, b) => (b.checked_at! > a.checked_at! ? 1 : -1))[0];
+  addStop.current = stops && myStop < 0 && lastMine ? (lastMine.stop ?? 0) : currentStop;
   const cart = Math.round(done.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
   const estimated = Math.round(shop.items.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
   const pct = shop.items.length ? done.length / shop.items.length : 0;
@@ -415,7 +419,7 @@ export default function SpesaScreen() {
             <Text style={s.muted}>{shop.taken_by?.name ?? 'Chi fa la spesa'} pensa al resto da {shop.stops![0]?.store_name ?? shop.store_name}. Le vostre spunte si vedono in diretta.</Text>
           </>
         ) : (
-          <TakenPanel shop={shop} userId={userId} onAct={take}
+          solo ? null : <TakenPanel shop={shop} userId={userId} onAct={take}
             onHelp={IS_CLOUD && todo.length > 0 ? () => setHelpOpen(true) : undefined} />
         )}
         <HelpSheet shop={shop} visible={helpOpen} onClose={() => setHelpOpen(false)}
@@ -468,9 +472,9 @@ export default function SpesaScreen() {
                 )}
               </View>
             )}
-                {sec.groups.map(([cat, list]) => (
+                {(full ? [['_tutti', sec.groups.flatMap(([, l]) => l)] as [string, ShopItem[]]] : sec.groups).map(([cat, list]) => (
               <View key={cat} style={{ gap: 6 }}>
-                <Text style={s.group}>{catById.get(cat)?.emoji ?? '🛒'} {catById.get(cat)?.name ?? 'Altro'}</Text>
+                {cat !== '_tutti' && <Text style={s.group}>{catById.get(cat)?.emoji ?? '🛒'} {catById.get(cat)?.name ?? 'Altro'}</Text>}
                 {grid ? (
                   <View style={s.grid} onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
                     {list.map((i) => {
@@ -482,6 +486,7 @@ export default function SpesaScreen() {
                           accessibilityLabel={`${i.name}, ${formatQty(i.quantity, i.unit)}`} accessibilityHint="Tocca quando l'hai messo nel carrello">
                           <ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={full ? 64 : 44} />
                           <Text style={[s.tileName, full && s.tileNameBig]} numberOfLines={2}>{i.name}</Text>
+                          {full && <Text style={s.muted} numberOfLines={1}>{catById.get(i.category_id)?.emoji} {catById.get(i.category_id)?.name ?? ''}</Text>}
                           <Text style={[s.tileQty, full && s.tileQtyBig]} numberOfLines={1}>
                             {formatQty(i.quantity, i.unit)}{i.groups?.length ? ` ${i.groups.map((g) => g.emoji || '👥').join('')}` : ''}
                           </Text>
@@ -527,7 +532,7 @@ export default function SpesaScreen() {
           </View>
         ))}
 
-        {!canAct || full ? null : adding ? (
+        {!canAct ? null : adding ? (
           <View style={{ marginTop: spacing.md }}>
             <ProductSearch
               products={catalog?.products ?? []}
@@ -556,6 +561,11 @@ export default function SpesaScreen() {
                     <View style={{ opacity: 0.5 }}><ProductIcon name={i.name} productId={i.product_id} categoryEmoji={catById.get(i.category_id)?.emoji} size={30} /></View>
                     <Text style={[s.tileName, s.nameDone]} numberOfLines={2}>{i.name}</Text>
                     <Text style={s.tilePrice} numberOfLines={1}>{i.seen ? euro(i.seen.price) : '✓'}</Text>
+                    {canActItem(shop, i, userId) && (
+                      <Pressable onPress={() => openPrice(i)} hitSlop={10} style={s.tileEuro} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
+                        <Text style={s.tileEuroText}>€</Text>
+                      </Pressable>
+                    )}
                   </Pressable>
                 ))}
               </View>
@@ -571,6 +581,11 @@ export default function SpesaScreen() {
                     {i.seen ? ` · ${euro(i.seen.price)}${i.seen.kind === 'offerta' ? ' in offerta' : i.seen.kind === 'variante' ? ` (${i.seen.note || 'altra marca'})` : ''}` : ''}
                   </Text>
                 </View>
+                {canActItem(shop, i, userId) && (
+                  <Pressable onPress={() => openPrice(i)} hitSlop={8} style={s.priceBtn} accessibilityLabel={`Segna il prezzo di ${i.name}`}>
+                    <Text style={s.priceBtnText}>€</Text>
+                  </Pressable>
+                )}
               </Pressable>
             ))}
           </View>

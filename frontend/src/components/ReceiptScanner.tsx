@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { api, PriceKind, Product, SavingEntry, ScanResult } from '../api';
-import { euro } from '../format';
+import { euro, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { PriceKindPicker } from './PriceKindPicker';
 import { Card, Icon, PrimaryButton, StoreDot } from './ui';
@@ -77,7 +77,7 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
     }
   };
 
-  const total = parseFloat(totalText.replace(',', '.'));
+  const total = parseEuro(totalText);
   const totalOk = Number.isFinite(total) && total > 0;
 
   const setLineProduct = (i: number, pid: string | null) => {

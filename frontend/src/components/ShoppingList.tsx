@@ -22,14 +22,19 @@ export function parseQty(text: string, unit: string): number | null {
   if (unit === 'kg' && (u === 'g' || u === 'gr')) n = n / 1000;
   else if (unit === 'L' && u === 'ml') n = n / 1000;
   else if (unit === 'L' && u === 'cl') n = n / 100;
+  else if (u && !((unit === 'kg' && u === 'kg') || (unit === 'L' && (u === 'l' || u === 'lt')) || (unit !== 'kg' && unit !== 'L' && ['pz', 'conf', 'x'].includes(u)))) {
+    return null;   // #72: «500 g» su un prodotto a pezzi non diventa 500 pezzi
+  }
   if (!Number.isFinite(n) || n <= 0 || n > 999) return null;
   return Math.round(n * 1000) / 1000;
 }
 
 interface Row { item: ListItem; name: string; unit: string; step: number; custom: boolean; categoryId: string }
 
-export function ShoppingList({ items, categories, productById, updateQty, removeItem, setCategory, view = 'lista', categoryOrder }: {
+export function ShoppingList({ items, categories, productById, updateQty, removeItem, setCategory, view = 'lista', categoryOrder, addedBy }: {
   items: ListItem[];
+  /** #91: lista di casa: chi ha aggiunto il prodotto (se non sei tu) */
+  addedBy?: Record<string, string>;
   categories: Category[];
   productById: (id: string) => Product | undefined;
   updateQty: (id: string, q: number) => void;
@@ -97,6 +102,7 @@ export function ShoppingList({ items, categories, productById, updateQty, remove
                   <ProductIcon name={r.name} productId={r.item.product_id} categoryEmoji={catById.get(r.categoryId)?.emoji} size={44} />
                   <Text style={s.tileName} numberOfLines={2}>{r.name}</Text>
                   <Text style={s.tileQty} numberOfLines={1}>{formatQty(r.item.quantity, r.unit)}{r.custom ? ' ✍️' : ''}</Text>
+                  {!!addedBy?.[r.item.product_id] && <Text style={s.muted} numberOfLines={1}>{addedBy[r.item.product_id]}</Text>}
                 </Pressable>
               ))}
             </View>
@@ -143,6 +149,7 @@ export function ShoppingList({ items, categories, productById, updateQty, remove
                     <Text style={s.qty}>
                       {formatQty(r.item.quantity, r.unit)} <Text style={s.editHint}>✎</Text>
                       {r.custom ? <Text style={s.muted}>  · senza prezzo</Text> : null}
+                      {addedBy?.[r.item.product_id] ? <Text style={s.muted}>  · aggiunto da {addedBy[r.item.product_id]}</Text> : null}
                     </Text>
                   </Pressable>
                 )}

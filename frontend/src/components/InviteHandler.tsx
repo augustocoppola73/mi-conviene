@@ -1,13 +1,13 @@
 /** Dopo l'accesso: se si è arrivati da un invito (#13) si entra nel gruppo o si chiede di entrare in famiglia. */
 import { router } from 'expo-router';
 import { ReactNode, useEffect, useState } from 'react';
-import { Modal, Text, View } from 'react-native';
+import { Modal, Text, TextInput, View } from 'react-native';
 
 import { api, InvitePreview, JoinResult } from '../api';
 import { IS_CLOUD } from '../cloud/client';
 import { clearInvite, pendingInvite, takeAutoName, takeOldLinkNotice, takeRejoin } from '../invite';
 import { useStore } from '../store';
-import { makeStyles, radius, spacing } from '../theme';
+import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { PrimaryButton } from './ui';
 
 type View_ = { mode: 'ask'; code: string; info: InvitePreview; current: boolean }
@@ -17,6 +17,8 @@ type View_ = { mode: 'ask'; code: string; info: InvitePreview; current: boolean 
 export function InviteHandler() {
   const { userId, prefs, setPrefs, hydrated, items } = useStore();
   const s = useStyles();
+  const { colors } = useTheme();
+  const [newName, setNewName] = useState('');
   const [view, setView] = useState<View_ | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -73,7 +75,7 @@ export function InviteHandler() {
   const leaveAndJoin = async (code: string) => {
     setBusy(true);
     try { await api.familyLeave(userId!); } catch (e) { setBusy(false); return setView({ mode: 'error', message: (e as Error).message }); }
-    await join(code, prefs.displayName || undefined, null);
+    await join(code, prefs.displayName || newName.trim() || undefined, null);
   };
 
   let title = ''; let body = '';
@@ -88,7 +90,13 @@ export function InviteHandler() {
     actions = (
       <>
         <PrimaryButton label={view.info.needs_approval ? 'Chiedi di entrare' : 'Entra'} icon="people-outline" loading={busy}
-          onPress={() => (view.current ? leaveAndJoin(code) : join(code, prefs.displayName || undefined, view.info))} />
+          disabled={!prefs.displayName.trim() && !newName.trim()}
+          onPress={() => {
+            // #74: il nome lo scrivi tu (mai la parte dell'email): vale nel gruppo, in famiglia e nel Profilo
+            const nm = (prefs.displayName.trim() || newName.trim()).slice(0, 40);
+            if (!prefs.displayName.trim()) setPrefs({ displayName: nm });
+            return view.current ? leaveAndJoin(code) : join(code, nm, view.info);
+          }} />
         <PrimaryButton label="No, grazie" variant="secondary" onPress={close} style={{ marginTop: spacing.sm }} />
       </>
     );
@@ -117,7 +125,10 @@ export function InviteHandler() {
         <View style={s.box}>
           <Text style={s.title}>{title}</Text>
           <Text style={s.text}>{body}</Text>
-          {view.mode === 'ask' && !prefs.displayName && <Text style={s.hint}>Consiglio: dopo scrivi il tuo nome nel Profilo, così gli altri sanno chi ha preso cosa.</Text>}
+          {view.mode === 'ask' && !prefs.displayName.trim() && (
+            <TextInput value={newName} onChangeText={setNewName} placeholder="Come ti chiami?" placeholderTextColor={colors.textSecondary}
+              autoComplete="given-name" style={s.input} maxLength={40} accessibilityLabel="Il tuo nome" />
+          )}
           {actions}
         </View>
       </View>
@@ -131,4 +142,5 @@ const useStyles = makeStyles((c) => ({
   title: { fontSize: 20, fontWeight: '700', color: c.text, marginBottom: spacing.sm },
   text: { fontSize: 15, color: c.text, lineHeight: 21, marginBottom: spacing.md },
   hint: { fontSize: 13, color: c.textSecondary, marginBottom: spacing.md },
+  input: { borderWidth: 1, borderColor: c.border, borderRadius: radius.md, padding: spacing.md, color: c.text, backgroundColor: c.background, fontSize: 16, marginBottom: spacing.md },
 }));

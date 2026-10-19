@@ -15,7 +15,7 @@ import { GroupSheet } from '@/components/GroupSheet';
 import { ArchivedGroup, deleteGroup, eventLabel, Group, myArchivedGroups, myGroups, restoreGroup } from '@/cloud/groups';
 import { PUSH_SUPPORTED } from '@/push';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
-import { km, TRANSPORTS } from '@/format';
+import { km, TRANSPORTS, parseEuro } from '@/format';
 import { confirmAsk } from '@/confirm';
 import { useStore } from '@/store';
 import { makeStyles, radius, setThemeMode, spacing, ThemeMode, useTheme, useThemeMode } from '@/theme';
@@ -26,14 +26,14 @@ function notify(message: string) {
 }
 
 function parseNum(t: string): number | null {
-  const n = parseFloat(t.replace(',', '.'));
+  const n = parseEuro(t);
   return Number.isFinite(n) ? n : null;
 }
 
 export default function ProfiloScreen() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { prefs, setPrefs, catalog, userId, items, setItems } = useStore();
+  const { prefs, setPrefs, catalog, userId, items, setItems, reloadProfile } = useStore();
   const [family, setFamily] = useState<Family | null>(null);
   const [joinOpen, setJoinOpen] = useState(false);
   const [code, setCode] = useState('');
@@ -44,6 +44,7 @@ export default function ProfiloScreen() {
     try {
       const f = await api.familyByUser(userId);
       setFamily('code' in f ? (f as Family) : null);
+      reloadProfile();   // #91: entrato o uscito dalla famiglia: la lista di casa segue
     } catch {
       setFamily(null);
     }
@@ -308,6 +309,9 @@ export default function ProfiloScreen() {
                   </Pressable>
                 </View>
               ))}
+              {IS_CLOUD ? (
+                <Text style={[s.help, { marginTop: spacing.sm }]}>🏠 La lista è in comune: quello che aggiungete lo vedete subito tutti, su ogni telefono della famiglia.</Text>
+              ) : (
               <View style={s.familyActions}>
                 <PrimaryButton
                   label="Invia lista"
@@ -343,6 +347,7 @@ export default function ProfiloScreen() {
                   style={{ flex: 1 }}
                 />
               </View>
+              )}
               <Pressable
                 onPress={async () => {
                   if (!(await confirmAsk('Uscire dalla famiglia?', 'Non vedrai più la lista, la spesa in corso e il Salvadanaio della famiglia. Per rientrare serve un nuovo invito.', 'Esci'))) return;

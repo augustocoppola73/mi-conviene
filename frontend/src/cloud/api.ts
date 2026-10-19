@@ -369,6 +369,14 @@ async function finalizeSaving(shop: any) {
   const listItems = bought.map((i) => ({ product_id: i.product_id, quantity: mineQty(i), name: i.name, category_id: i.category_id, unit: i.unit }));
   bookCache = null;  // i prezzi segnati in negozio valgono subito
   const receipt: any = shopReceipt(await priceBook(), shop, listItems, (i) => bought[i].stop ?? 0);
+  // #82: dove hai segnato il prezzo in negozio (anche «altra marca») vale quello, non la stima
+  for (const l of receipt.lines ?? []) {
+    const it = bought.find((b) => b.product_id === l.product_id);
+    if (!it?.seen || !(it.quantity > 0)) continue;
+    const p = r2(it.seen.price * (l.quantity / it.quantity));
+    receipt.total = r2(receipt.total - (l.line_price || 0) + p);
+    Object.assign(l, { line_price: p, unit_price: r2(p / (l.quantity || 1)), source: 'scontrino', confidence: 'green', location_name: 'segnato da te in negozio' });
+  }
   // #26: i prodotti scritti a mano col prezzo (segnato in negozio o ricordato) diventano righe vere e contano nel totale
   const left: any[] = [];
   for (const c of receipt.custom_items ?? []) {
@@ -946,6 +954,7 @@ export const cloudApi = {
 
   shopAdd: async (id: string, _user_id: string, item: T.ShopItemIn): Promise<T.Shop> => {
     const me = await uid();
+    const myName = (await myProfile().catch(() => null))?.display_name ?? null;   // #82: «preso da Augusto», non «da un familiare»
     const [book, cp] = await Promise.all([priceBook(), customPrices()]);
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
@@ -955,8 +964,8 @@ export const cloudApi = {
       else if (shop.stops?.length > 1) {
         const k = Math.min(Math.max(item.stop ?? 0, 0), shop.stops.length - 1);
         const sid = shop.stops[k].store_id;
-        shop.items.push({ ...withCustomPrice(shopItem(book, item, sid, true), sid, cp), stop: k, store_id: sid, checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
-      } else shop.items.push({ ...withCustomPrice(shopItem(book, item, shop.store_id, true), shop.store_id, cp), checked: true, checked_at: nowIso(), checked_by: null, checked_by_id: me });
+        shop.items.push({ ...withCustomPrice(shopItem(book, item, sid, true), sid, cp), stop: k, store_id: sid, checked: true, checked_at: nowIso(), checked_by: myName, checked_by_id: me });
+      } else shop.items.push({ ...withCustomPrice(shopItem(book, item, shop.store_id, true), shop.store_id, cp), checked: true, checked_at: nowIso(), checked_by: myName, checked_by_id: me });
     });
     return shopOut(row, me);
   },
@@ -982,7 +991,7 @@ export const cloudApi = {
       if (!it) throw new Error('Prodotto non trovato');
       Object.assign(it, { seen: { price: body.price, kind: body.kind, note: body.note ?? null }, checked: true,
         checked_at: it.checked_at || nowIso(), checked_by: body.display_name ?? null, checked_by_id: me });
-      if (body.kind !== 'variante') it.price = body.price;
+      it.price = body.price;   // #82: nel carrello conta quello che paghi, anche se è un'altra marca
     });
     return shopOut(row, me);
   },
