@@ -100,7 +100,9 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
           {moves.map((m, k) => (
             <View key={k} style={s.row}>
               <Text style={[s.text, { flex: 1 }]}><Text style={{ fontWeight: '700' }}>{m.from.label}</Text> → {m.to.label}: <Text style={{ fontWeight: '800' }}>{euro(m.amount)}</Text></Text>
-              {inAcc(m.to) ? (
+              {stl.some((x) => x.status === 'da_confermare' && !!x.from_user && m.from.members.includes(x.from_user)) ? (
+                <Text style={s.small}>⏳ da confermare</Text>
+              ) : inAcc(m.to) ? (
                 <Text onPress={async () => {
                   if (await ask(`Hai ricevuto ${euro(m.amount)} da ${m.from.label}?`, 'Sì, ricevuto')) run(() => settle(groupId, m.from.members[0], m.to.members[0], m.amount));
                 }} style={s.link}>Ricevuto</Text>

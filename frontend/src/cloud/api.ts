@@ -419,7 +419,7 @@ async function finalizeSaving(shop: any) {
       return here != null && ref != null ? t + (ref - here) : t;
     }, 0);
     const all = gain(shop.items.filter((i: T.ShopItem) => !i.added_in_store));
-    const got = gain(bought);
+    const got = gain(bought.filter((i) => !i.added_in_store));   // le cose aggiunte in negozio non erano nel confronto
     const fuel = Number(data.fuel_saving) || 0;
     const shopPart = Math.max(0, before - fuel);
     const newShop = all > 0.01 ? r2(Math.max(0, shopPart * Math.min(1, got / all))) : r2(Math.max(0, got));

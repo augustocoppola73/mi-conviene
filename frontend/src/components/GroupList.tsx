@@ -299,7 +299,7 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
       </View>
 
       {/* #58: chi chiede di rientrare da un altro telefono (decide il proprietario) */}
-      {requests.filter((r) => owner || (r.rejoin_name && members.some((m) => m.role === 'proprietario' && m.display_name === r.rejoin_name))).map((r) => (
+      {requests.filter((r) => r.user_id !== me && (owner || (r.rejoin_name && members.some((m) => m.role === 'proprietario' && m.display_name === r.rejoin_name)))).map((r) => (
         <View key={r.user_id} style={[s.card, { borderColor: colors.primary }]}>
           <Text style={s.name}>🔁 Qualcuno chiede di rientrare come <Text style={{ fontWeight: '800' }}>{r.rejoin_name || r.display_name || 'un membro'}</Text> da un altro telefono.</Text>
           <Text style={s.meta}>Accetta solo se sei sicuro che sia lui (chiediglielo): prende il suo posto, con quello che aveva preso e pagato.</Text>

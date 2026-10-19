@@ -215,8 +215,8 @@ export default function SpesaScreen() {
       setShop(applyPending(r));
       save(r);
       setAdding(false);
-    } catch {
-      setOffline(true);
+    } catch (e) {
+      if (isNetErr(e)) setOffline(true); else { tell('Spesa', (e as Error).message); refresh(); }
     }
   };
 
@@ -240,8 +240,8 @@ export default function SpesaScreen() {
       setShop(applyPending(r));
       save(r);
       setPricing(null);
-    } catch {
-      setOffline(true);
+    } catch (e) {
+      if (isNetErr(e)) setOffline(true); else { tell('Spesa', (e as Error).message); refresh(); }
     }
   };
 

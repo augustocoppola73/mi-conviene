@@ -174,6 +174,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (hydrated) AsyncStorage.setItem(LIST_KEY, JSON.stringify(items)).catch(() => {});
   }, [items, hydrated]);
+  // #67: lista svuotata (spesa confermata o Svuota): la festa di prima non è più in lista, la prossima si somma da capo
+  useEffect(() => {
+    if (!hydrated || items.length) return;
+    setPrefsState((p) => (p.eventPlans?.mine?.added && Object.keys(p.eventPlans.mine.added).length
+      ? { ...p, eventPlans: { ...p.eventPlans, mine: { ...p.eventPlans.mine, added: {} } } } : p));
+  }, [items.length, hydrated]);
 
   useEffect(() => {
     if (hydrated) AsyncStorage.setItem(PREFS_KEY, JSON.stringify(prefs)).catch(() => {});
@@ -325,18 +331,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const me = userId;
     const local = itemsRef.current;
     if (synced.current === null) {
-      // prima volta in questa famiglia: quello che avevo in lista entra nella lista di casa (non si perde niente)
-      const byId = new Map(rows.map((r) => [r.product_id, r as ListItem]));
-      const extra = local.filter((i) => !byId.has(i.product_id));
-      if (extra.length) await homeUpsert(fid, extra);
-      const merged = [...rows.map(({ added_by: _a, ...r }) => r as ListItem), ...extra];
+      const key = `mc_home_synced_${fid}`;
+      const prevRaw = await AsyncStorage.getItem(key).catch(() => null);
+      const server = rows.map(({ added_by: _a, ...r }) => r as ListItem);
+      let merged: ListItem[];
+      if (prevRaw) {
+        // #91: riapro l'app: mando solo quello che ho cambiato io da allora (quello che gli altri hanno tolto resta tolto)
+        const prev = JSON.parse(prevRaw) as ListItem[];
+        const { upsert, remove } = diffLists(local, prev);
+        if (upsert.length) await homeUpsert(fid, upsert);
+        if (remove.length) await homeDelete(fid, remove);
+        const byId = new Map(server.map((r) => [r.product_id, r]));
+        for (const u of upsert) byId.set(u.product_id, u);
+        for (const r of remove) byId.delete(r);
+        merged = [...byId.values()];
+      } else {
+        // prima volta in questa famiglia: la mia lista entra nella lista di casa (non si perde niente, vale la quantità più grande)
+        const byId = new Map(server.map((r) => [r.product_id, r]));
+        const up: ListItem[] = [];
+        for (const i of local) {
+          const r = byId.get(i.product_id);
+          if (!r || i.quantity > r.quantity) { byId.set(i.product_id, r ? { ...r, quantity: i.quantity } : i); up.push(r ? { ...r, quantity: i.quantity } : i); }
+        }
+        if (up.length) await homeUpsert(fid, up);
+        merged = [...byId.values()];
+      }
       synced.current = merged;
+      AsyncStorage.setItem(key, JSON.stringify(merged)).catch(() => {});
       setItemsState(merged);
     } else {
       const { upsert, remove } = diffLists(local, synced.current);
       if (upsert.length || remove.length) return;   // ho modifiche da mandare: prima quelle
       const list = rows.map(({ added_by: _a, ...r }) => r as ListItem);
       synced.current = list;
+      AsyncStorage.setItem(`mc_home_synced_${fid}`, JSON.stringify(list)).catch(() => {});
       setItemsState(list);
     }
     // chi ha aggiunto cosa (i nomi dei familiari)
@@ -357,6 +385,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await homeUpsert(fid, upsert);
       await homeDelete(fid, remove);
       synced.current = snap;
+      AsyncStorage.setItem(`mc_home_synced_${fid}`, JSON.stringify(snap)).catch(() => {});
     } catch { /* senza rete: riprovo tra poco */ } finally { syncing.current = false; }
   }, []);
   useEffect(() => {

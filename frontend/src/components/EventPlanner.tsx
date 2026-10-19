@@ -68,7 +68,7 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
       const ex = existing(r.product_id);
       nowAdded[r.product_id] = r.quantity;
       if (ex) {
-        const base = Math.max(0, ex.quantity - (prev[r.product_id] ?? 0));
+        const base = Math.max(0, ex.quantity - Math.min(ex.quantity, prev[r.product_id] ?? 0));
         const next = round(base + r.quantity);
         if (next !== ex.quantity) { updateQty(r.product_id, next); updated++; }
       } else if (r.product_id.startsWith('custom:')) { addCustom(r.name, r.category_id, r.quantity, r.unit); added++; }

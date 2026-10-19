@@ -172,11 +172,13 @@ export default function RisultatiScreen() {
       const merged = mergeShopping(items, groupMine);
       const gSpend = groupSpend(chosen.receipt.lines, merged);
       const share = chosen.receipt.total > 0 ? Math.max(0, 1 - gSpend / chosen.receipt.total) : 1;
-      const h = await api.addHistory({ user_id: userId, items, store_id: chosen.store_id, total_cost: Math.round((chosen.total_cost - gSpend) * 100) / 100 });
+      // spesa tutta per i gruppi (niente di mio): nel Salvadanaio non c'è niente da mettere (prima nasceva una voce da 0 €)
+      const onlyGroups = items.length === 0;
+      const h = onlyGroups ? { id: '' } : await api.addHistory({ user_id: userId, items, store_id: chosen.store_id, total_cost: Math.round((chosen.total_cost - gSpend) * 100) / 100 });
       const amount = addToPiggyBank ? Math.round((shopSaving * share + fuelSaving) * 100) / 100 : 0;
       // la voce va comunque nel Salvadanaio (anche a zero) per poterla verificare con lo scontrino vero
       const listAtConfirm = merged;
-      const entry = await api.addSaving({
+      const entry = onlyGroups ? null : await api.addSaving({
         user_id: userId,
         store_id: chosen.store_id,
         // stima totale = spesa + pieno sulla strada (la parte pieno si azzera se alla verifica dici che non l'hai fatto)
@@ -202,7 +204,7 @@ export default function RisultatiScreen() {
       // la lista diventa la "spesa in corso" da smarcare in negozio; la Lista in home si svuota
       try {
         await api.shopCreate({
-          user_id: userId, store_id: chosen.store_id, saving_id: entry.id,
+          user_id: userId, store_id: chosen.store_id, saving_id: entry?.id,
           branch: chosen.branch ? [chosen.branch.name, chosen.branch.address].filter(Boolean).join(' · ') : null,
           display_name: prefs.displayName || null,
           items: listAtConfirm.map((i) => ({ product_id: i.product_id, quantity: i.quantity, name: i.name ?? null, category_id: i.category_id ?? null, unit: i.unit ?? null,
@@ -232,8 +234,9 @@ export default function RisultatiScreen() {
       const merged = mergeShopping(items, groupMine);
       const gSpend = groupSpend(split.stops.flatMap((st) => st.lines), merged);
       const share = split.items_total > 0 ? Math.max(0, 1 - gSpend / split.items_total) : 1;
-      const h = await api.addHistory({ user_id: userId, items, store_id: first.store_id, total_cost: Math.round((split.total_cost - gSpend) * 100) / 100 });
-      const entry = await api.addSaving({
+      const onlyGroups = items.length === 0;
+      const h = onlyGroups ? { id: '' } : await api.addHistory({ user_id: userId, items, store_id: first.store_id, total_cost: Math.round((split.total_cost - gSpend) * 100) / 100 });
+      const entry = onlyGroups ? null : await api.addSaving({
         user_id: userId, store_id: first.store_id, store_name: names, amount: Math.round(splitSaving * share * 100) / 100,
         note: (splitSaving > 0 ? `${savings.reference.label} · spesa in due negozi` : 'spesa in due negozi') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
         reference_type: savings.reference.type, price_basis: savings.price_basis, history_id: h.id,
@@ -246,7 +249,7 @@ export default function RisultatiScreen() {
       const stopOf = new Map(split.stops.flatMap((st, k) => st.lines.map((l) => [l.product_id, k] as const)));
       try {
         await api.shopCreate({
-          user_id: userId, store_id: first.store_id, saving_id: entry.id,
+          user_id: userId, store_id: first.store_id, saving_id: entry?.id,
           branch: first.branch ? [first.branch.name, first.branch.address].filter(Boolean).join(' · ') : null,
           display_name: prefs.displayName || null,
           stops: split.stops.map((st) => ({ store_id: st.store_id, store_name: st.store_name,

@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { BudgetSuggestion, FuelType } from '../api';
 import { can, showLocked } from '../features';
-import { euro, formatDate, TRANSPORTS } from '../format';
+import { euro, formatDate, parseEuro, TRANSPORTS } from '../format';
 import { useStore } from '../store';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { FuelCard } from './FuelCard';
@@ -55,9 +55,9 @@ export function TripSheet({ visible, onClose, suggestion }: {
   const [budgetText, setBudgetText] = useState(prefs.budget != null ? String(prefs.budget) : '');
   useEffect(() => { setBudgetText(prefs.budget != null ? String(prefs.budget) : ''); }, [prefs.budget, visible]);
   const onBudgetChange = (t: string) => {
-    const clean = t.replace(',', '.').replace(/[^0-9.]/g, '');
+    const clean = t.replace(/[^0-9.,]/g, '');
     setBudgetText(clean);
-    const n = parseFloat(clean);
+    const n = parseEuro(clean);   // #81: «1.200» = 1200 €
     setPrefs({ budget: Number.isFinite(n) ? n : null });
   };
   const car = prefs.transport === 'car';
