@@ -52,7 +52,8 @@ export function LocationControl() {
 
   return (
     <View style={{ gap: spacing.sm }}>
-      <View style={s.row}>
+      {/* #83: tutta la riga attiva o spegne la posizione, non solo l'interruttore */}
+      <Pressable style={s.row} onPress={() => !busy && toggle(!gps)} accessibilityRole="switch" accessibilityState={{ checked: gps }} accessibilityLabel="Usa la mia posizione">
         <Icon name={gps ? 'location' : 'location-outline'} size={20} color={colors.primary} />
         <View style={{ flex: 1 }}>
           <Text style={s.title}>Usa la mia posizione</Text>
@@ -63,8 +64,8 @@ export function LocationControl() {
           </Text>
         </View>
         {busy ? <ActivityIndicator color={colors.primary} />
-          : <Switch value={gps} onValueChange={toggle} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" />}
-      </View>
+          : <Switch value={gps} onValueChange={toggle} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" accessibilityLabel="Usa la mia posizione" />}
+      </Pressable>
 
       {!gps && prefs.locationMode === 'address' && prefs.location?.label && !editing && (
         <Pressable style={s.row} onPress={() => setEditing(true)}>
@@ -79,7 +80,7 @@ export function LocationControl() {
           <View style={s.input}>
             <TextInput value={addr} onChangeText={setAddr} placeholder="Indirizzo o città, es. Via Roma 10, Livorno"
               placeholderTextColor={colors.textSecondary} style={s.inputText} onSubmitEditing={search} returnKeyType="search" />
-            <Pressable onPress={search} hitSlop={6}><Icon name="search" size={20} color={colors.primary} /></Pressable>
+            <Pressable onPress={search} hitSlop={6} style={{ padding: 10 }} accessibilityRole="button" accessibilityLabel="Cerca l'indirizzo"><Icon name="search" size={20} color={colors.primary} /></Pressable>
           </View>
           {results?.map((r) => (
             <Pressable key={`${r.lat},${r.lon}`} style={s.row}

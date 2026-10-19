@@ -9,6 +9,8 @@ import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty, parseEuro } from '@/format';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
+import { LockedScreen } from '@/components/LockedScreen';
+import { can } from '@/features';
 
 type View_ =
   | { kind: 'list' }
@@ -29,7 +31,14 @@ const amountText = (r: PlanRow) => {
   return `${n.toLocaleString('it-IT')}${r.kind && KIND_LABEL[r.kind] ? ' ' + KIND_LABEL[r.kind] : ''}`;
 };
 
+// #76: in modalità partecipante anche aprendo l'indirizzo diretto si vede la spiegazione, non la funzione
 export default function RicetteScreen() {
+  const { prefs } = useStore();
+  if (!can(prefs, 'ricette')) return <LockedScreen feature="ricette" />;
+  return <RicetteScreenInner />;
+}
+
+function RicetteScreenInner() {
   const s = useStyles();
   const { colors } = useTheme();
   const { userId, addItem, addCustom, catalog, prefs, setPrefs } = useStore();

@@ -7,19 +7,22 @@ import { formatQty } from '../format';
 import { makeStyles, radius, spacing } from '../theme';
 import { Icon } from './ui';
 
-export function QtyStepper({ quantity, unit, step, onChange, compact }: {
+export function QtyStepper({ quantity, unit, step, onChange, compact, canRemove = true }: {
   quantity: number;
   unit: string;
   step: number;
   onChange: (q: number) => void;
   compact?: boolean;
+  /** #79: niente cestino se non puoi toglierlo (si ferma al minimo) */
+  canRemove?: boolean;
 }) {
   const s = useStyles();
   const set = (q: number) => onChange(Math.round(q * 1000) / 1000);
   return (
     <View style={s.row}>
-      <Pressable accessibilityLabel="Diminuisci" hitSlop={4} style={[s.btn, compact && s.small]} onPress={() => set(quantity - step)}>
-        <Icon name={quantity - step <= 0 ? 'trash-outline' : 'remove'} size={compact ? 16 : 18} />
+      <Pressable accessibilityLabel="Diminuisci" hitSlop={4} style={[s.btn, compact && s.small, !canRemove && quantity - step <= 0 && { opacity: 0.35 }]}
+        disabled={!canRemove && quantity - step <= 0} onPress={() => set(quantity - step)}>
+        <Icon name={quantity - step <= 0 && canRemove ? 'trash-outline' : 'remove'} size={compact ? 16 : 18} />
       </Pressable>
       <Text style={[s.qty, compact && { minWidth: 44, fontSize: 13 }]} numberOfLines={1}>{formatQty(quantity, unit)}</Text>
       <Pressable accessibilityLabel="Aumenta" hitSlop={4} style={[s.btn, compact && s.small]} onPress={() => set(quantity + step)}>

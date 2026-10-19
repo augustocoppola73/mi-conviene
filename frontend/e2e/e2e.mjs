@@ -147,7 +147,10 @@ const rcB = await Bu.call('recipes', '', 'x', 'rilevanza'); ok('ricetta vista da
   ok('my_groups di B', (await Bu.g('myGroups')).some((x) => x.id === gid && x.members === 2 && x.todo === 1));
   // la pagina del gruppo si apre
   await A.page.goto(`http://localhost:8790/gruppo/${gid}`); await A.page.waitForTimeout(3000);
-  ok('pagina gruppo', await A.page.getByText('Festa di sabato').count() > 0 && await A.page.getByText('patatine').count() > 0);
+  // #78: la pagina del gruppo mostra i Conti; la lista si apre con «Apri la lista»
+  ok('pagina gruppo', await A.page.getByText('Festa di sabato').count() > 0 && await A.page.getByText('Apri la lista').count() > 0);
+  await A.page.getByText('Apri la lista').first().click(); await A.page.waitForTimeout(2500);
+  ok('lista del gruppo aperta', await A.page.getByText('patatine').count() > 0);
   await A.page.screenshot({ path: process.argv[2] + '/gruppo.png' });
   // #15: cosa conviene prendere a me (prodotti liberi, dalla mia posizione)
   const hp = await A.call('groupHelpPlan', ['latte', 'spaghetti', 'passata', 'uova', 'tonno', 'yogurt'].map((p, i) => ({ id: `x${i}`, product_id: p, name: p, quantity: 2, unit: 'pz', category_id: null })), 43.55, 10.31, 'car', 'benzina');

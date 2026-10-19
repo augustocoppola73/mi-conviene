@@ -4,8 +4,10 @@ import { PanResponder, View } from 'react-native';
 
 import { useTheme } from '../theme';
 
-export function Slider({ value, min, max, step, onChange }: {
+export function Slider({ value, min, max, step, onChange, label = 'Valore', valueText }: {
   value: number; min: number; max: number; step: number; onChange: (v: number) => void;
+  /** #83: nome e valore per i lettori di schermo */
+  label?: string; valueText?: string;
 }) {
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
@@ -32,7 +34,10 @@ export function Slider({ value, min, max, step, onChange }: {
   const pct = (value - min) / (max - min);
   return (
     <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} {...pan.panHandlers}
-      style={{ height: 36, justifyContent: 'center' }} accessibilityRole="adjustable">
+      style={{ height: 44, justifyContent: 'center' }} accessibilityRole="adjustable" accessibilityLabel={label}
+      accessibilityValue={{ min, max, now: value, text: valueText ?? String(value) }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(e) => onChange(Math.min(max, Math.max(min, value + (e.nativeEvent.actionName === 'increment' ? step : -step))))}>
       <View pointerEvents="none" style={{ height: 6, borderRadius: 3, backgroundColor: colors.border }} />
       <View pointerEvents="none" style={{ position: 'absolute', left: 0, width: pct * width, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
       <View pointerEvents="none" style={{ position: 'absolute', left: pct * width - 13, width: 26, height: 26, borderRadius: 13,

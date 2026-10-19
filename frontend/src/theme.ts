@@ -34,7 +34,7 @@ const light = {
   primaryText: '#FFFFFF',
   primarySoft: '#DCE7D6',
   danger: '#C2483D',
-  warning: '#B7791F',
+  warning: '#94620F',   // #83: contrasto 5,2:1 sul bianco
   success: '#2F7D4A',
   badge: '#3F5A3B',
   badgeText: '#FFFFFF',
@@ -50,8 +50,8 @@ const dark: typeof light = {
   border: '#2E332E',
   text: '#F1F4EF',
   textSecondary: '#A3AD9F',
-  primary: '#6F8F68',
-  primaryText: '#FFFFFF',
+  primary: '#8DB085',      // #83: più chiaro: 6,9:1 sullo sfondo, 4,8:1 sui riquadri tenui
+  primaryText: '#0F150E',  // testo scuro sul verde (7,7:1) al posto del bianco (3,6:1)
   primarySoft: '#2F3D2D',
   danger: '#E0675C',
   warning: '#E0A84A',

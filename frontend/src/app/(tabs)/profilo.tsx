@@ -18,6 +18,7 @@ import { PUSH_SUPPORTED } from '@/push';
 import { Card, Chip, Icon, PrimaryButton, SectionTitle, StoreDot } from '@/components/ui';
 import { km, TRANSPORTS, parseEuro } from '@/format';
 import { confirmAsk } from '@/confirm';
+import { can, showLocked } from '@/features';
 import { useStore } from '@/store';
 import { makeStyles, radius, setThemeMode, spacing, ThemeMode, useTheme, useThemeMode } from '@/theme';
 
@@ -193,7 +194,7 @@ export default function ProfiloScreen() {
             ))}
           </View>
 
-          {prefs.transport === 'car' && (
+          {prefs.transport === 'car' && can(prefs, 'carburante') && (
             <>
               <SectionTitle>Carburante</SectionTitle>
               <Text style={s.help}>Uso il prezzo medio di oggi dei distributori vicini (dati MIMIT).</Text>
@@ -297,11 +298,13 @@ export default function ProfiloScreen() {
               </View>
               {family.members.filter((m) => m.notifications === false).map((m) => m.user_id === userId ? (
                 <Text key={m.user_id} style={[s.help, { marginTop: spacing.sm }]}>
-                  🔕 Su questo account non arrivano gli avvisi della famiglia: usa l'app sul telefono e tocca «Prova le notifiche» qui sopra.
+                  {PUSH_SUPPORTED
+                    ? '🔕 Su questo telefono non arrivano gli avvisi della famiglia: attivali in «Notifiche» qui sotto.'
+                    : '🔕 Gli avvisi della famiglia arrivano sull\'app per Android: qui (web o iPhone) non ci sono.'}
                 </Text>
               ) : (
                 <View key={m.user_id} style={s.reminder}>
-                  <Text style={[s.help, { flex: 1 }]}>🔕 {m.display_name} non riceve gli avvisi: deve attivarli dal suo Profilo.</Text>
+                  <Text style={[s.help, { flex: 1 }]}>🔕 {m.display_name} non riceve gli avvisi: li attiva dall'app per Android (Profilo › Notifiche).</Text>
                   <Pressable onPress={async () => {
                     const r = await shareNotifyReminder(m.display_name);
                     if (r === 'copied') notify('Promemoria copiato: incollalo su WhatsApp o SMS.');
@@ -380,7 +383,7 @@ export default function ProfiloScreen() {
         {IS_CLOUD && (
           <ProfileSection id="gruppi" icon="happy-outline" title="Gruppi" summary={groups.length ? groups.map((g) => `${g.emoji || '🛒'} ${g.name}`).join(', ') : 'Liste con amici: feste, cene, coinquilini'}>
             {groups.map((g) => (
-              <Pressable key={g.id} onPress={() => router.push(`/gruppo/${g.id}`)} style={[s.member, s.storeRow]}>
+              <Pressable key={g.id} onPress={() => { setPrefs({ activeList: g.id }); router.push('/'); }} style={[s.member, s.storeRow]}>
                 <Text style={{ fontSize: 20 }}>{g.emoji || '🛒'}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.memberName, { fontWeight: '700' }]} numberOfLines={1}>{g.name}</Text>
@@ -394,7 +397,7 @@ export default function ProfiloScreen() {
                 <Icon name="chevron-forward" size={18} color={colors.textSecondary} />
               </Pressable>
             ))}
-            <PrimaryButton label="Nuovo gruppo" icon="add-outline" variant="secondary" onPress={() => setGroupSheet(true)} />
+            <PrimaryButton label="Nuovo gruppo" icon="add-outline" variant="secondary" onPress={() => (can(prefs, 'nuovoGruppo') ? setGroupSheet(true) : showLocked('nuovoGruppo'))} />
             {archived.length > 0 && (
               <>
                 <SectionTitle>Archiviati</SectionTitle>

@@ -61,7 +61,8 @@ export function InviteHandler() {
       if (r.status === 'pending') return setView({ mode: 'pending', info });
       setView(null);
       if (r.status === 'joined') {
-        router.push(r.kind === 'famiglia' ? '/profilo' : r.group_id ? `/gruppo/${r.group_id}` : '/');
+        if (r.kind !== 'famiglia' && r.group_id) setPrefs({ activeList: r.group_id });   // #78: tutti nella stessa lista del gruppo
+        router.push(r.kind === 'famiglia' ? '/profilo' : '/');
         setTimeout(() => globalThis.alert?.(`Benvenuto! Sei ${r.kind === 'famiglia' ? 'nella famiglia' : `in «${info?.name || 'gruppo'}»`}.`), 300);
       }
     } catch (e) {

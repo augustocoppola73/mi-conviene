@@ -997,7 +997,9 @@ export const cloudApi = {
     const [book, cp] = await Promise.all([priceBook(), customPrices()]);
     const row = await updateShop(id, (shop) => {
       if (shop.status !== 'active') throw new Error('Questa spesa è già chiusa');
-      guardAct(shop, me);
+      // #102: chi dà una mano in un'altra tappa può aggiungere nella sua parte
+      const ex0 = shop.items.find((i: any) => i.key === item.product_id);
+      guardAct(shop, me, ex0 ?? (shop.stops?.length > 1 ? { stop: Math.min(Math.max(item.stop ?? 0, 0), shop.stops.length - 1) } : undefined));
       const existing = shop.items.find((i: any) => i.key === item.product_id);
       if (existing) existing.quantity = pyRound(existing.quantity + item.quantity, 3);
       else if (shop.stops?.length > 1) {

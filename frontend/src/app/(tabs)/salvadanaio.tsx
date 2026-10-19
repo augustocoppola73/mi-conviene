@@ -16,6 +16,8 @@ import { confirmAsk } from '@/confirm';
 import { showError } from '@/errors';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
+import { LockedScreen } from '@/components/LockedScreen';
+import { can } from '@/features';
 
 const value = (e: SavingEntry) => (e.verified ? e.verified_amount ?? 0 : e.amount);
 /** "+€1,20" oppure "−€5,34" */
@@ -37,7 +39,14 @@ function previewVerified(e: SavingEntry, paid: number, refueled: boolean | null 
   return Math.round((shopPart + previewFuel(e, refueled, fuelPrice)) * 100) / 100;
 }
 
+// #76: in modalità partecipante anche aprendo l'indirizzo diretto si vede la spiegazione, non la funzione
 export default function SalvadanaioScreen() {
+  const { prefs } = useStore();
+  if (!can(prefs, 'salvadanaio')) return <LockedScreen feature="salvadanaio" />;
+  return <SalvadanaioScreenInner />;
+}
+
+function SalvadanaioScreenInner() {
   const s = useStyles();
   const { colors } = useTheme();
   const { userId, productById, catalog } = useStore();
@@ -195,8 +204,8 @@ export default function SalvadanaioScreen() {
                           {e.estimated_spend != null ? ` · previsto ${euro(e.estimated_spend)}` : ''}
                           {e.amount !== e.verified_amount ? ` · stima era ${euro(e.amount)}` : ''}
                         </Text>
-                        <Pressable onPress={() => openVerify(e)} hitSlop={6}><Text style={s.link}>Modifica</Text></Pressable>
-                        <Pressable onPress={() => undoVerify(e)} hitSlop={6}><Text style={s.linkMuted}>Annulla</Text></Pressable>
+                        <Pressable onPress={() => openVerify(e)} hitSlop={6} style={{ paddingVertical: 8, paddingHorizontal: 6 }} accessibilityRole="button"><Text style={s.link}>Modifica</Text></Pressable>
+                        <Pressable onPress={() => undoVerify(e)} hitSlop={6} style={{ paddingVertical: 8, paddingHorizontal: 6 }} accessibilityRole="button" accessibilityLabel="Annulla la verifica"><Text style={s.linkMuted}>Annulla</Text></Pressable>
                       </View>
                     ) : (
                       <View style={s.footer}>
@@ -373,7 +382,7 @@ const useStyles = makeStyles((c) => ({
   heroNeg: { backgroundColor: c.textSecondary, borderColor: c.textSecondary },   // #93: niente verde da festa quando si è speso di più
   heroLabel: { color: c.primaryText, opacity: 0.85, fontSize: 13 },
   heroValue: { color: c.primaryText, fontSize: 40, fontWeight: '800' },
-  heroSmall: { color: c.primaryText, opacity: 0.75, fontSize: 12, marginTop: spacing.md },
+  heroSmall: { color: c.primaryText, opacity: 0.92, fontSize: 12, marginTop: spacing.md },
   totals: { flexDirection: 'row', marginTop: spacing.md, gap: spacing.md },
   totalValue: { color: c.primaryText, fontSize: 18, fontWeight: '700' },
   helpToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md },

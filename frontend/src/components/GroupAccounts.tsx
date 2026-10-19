@@ -68,7 +68,7 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
       <View style={s.card}>
         <Text style={s.title}>💶 Conti</Text>
         <Text style={s.help}>
-          Speso in tutto {euro(total)}{bal.filter((b) => !b.excluded).length ? ` · ${euro(bal.find((b) => !b.excluded)?.share ?? 0)} a testa` : ''} · una famiglia conta come una persona sola.
+          Speso in tutto {euro(total)}{bal.filter((b) => !b.excluded).length ? ` · ${euro(bal.find((b) => !b.excluded)?.share ?? 0)} a quota` : ''} · ogni persona è una quota, una famiglia è una quota sola.
         </Text>
         {money.total != null && (
           <Text style={[s.help, total > money.total && { color: colors.danger, fontWeight: '700' }]}>

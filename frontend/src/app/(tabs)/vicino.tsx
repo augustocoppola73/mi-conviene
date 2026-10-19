@@ -19,6 +19,8 @@ import { openNavigation } from '@/navigate';
 import { isNetworkError } from '@/errors';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, storeColors, useTheme } from '@/theme';
+import { LockedScreen } from '@/components/LockedScreen';
+import { can } from '@/features';
 
 const FUEL_COLOR = '#5B6470';
 const OTHER_COLOR = '#9AA096'; // insegne senza prezzi (Ekom, Despar…)
@@ -35,7 +37,14 @@ interface Place { id: string; kind: 'store' | 'fuel'; chain?: string; name: stri
 // dominio del sito di un'insegna "altro" (dal tag website di OpenStreetMap), per il logo
 const siteDomain = (url?: string | null) => { const m = url?.match(/^https?:\/\/(?:www\.)?([^/:]+)/i); return m ? m[1] : null; };
 
+// #76: in modalità partecipante anche aprendo l'indirizzo diretto si vede la spiegazione, non la funzione
 export default function VicinoScreen() {
+  const { prefs } = useStore();
+  if (!can(prefs, 'vicino')) return <LockedScreen feature="vicino" />;
+  return <VicinoScreenInner />;
+}
+
+function VicinoScreenInner() {
   const s = useStyles();
   const { colors } = useTheme();
   const { prefs, setPrefs } = useStore();
@@ -195,7 +204,8 @@ export default function VicinoScreen() {
                 <Text style={s.link}>Aggiorna</Text>
               </Pressable>
             </View>
-            <Slider value={stepIdx} min={0} max={STEPS.length - 1} step={1} onChange={(v) => { setStepIdx(v); setListAll(false); }} />
+            <Slider value={stepIdx} min={0} max={STEPS.length - 1} step={1} onChange={(v) => { setStepIdx(v); setListAll(false); }}
+              label="Distanza massima" valueText={`${radiusKm < 1 ? 'mezzo' : radiusKm} chilometri`} />
             <View style={[s.row, { justifyContent: 'space-between' }]}>
               {STEPS.map((k) => <Text key={k} style={[s.tick, k === radiusKm && { color: colors.primary, fontWeight: '700' }]}>{k < 1 ? '½' : k}</Text>)}
             </View>

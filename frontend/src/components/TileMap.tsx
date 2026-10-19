@@ -127,6 +127,7 @@ export function TileMap({ center, radiusKm, points, selectedId, onSelect, onInte
           borderRadius: rPx, borderWidth: 2, borderColor: colors.primary, backgroundColor: 'rgba(79,107,74,0.08)' }} />
         {onScreen.map((p) => (
           <Pressable key={p.id} onPress={() => onSelect?.(p.id === selectedId ? null : p.id)} hitSlop={8}
+            accessibilityRole="button" accessibilityLabel={p.label || (p.kind === 'fuel' ? 'Distributore' : 'Supermercato')}
             style={{ position: 'absolute', left: p.x - D / 2, top: p.y - D / 2, width: D, height: D, borderRadius: p.kind === 'fuel' ? 5 : D / 2,
               backgroundColor: p.logo ? '#fff' : p.color, borderWidth: p.id === selectedId ? 3 : 2,
               borderColor: p.id === selectedId ? colors.text : p.logo ? p.color : '#fff',

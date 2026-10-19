@@ -31,7 +31,7 @@ export function SavingGoalCard({ entries, inFamily }: { entries: SavingEntry[]; 
         <Pressable onPress={() => setEditing(true)} style={s.empty} accessibilityRole="button">
           <Text style={s.emptyText}>🎯 <Text style={{ fontWeight: '800' }}>Fissa un obiettivo</Text>{inFamily ? ' per la famiglia' : ''}: "200 € entro Natale"</Text>
         </Pressable>
-        <GoalSheet visible={editing} goal={null} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />
+        <GoalSheet inFamily={inFamily} visible={editing} goal={null} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />
       </>
     );
   }
@@ -49,7 +49,7 @@ export function SavingGoalCard({ entries, inFamily }: { entries: SavingEntry[]; 
       <Card style={[s.card, done && { borderColor: colors.success, borderWidth: 2 }]}>
         <View style={s.head}>
           <Text style={s.title} numberOfLines={1}>{done ? '🎉' : '🎯'} {goal.title}</Text>
-          <Pressable onPress={() => setEditing(true)} hitSlop={8}><Text style={s.link}>Modifica</Text></Pressable>
+          <Pressable onPress={() => setEditing(true)} hitSlop={8} style={{ paddingVertical: 8, paddingHorizontal: 6 }} accessibilityRole="button" accessibilityLabel="Modifica l'obiettivo"><Text style={s.link}>Modifica</Text></Pressable>
         </View>
         <Text style={s.big}>{euro(Math.max(0, saved))} <Text style={s.of}>di {euro(goal.amount)}</Text></Text>
         <View style={s.track}><View style={[s.fill, { width: `${Math.max(2, pct * 100)}%` }, done && { backgroundColor: colors.success }]} /></View>
@@ -59,12 +59,12 @@ export function SavingGoalCard({ entries, inFamily }: { entries: SavingEntry[]; 
           {' '}· dal {dayLabel(since)}{inFamily ? ' · conta la spesa di tutti' : ''}
         </Text>
       </Card>
-      <GoalSheet visible={editing} goal={goal} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />
+      <GoalSheet inFamily={inFamily} visible={editing} goal={goal} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />
     </>
   );
 }
 
-function GoalSheet({ visible, goal, onClose, onSaved }: { visible: boolean; goal: SavingGoal | null; onClose: () => void; onSaved: () => void }) {
+function GoalSheet({ visible, goal, inFamily, onClose, onSaved }: { visible: boolean; goal: SavingGoal | null; inFamily: boolean; onClose: () => void; onSaved: () => void }) {
   const s = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -86,7 +86,7 @@ function GoalSheet({ visible, goal, onClose, onSaved }: { visible: boolean; goal
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   const remove = async () => {
-    if (!(await confirmAsk('Togliere l\'obiettivo?', 'Sparisce per tutta la famiglia. Puoi fissarne uno nuovo quando vuoi.', 'Togli'))) return;
+    if (!(await confirmAsk('Togliere l\'obiettivo?', inFamily ? 'Sparisce per tutta la famiglia. Puoi fissarne uno nuovo quando vuoi.' : 'Puoi fissarne uno nuovo quando vuoi.', 'Togli'))) return;
     setBusy(true); try { await api.deleteSavingGoal(); onSaved(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
 
   return (

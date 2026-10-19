@@ -50,7 +50,7 @@ export function NotifySettings({ embedded }: { embedded?: boolean } = {}) {
         {NOTIFY_KINDS.map((k) => (
           <View key={k.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <Text style={{ flex: 1, color: colors.text, fontSize: 15 }}>{k.label}</Text>
-            <Switch value={notify[k.id] !== false} onValueChange={(v) => save({ ...notify, [k.id]: v })}
+            <Switch value={notify[k.id] !== false} onValueChange={(v) => save({ ...notify, [k.id]: v })} accessibilityLabel={k.label}
               trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" />
           </View>
         ))}

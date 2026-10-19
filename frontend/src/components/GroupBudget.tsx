@@ -63,8 +63,8 @@ export function BudgetCard({ group, items, owner, spent, onChanged }: {
     return (
       <>
         <Pressable disabled={!owner} onPress={() => setEditing(true)} style={s.empty} accessibilityRole="button">
-          {owner && <Text style={s.text}>💰 <Text style={{ fontWeight: '800' }}>Cassa comune</Text>: fissa un budget («150 € in tutto» o «10 € a testa»)</Text>}
-          {spent > 0 && <Text style={s.muted}>Speso finora {euro(spent)} · {euro(spent / n)} a testa</Text>}
+          {owner && <Text style={s.text}>💰 <Text style={{ fontWeight: '800' }}>Cassa comune</Text>: fissa un budget («150 € in tutto» o «10 € a persona»)</Text>}
+          {spent > 0 && <Text style={s.muted}>Speso finora {euro(spent)} · {euro(spent / n)} a persona</Text>}
           {estLine && <Text style={s.muted}>{estLine}</Text>}
         </Pressable>
         <BudgetSheet visible={editing} group={group} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); onChanged(); }} />
@@ -79,12 +79,12 @@ export function BudgetCard({ group, items, owner, spent, onChanged }: {
       <View style={[s.card, over && { borderColor: colors.danger }]}>
         <View style={s.head}>
           <Text style={s.title}>💰 Cassa comune</Text>
-          {owner && <Pressable onPress={() => setEditing(true)} hitSlop={8}><Text style={s.link}>Modifica</Text></Pressable>}
+          {owner && <Pressable onPress={() => setEditing(true)} hitSlop={8} style={{ paddingVertical: 8, paddingHorizontal: 6 }} accessibilityRole="button" accessibilityLabel="Modifica il budget"><Text style={s.link}>Modifica</Text></Pressable>}
         </View>
         <Text style={s.big}>Speso {euro(spent)} <Text style={s.of}>di {euro(total)}</Text></Text>
         <View style={s.track}><View style={[s.fill, { width: `${Math.max(2, pct * 100)}%` }, over && { backgroundColor: colors.danger }]} /></View>
         <Text style={s.muted}>
-          {euro(spent / n)} a testa finora{group.budget_per_head ? ` · budget ${euro(group.budget!)} a testa × ${n}` : ` · ${euro(total / n)} a testa in tutto`}
+          {euro(spent / n)} a persona finora{group.budget_per_head ? ` · budget ${euro(group.budget!)} a persona × ${n}` : ` · ${euro(total / n)} a persona in tutto`}
           {over ? ` · sforato di ${euro(spent - total)}` : ` · restano ${euro(total - spent)}`}
         </Text>
         {estLine && <Text style={[s.muted, willOver && { color: colors.danger, fontWeight: '600' }]}>{estLine}{willOver ? ': si sfora' : ''}</Text>}
@@ -120,7 +120,7 @@ function BudgetSheet({ visible, group, onClose, onSaved }: { visible: boolean; g
           <View style={s.row}>
             {[false, true].map((ph) => (
               <Pressable key={String(ph)} onPress={() => setPerHead(ph)} style={[s.chip, perHead === ph && s.on]}>
-                <Text style={s.text}>{ph ? 'A testa' : 'In tutto'}</Text>
+                <Text style={s.text}>{ph ? 'A persona' : 'In tutto'}</Text>
               </Pressable>
             ))}
           </View>

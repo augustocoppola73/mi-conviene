@@ -32,11 +32,13 @@ function ask(m: string, ok: string): Promise<boolean> {
 }
 
 export default function GruppoScreen() {
-  const { id, tab: tab0 } = useLocalSearchParams<{ id: string; tab?: string }>();
-  const [tab, setTab] = useState<'lista' | 'conti'>(tab0 === 'conti' ? 'conti' : 'lista');
+  // #78: la lista del gruppo è una sola (nella scheda Lista); questa pagina è per Conti e impostazioni
+  const { id, menu: menu0 } = useLocalSearchParams<{ id: string; tab?: string; menu?: string }>();
+  const tab = 'conti' as 'lista' | 'conti';
   const s = useStyles();
   const { colors } = useTheme();
-  const { catalog, prefs } = useStore();
+  const { catalog, prefs, setPrefs } = useStore();
+  const openList = () => { setPrefs({ activeList: id }); router.replace('/'); };
   const [me, setMe] = useState<string | null>(null);
   const [group, setGroup] = useState<Group | null | undefined>(undefined);
   const [members, setMembers] = useState<GroupMember[]>([]);
@@ -44,7 +46,7 @@ export default function GruppoScreen() {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [menu, setMenu] = useState(false);
+  const [menu, setMenu] = useState(menu0 === '1');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -222,11 +224,10 @@ export default function GruppoScreen() {
         )}
 
         <View style={s.tabs}>
-          {(['lista', 'conti'] as const).map((t) => (
-            <Pressable key={t} onPress={() => setTab(t)} style={[s.tab, tab === t && s.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: tab === t }}>
-              <Text style={[s.tabText, tab === t && s.tabTextOn]}>{t === 'lista' ? '🛒 Lista' : '💶 Conti'}</Text>
-            </Pressable>
-          ))}
+          <Pressable onPress={openList} style={s.tab} accessibilityRole="button">
+            <Text style={s.tabText}>🛒 Apri la lista</Text>
+          </Pressable>
+          <View style={[s.tab, s.tabOn]}><Text style={[s.tabText, s.tabTextOn]}>💶 Conti</Text></View>
         </View>
         {tab === 'conti' ? (
           <GroupAccounts groupId={group.id} me={me} owner={owner} members={members} />

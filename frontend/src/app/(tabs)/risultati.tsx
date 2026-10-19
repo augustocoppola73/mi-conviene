@@ -244,6 +244,8 @@ export default function RisultatiScreen() {
         user_id: userId, store_id: first.store_id, store_name: names, amount: Math.round(splitSaving * share * 100) / 100,
         note: (splitSaving > 0 ? `${plain(savings.reference.label)} · spesa in due negozi` : 'spesa in due negozi') + (gSpend > 0 ? ` · senza i ${euro(gSpend)} per i gruppi` : ''),
         reference_type: savings.reference.type, price_basis: savings.price_basis, history_id: h.id,
+        // #102: come la spesa in un negozio, per ricalcolare il risparmio a fine spesa
+        reference_store_id: savings.reference.type === 'habitual' ? savings.reference.store_id : null, no_saving: false,
         estimated_spend: Math.round((split.items_total - gSpend) * 100) / 100, estimated_total: Math.round((split.total_cost - gSpend) * 100) / 100,
         snapshot: { store_id: first.store_id, store_name: names, split: true, stops: split.stops, travel: split.travel, total_cost: split.total_cost,
           receipt: { lines: split.stops.flatMap((st) => st.lines), total: split.items_total } },

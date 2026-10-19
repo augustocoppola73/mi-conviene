@@ -72,11 +72,11 @@ export function MonthSummary({ entries, categories }: { entries: SavingEntry[]; 
   return (
     <Card style={s.card}>
       <View style={s.head}>
-        <Pressable onPress={() => canBack && setOffset(offset + 1)} hitSlop={10} disabled={!canBack} accessibilityLabel="Mese prima">
+        <Pressable onPress={() => canBack && setOffset(offset + 1)} hitSlop={10} disabled={!canBack} style={{ padding: 10 }} accessibilityRole="button" accessibilityLabel="Mese prima">
           <Icon name="chevron-back" size={22} color={canBack ? colors.text : colors.border} />
         </Pressable>
         <Text style={s.title}>📅 {label[0].toUpperCase() + label.slice(1)}</Text>
-        <Pressable onPress={() => offset > 0 && setOffset(offset - 1)} hitSlop={10} disabled={offset === 0} accessibilityLabel="Mese dopo">
+        <Pressable onPress={() => offset > 0 && setOffset(offset - 1)} hitSlop={10} disabled={offset === 0} style={{ padding: 10 }} accessibilityRole="button" accessibilityLabel="Mese dopo">
           <Icon name="chevron-forward" size={22} color={offset > 0 ? colors.text : colors.border} />
         </Pressable>
       </View>

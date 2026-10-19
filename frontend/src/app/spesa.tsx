@@ -103,8 +103,11 @@ export default function SpesaScreen() {
       } catch (e) {
         if (isNetErr(e)) { setOffline(true); return false; }
         // #61: la spesa è stata chiusa o presa da un altro: queste spunte non si possono più mandare, le scarto
-        const dropped = pending.current.filter((x) => x.shopId === p.shopId).length;
-        pending.current = pending.current.filter((x) => x.shopId !== p.shopId);
+        // #102: se è solo quella cosa (la prende un altro) scarto solo quella spunta, non tutte
+        const msg = (e as Error).message || '';
+        const whole = /chiusa|La sta facendo|non trovata|not found/i.test(msg);
+        const dropped = whole ? pending.current.filter((x) => x.shopId === p.shopId).length : 1;
+        pending.current = whole ? pending.current.filter((x) => x.shopId !== p.shopId) : pending.current.slice(1);
         savePending();
         tell('Spunte non salvate', `${(e as Error).message}. ${dropped === 1 ? 'Una spunta fatta senza rete non è stata salvata' : `${dropped} spunte fatte senza rete non sono state salvate`}.`);
       }
@@ -282,7 +285,7 @@ export default function SpesaScreen() {
     save(null);
     setFinishing(null);
     AsyncStorage.removeItem(FINISH_KEY).catch(() => {});
-    router.replace(goVerify ? '/salvadanaio' : '/');
+    router.replace(goVerify && !prefs.participant ? '/salvadanaio' : '/');   // #76
   };
   const cancel = async () => {
     if (!shop || !userId) return;
@@ -392,7 +395,7 @@ export default function SpesaScreen() {
   const myLeft = myStop >= 0 ? todo.filter((i) => (i.stop ?? 0) === myStop).length : 0;
   // #82: le cose viste in negozio vanno nella tappa dove sei (quella dell'ultima cosa che hai preso), non nella prossima
   const lastMine = [...done].filter((i) => i.checked_by_id === userId && i.checked_at).sort((a, b) => (b.checked_at! > a.checked_at! ? 1 : -1))[0];
-  addStop.current = stops && myStop < 0 && lastMine ? (lastMine.stop ?? 0) : currentStop;
+  addStop.current = myStop >= 0 ? myStop : stops && lastMine ? (lastMine.stop ?? 0) : currentStop;
   const cart = Math.round(done.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
   const estimated = Math.round(shop.items.reduce((a, i) => a + (i.price ?? 0), 0) * 100) / 100;
   const pct = shop.items.length ? done.length / shop.items.length : 0;
@@ -532,7 +535,7 @@ export default function SpesaScreen() {
           </View>
         ))}
 
-        {!canAct ? null : adding ? (
+        {!(canAct || myStop >= 0) ? null : adding ? (
           <View style={{ marginTop: spacing.md }}>
             <ProductSearch
               products={catalog?.products ?? []}

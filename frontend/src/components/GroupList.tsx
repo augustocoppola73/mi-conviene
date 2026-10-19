@@ -191,8 +191,8 @@ export function GroupItemRow({ it, gl, onValue }: { it: GroupItem; gl: GroupList
       {it.status === 'preso' && bring && isMine && onValue && (
         <Text onPress={() => onValue(it)} style={s.link}>+ € nei conti</Text>
       )}
-      {it.status === 'da_prendere' && (free || isMine) && !bring && (
-        <QtyStepper compact quantity={Number(it.quantity)} unit={unit} step={qtyStep(p?.default_qty ?? 1, unit)}
+      {it.status === 'da_prendere' && (free || isMine) && !bring && (isMine || owner || gl.group?.add_policy !== 'proprietario') && (
+        <QtyStepper compact canRemove={canRemove(it)} quantity={Number(it.quantity)} unit={unit} step={qtyStep(p?.default_qty ?? 1, unit)}
           onChange={(n) => (n <= 0 ? canRemove(it) && after(() => removeGroupItem(it.id)) : after(() => updateGroupItem(it.id, { quantity: n })))} />
       )}
       {it.status === 'da_prendere' && free && (
@@ -278,7 +278,7 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
           <Pressable onPress={() => router.push(`/gruppo/${group.id}?tab=conti`)} hitSlop={8} accessibilityLabel="Conti del gruppo" style={s.contiBtn}>
             <Text style={s.link}>💶 Conti</Text>
           </Pressable>
-          <Pressable onPress={() => router.push(`/gruppo/${group.id}`)} hitSlop={8} accessibilityLabel="Impostazioni del gruppo">
+          <Pressable onPress={() => router.push(`/gruppo/${group.id}?menu=1`)} hitSlop={8} accessibilityLabel="Impostazioni del gruppo">
             <Icon name="settings-outline" size={22} color={colors.textSecondary} />
           </Pressable>
         </View>

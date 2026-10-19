@@ -8,8 +8,17 @@ import { api, Flyer } from '@/api';
 import { EmptyState, Icon, StoreDot } from '@/components/ui';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
+import { LockedScreen } from '@/components/LockedScreen';
+import { can } from '@/features';
 
+// #76: in modalità partecipante anche aprendo l'indirizzo diretto si vede la spiegazione, non la funzione
 export default function VolantiniScreen() {
+  const { prefs } = useStore();
+  if (!can(prefs, 'volantini')) return <LockedScreen feature="volantini" />;
+  return <VolantiniScreenInner />;
+}
+
+function VolantiniScreenInner() {
   const s = useStyles();
   const { colors } = useTheme();
   const { prefs } = useStore();
