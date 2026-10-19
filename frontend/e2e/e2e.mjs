@@ -15,6 +15,8 @@ async function user(sub, email) {
   const session = { access_token: jwt(sub, email), refresh_token: 'r', token_type: 'bearer', expires_in: 36000,
     expires_at: Math.floor(Date.now() / 1000) + 36000, user: { id: sub, email, aud: 'authenticated', role: 'authenticated' } };
   await ctx.addInitScript((s) => localStorage.setItem('sb-localhost-auth-token', s), JSON.stringify(session));
+  // #90: niente primo avvio guidato nelle prove automatiche
+  await ctx.addInitScript(() => { try { const k = 'margine_prefs'; const v = JSON.parse(localStorage.getItem(k) || '{}'); if (v.onboarded == null) { v.onboarded = true; localStorage.setItem(k, JSON.stringify(v)); } } catch { /* */ } });
   await ctx.route(/overpass-api/, (r) => r.fulfill({ json: { elements: PL.elements } }));
   await ctx.route(/nominatim/, (r) => r.fulfill({ json: [{ lat: '43.5485', lon: '10.3106', display_name: 'Livorno, Toscana, Italia' }] }));
   const page = await ctx.newPage();

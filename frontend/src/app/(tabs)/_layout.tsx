@@ -5,6 +5,7 @@ import { Tabs } from 'expo-router';
 import { View } from 'react-native';
 
 import { LockedSheet } from '@/components/LockedSheet';
+import { Onboarding } from '@/components/Onboarding';
 import { can, Feature, showLocked } from '@/features';
 import { useStore } from '@/store';
 import { useTheme } from '@/theme';
@@ -61,6 +62,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="profilo" options={{ href: null, title: 'Profilo' }} />
     </Tabs>
     <LockedSheet />
+    <Onboarding />
     </>
   );
 }

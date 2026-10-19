@@ -60,16 +60,55 @@ async function fetchAll<R>(page: (from: number, to: number) => PromiseLike<{ dat
 let bookCache: { at: number; book: PriceBook } | null = null;
 let bookLoading: Promise<PriceBook> | null = null;
 
+/**
+ * #84: il listino non si scarica più tutto a ogni avvio. Resta sul telefono (AsyncStorage) e:
+ * - i prezzi Open Prices (aggiornati di notte) si riscaricano solo se è cambiata la loro «firma» (righe + ultimo aggiornamento);
+ * - dei prezzi visti dagli utenti arrivano solo quelli nuovi (dopo l'ultimo che ho), tenendo i 3 più recenti per prezzo.
+ */
+const BOOK_KEY = 'mc_pricebook_v1';
+const SEEN_COLS = 'store_id,product_id,kind,ref_price,paid,receipt_text,note,location_name,date,promo_until,created_at';
+type BookStore = { ppSig: string; open: any[]; seen: any[]; seenMax: string | null };
+let bookStore: BookStore | null = null;
+
+function trimSeen(rows: any[]): any[] {
+  const limit = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10);
+  const by = new Map<string, any[]>();
+  for (const r of rows) {
+    if ((r.date ?? '') < limit) continue;
+    const k = `${r.store_id}|${r.product_id}|${r.kind}`;
+    const l = by.get(k) ?? []; l.push(r); by.set(k, l);
+  }
+  const out: any[] = [];
+  for (const l of by.values()) out.push(...l.sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, 3));
+  return out.sort((x, y) => (x.created_at < y.created_at ? -1 : 1));
+}
+
+async function loadBookStore(): Promise<BookStore> {
+  if (!bookStore) {
+    try { const raw = await AsyncStorage.getItem(BOOK_KEY); bookStore = raw ? JSON.parse(raw) : null; } catch { bookStore = null; }
+  }
+  const st: BookStore = bookStore ?? { ppSig: '', open: [], seen: [], seenMax: null };
+  const { data: sig } = await sb().rpc('price_book_sig');
+  const [open, fresh] = await Promise.all([
+    sig && sig === st.ppSig ? Promise.resolve(st.open) : fetchAll<any>((a, b) => sb().from('product_prices').select('*').range(a, b)),
+    st.seenMax
+      ? fetchAll<any>((a, b) => sb().from('user_prices').select(SEEN_COLS).gt('created_at', st.seenMax!).order('created_at').range(a, b))
+      : fetchAll<any>((a, b) => sb().from('user_prices').select(SEEN_COLS)
+          .gte('date', new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10))
+          .order('created_at', { ascending: false }).range(a, b)),
+  ]);
+  const seen = trimSeen([...st.seen, ...fresh]);
+  const seenMax = seen.reduce((m: string | null, r: any) => (!m || r.created_at > m ? r.created_at : m), st.seenMax);
+  bookStore = { ppSig: (sig as string) ?? '', open, seen, seenMax };
+  AsyncStorage.setItem(BOOK_KEY, JSON.stringify(bookStore)).catch(() => {});
+  return bookStore;
+}
+
 async function priceBook(): Promise<PriceBook> {
   if (bookCache && Date.now() - bookCache.at < 10 * 60 * 1000) return bookCache.book;
   if (bookLoading) return bookLoading;
   bookLoading = (async () => {
-    const [open, seen] = await Promise.all([
-      fetchAll<any>((a, b) => sb().from('product_prices').select('*').range(a, b)),
-      fetchAll<any>((a, b) => sb().from('user_prices')
-        .select('store_id,product_id,kind,ref_price,paid,receipt_text,note,location_name,date,promo_until,created_at')
-        .order('created_at').range(a, b)),
-    ]);
+    const { open, seen } = await loadBookStore();
     const openPrices: Record<string, RealPrice> = {};
     for (const p of open) {
       openPrices[`${p.store_id}|${p.product_id}`] = {

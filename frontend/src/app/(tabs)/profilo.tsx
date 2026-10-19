@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -543,6 +544,18 @@ function AccountCard({ embedded }: { embedded?: boolean }) {
     setBusy(true); setMsg(null);
     try { await saveAccountWithGoogle(); } catch (e) { setMsg((e as Error).message); setBusy(false); }
   };
+  const [delOpen, setDelOpen] = useState(false);
+  const [delText, setDelText] = useState('');
+  const deleteAccount = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const { error } = await sb().rpc('delete_my_account', { p_confirm: delText.trim() });
+      if (error) throw new Error(error.message);
+      await AsyncStorage.clear().catch(() => {});
+      await signOut().catch(() => {});
+      if (Platform.OS === 'web') globalThis.location?.reload();
+    } catch (e) { setMsg((e as Error).message); setBusy(false); }
+  };
   const exit = () => {
     if (user?.anonymous && !(globalThis.confirm?.("Sei senza account: uscendo non potrai più rientrare in questi dati. Salvali prima con Google. Esci lo stesso?") ?? true)) return;
     signOut();
@@ -592,6 +605,23 @@ function AccountCard({ embedded }: { embedded?: boolean }) {
         ) : null}
         {msg && <Text style={{ color: colors.danger, fontSize: 14 }}>{msg}</Text>}
         <PrimaryButton label="Esci" icon="log-out-outline" variant="secondary" onPress={exit} />
+        {/* #88: eliminare l'account e i dati (Google Play, GDPR) */}
+        {!delOpen ? (
+          <Pressable onPress={() => { setDelOpen(true); setDelText(''); setMsg(null); }} style={{ alignSelf: 'center', padding: spacing.sm }} accessibilityRole="button">
+            <Text style={{ color: colors.danger, fontSize: 14 }}>Elimina account e dati</Text>
+          </Pressable>
+        ) : (
+          <View style={{ gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.danger }}>
+            <Text style={text}>
+              Cancello per sempre il tuo account e i tuoi dati: profilo, liste, spese, Salvadanaio, ricette, prezzi segnati. Esci da famiglia e gruppi.
+              Non si può annullare. Scrivi <Text style={{ fontWeight: '800' }}>ELIMINA</Text> per confermare.
+            </Text>
+            <TextInput value={delText} onChangeText={setDelText} autoCapitalize="characters" placeholder="ELIMINA" placeholderTextColor={colors.textSecondary}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, backgroundColor: colors.surface, fontSize: 16 }} />
+            <PrimaryButton label="Elimina per sempre" icon="trash-outline" onPress={deleteAccount} loading={busy} disabled={delText.trim().toUpperCase() !== 'ELIMINA'} />
+            <Pressable onPress={() => setDelOpen(false)} style={{ alignSelf: 'center', padding: spacing.sm }}><Text style={{ color: colors.textSecondary }}>Annulla</Text></Pressable>
+          </View>
+        )}
       </Box>
     </>
   );

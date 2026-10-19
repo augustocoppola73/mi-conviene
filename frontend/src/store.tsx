@@ -52,11 +52,13 @@ export interface Prefs {
   eventPlans: Record<string, { type: string; adults: number; kids: number; /** #67: quanto ha aggiunto la festa (lista personale) */ added?: Record<string, number> }>;
   /** #75: quando le preferenze sono state allineate con il profilo online (ms) */
   syncAt: number;
+  /** #90: primo avvio guidato già visto */
+  onboarded: boolean;
 }
 
 /** #75: le preferenze che seguono la persona su ogni telefono (le altre restano del telefono: GPS, vista, modalità…) */
 const SYNC_KEYS = ['displayName', 'favorites', 'budget', 'minSavingsThreshold', 'fuelType', 'transport', 'categoryRules',
-  'refuel', 'refuelLiters', 'nearOnlyPriced', 'restockSnooze', 'menu'] as const;
+  'refuel', 'refuelLiters', 'nearOnlyPriced', 'restockSnooze', 'menu', 'onboarded'] as const;
 const pickSync = (p: Prefs) => Object.fromEntries(SYNC_KEYS.map((k) => [k, p[k]]));
 
 const DEFAULT_PREFS: Prefs = {
@@ -83,6 +85,7 @@ const DEFAULT_PREFS: Prefs = {
   storeFull: false,
   eventPlans: {},
   syncAt: 0,
+  onboarded: false,
 };
 
 interface StoreValue {
