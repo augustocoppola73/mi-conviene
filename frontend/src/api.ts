@@ -233,7 +233,7 @@ export interface RecipePlan { servings: number; recipe_servings: number; assumed
 export interface RecipeIn { user_id: string; name: string; servings: number | null; ingredients: string[]; notes?: string | null; url?: string | null; source?: string | null }
 export interface Cheapest { store_id: string; store_name: string; portion: number; complete: boolean }
 export interface StoreCost { store_id: string; store_name: string; total: number }
-export type RecipeSort = 'rilevanza' | 'prezzo' | 'veloci' | 'toscana';
+export type RecipeSort = 'rilevanza' | 'prezzo' | 'veloci' | 'regione';
 export interface SuggestRecipe extends RecipeSummary {
   uses: string[]; coverage: number;
   missing?: { product_id: string; name: string; quantity: number; unit: string }[];
@@ -392,7 +392,7 @@ export const localApi = {
   habitual: (userId: string) =>
     request<{ items: HabitualItem[]; occasions: number; needed: number; based_on: number }>(`/habitual/${userId}`),
 
-  recipes: (q: string, user_id?: string | null, sort: RecipeSort = 'rilevanza') =>
+  recipes: (q: string, user_id?: string | null, sort: RecipeSort = 'rilevanza', _region?: string | null) =>
     request<{ recipes: RecipeSummary[]; total_collection: number; license: string }>(
       `/recipes?q=${encodeURIComponent(q)}${user_id ? `&user_id=${user_id}` : ''}&sort=${sort}${sort === 'prezzo' ? '&main=true' : ''}`),
   suggest: (body: { user_id?: string | null; items: ListItem[]; store_id?: string; budget?: number | null; spent?: number | null; servings?: number }) =>
@@ -401,6 +401,7 @@ export const localApi = {
     post<MenuPlan>('/recipes/menu', { user_id, entries }),
   recipePropose: (body: { user_id?: string | null; count: number; servings: number; budget?: number | null; store_id?: string; exclude?: string[]; items?: ListItem[] }) =>
     post<{ recipes: ProposedRecipe[]; total: number; servings: number; budget: number | null }>('/recipes/propose', body),
+  recipeRegions: async (): Promise<{ region: string; count: number }[]> => [],
   recipe: (id: string, user_id?: string | null) => request<Recipe>(`/recipes/${encodeURIComponent(id)}${user_id ? `?user_id=${user_id}` : ''}`),
   recipePlan: (body: { servings: number; recipe_id?: string; user_id?: string | null; ingredients?: string[]; recipe_servings?: number | null }) =>
     post<RecipePlan>('/recipes/plan', body),

@@ -34,6 +34,8 @@ export interface Prefs {
   menu: MenuEntry[];
   /** Vicino a me: solo le insegne con prezzi nell'app */
   nearOnlyPriced: boolean;
+  /** regione delle ricette regionali (null = quella della posizione) */
+  recipeRegion?: string | null;
   /** le mie regole per la spesa in due negozi: categoria → catena */
   categoryRules: Record<string, string>;
   /** #21: la lista mostrata nella scheda Lista: null = la mia, altrimenti l'id del gruppo */
@@ -58,7 +60,7 @@ export interface Prefs {
 
 /** #75: le preferenze che seguono la persona su ogni telefono (le altre restano del telefono: GPS, vista, modalità…) */
 const SYNC_KEYS = ['displayName', 'favorites', 'budget', 'minSavingsThreshold', 'fuelType', 'transport', 'categoryRules',
-  'refuel', 'refuelLiters', 'nearOnlyPriced', 'restockSnooze', 'menu', 'onboarded'] as const;
+  'refuel', 'refuelLiters', 'nearOnlyPriced', 'restockSnooze', 'menu', 'onboarded', 'recipeRegion'] as const;
 const pickSync = (p: Prefs) => Object.fromEntries(SYNC_KEYS.map((k) => [k, p[k]]));
 
 const DEFAULT_PREFS: Prefs = {

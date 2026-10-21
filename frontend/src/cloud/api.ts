@@ -22,7 +22,7 @@ import { flyers, fuelNearby, geocode, KV, NEAR_ME_MAX_KM, nearestPerChain, OsmPa
 import { search } from '../engine/recipes';
 import { usualAndDue } from '../engine/restock';
 import { haversineKm, median, pyRound, todayRome } from '../engine/util';
-import { homeRank, isQuick, isTuscan } from '../recipeTaste';
+import { homeRank, isQuick, isRegion, REGIONS } from '../recipeTaste';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
 import RECIPE_CORES from '../engine/data/recipe_cores.json';
 import { check, IS_CLOUD, sb, uid } from './client';
@@ -803,7 +803,7 @@ export const cloudApi = {
     return { ...(habitualFromHistory(shops) as any), based_on: shops.length };
   },
 
-  recipes: async (q: string, _user_id?: string | null, sort: T.RecipeSort = 'rilevanza') => {
+  recipes: async (q: string, _user_id?: string | null, sort: T.RecipeSort = 'rilevanza', region?: string | null) => {
     const limit = 40;
     const mine = await myRecipes();
     let found: Recipe[];
@@ -811,8 +811,8 @@ export const cloudApi = {
     if (sort === 'prezzo') {
       const pool = q ? [...search(mine, q, 10000), ...search(COLLECTION, q, 10000)] : [...mine, ...COLLECTION];
       found = rankByPrice(book, pool, true, limit);
-    } else if (sort === 'veloci' || sort === 'toscana') {
-      const keep = sort === 'veloci' ? isQuick : isTuscan;
+    } else if (sort === 'veloci' || sort === 'regione') {
+      const keep = sort === 'veloci' ? isQuick : isRegion(region || 'Toscana');
       found = [...search(mine, q, limit), ...search(COLLECTION.filter(keep), q, 10000)].slice(0, limit);
     } else if (!q) {
       // #100: senza ricerca prima i piatti di casa di tutti i giorni con il prezzo, poi il resto, la cucina straniera in fondo
@@ -826,6 +826,10 @@ export const cloudApi = {
     }
     return { recipes: found.map((r) => recipeSummaryPriced(book, r)) as T.RecipeSummary[], total_collection: COLLECTION.length, license: LICENSE };
   },
+
+  /** quante ricette ha ogni regione nella raccolta */
+  recipeRegions: async (): Promise<{ region: string; count: number }[]> =>
+    REGIONS.map((r) => ({ region: r as string, count: COLLECTION.filter(isRegion(r)).length })),
 
   suggest: async (body: { user_id?: string | null; items: T.ListItem[]; store_id?: string; budget?: number | null; spent?: number | null; servings?: number }) => {
     const [book, mine, shops] = await Promise.all([priceBook(), myRecipes(), historyRows(40)]);

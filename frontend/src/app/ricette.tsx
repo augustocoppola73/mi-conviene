@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, MenuPlan, PlanRow, ProposedRecipe, Recipe, RecipeSort, RecipeSummary } from '@/api';
@@ -8,6 +8,7 @@ import { IS_CLOUD } from '@/cloud/client';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty, parseEuro } from '@/format';
 import { useStore } from '@/store';
+import { regionAt } from '@/recipeTaste';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 import { LockedScreen } from '@/components/LockedScreen';
 import { can } from '@/features';
@@ -159,14 +160,23 @@ function RecipeList({ userId, onOpen, onNew, onMenu }: { userId: string | null; 
   const [link, setLink] = useState('');
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ricette regionali: di partenza la regione della posizione (o dell'indirizzo), poi quella che scegli
+  const { prefs, setPrefs } = useStore();
+  const loc = prefs.location;
+  const autoRegion = loc ? regionAt(loc.lat, loc.lon, loc.label) : null;
+  const region = prefs.recipeRegion ?? autoRegion ?? 'Toscana';
+  const [regions, setRegions] = useState<{ region: string; count: number }[]>([]);
+  const [pickRegion, setPickRegion] = useState(false);
+  useEffect(() => { api.recipeRegions().then(setRegions).catch(() => {}); }, []);
+  const regionCount = regions.find((x) => x.region === region)?.count;
 
   useEffect(() => {
     const t = setTimeout(() => {
       setList(null);
-      api.recipes(q.trim(), userId, sort).then((r) => { setList(r.recipes); setTotal(r.total_collection); }).catch((e) => setError(e.message));
+      api.recipes(q.trim(), userId, sort, region).then((r) => { setList(r.recipes); setTotal(r.total_collection); }).catch((e) => setError(e.message));
     }, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [q, userId, sort]);
+  }, [q, userId, sort, region]);
 
   const open = async (id: string) => {
     try { onOpen(await api.recipe(id, userId)); } catch (e) { setError((e as Error).message); }
@@ -208,12 +218,36 @@ function RecipeList({ userId, onOpen, onNew, onMenu }: { userId: string | null; 
         <TextInput value={q} onChangeText={setQ} placeholder="Cerca un piatto o un ingrediente…" placeholderTextColor={colors.textSecondary} style={s.input} />
       </View>
       <View style={s.sortRow}>
-        {([['rilevanza', 'Di casa'], ['veloci', '⚡ Veloci'], ['toscana', 'Toscana'], ['prezzo', '€ Economiche']] as const).map(([k, label]) => (
-          <Pressable key={k} onPress={() => setSort(k)} style={[s.sortChip, sort === k && s.sortOn]}>
+        {([['rilevanza', 'Di casa'], ['veloci', '⚡ Veloci'], ['regione', `📍 ${region}`], ['prezzo', '€ Economiche']] as const).map(([k, label]) => (
+          <Pressable key={k} onPress={() => (k === 'regione' && sort === 'regione' ? setPickRegion(true) : setSort(k))} style={[s.sortChip, sort === k && s.sortOn]}>
             <Text style={[s.sortText, sort === k && s.sortTextOn]}>{label}</Text>
           </Pressable>
         ))}
       </View>
+      {sort === 'regione' && (
+        <Text style={s.muted}>
+          Ricette della {prefs.recipeRegion ? 'regione scelta' : 'tua regione (dalla posizione)'}{regionCount != null ? `: ${regionCount}` : ''}.{' '}
+          {regionCount != null && regionCount < 5 ? 'La raccolta ne ha poche: prova una regione vicina. ' : ''}
+          <Text onPress={() => setPickRegion(true)} style={{ color: colors.primary, fontWeight: '700' }}>Cambia regione</Text>
+        </Text>
+      )}
+      <Modal visible={pickRegion} transparent animationType="fade" onRequestClose={() => setPickRegion(false)}>
+        <Pressable style={s.regionBg} onPress={() => setPickRegion(false)}>
+          <Pressable style={s.regionBox} onPress={() => {}}>
+            <Text style={s.cardTitle}>Ricette di quale regione?</Text>
+            <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {regions.map((x) => (
+                <Pressable key={x.region} onPress={() => { setPrefs({ recipeRegion: x.region === autoRegion ? null : x.region }); setSort('regione'); setPickRegion(false); }}
+                  style={[s.sortChip, x.region === region && s.sortOn, !x.count && { opacity: 0.45 }]} disabled={!x.count}
+                  accessibilityRole="button" accessibilityState={{ selected: x.region === region }}>
+                  <Text style={[s.sortText, x.region === region && s.sortTextOn]}>{x.region === autoRegion ? '📍 ' : ''}{x.region} · {x.count}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {autoRegion && <Text style={s.muted}>📍 = la tua regione, dalla posizione salvata nel Profilo.</Text>}
+          </Pressable>
+        </Pressable>
+      </Modal>
       {sort === 'prezzo' && <Text style={s.muted}>Piatti principali, dal costo a persona più basso, al supermercato più conveniente. Solo ricette con tutti gli ingredienti a prezzo.</Text>}
       {error && <Text style={[s.muted, { color: colors.danger, marginTop: spacing.sm }]}>{error}</Text>}
       {!list ? <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.lg }} /> : (
@@ -601,6 +635,8 @@ const useStyles = makeStyles((c) => ({
   ingOn: { borderColor: c.primary, backgroundColor: c.primarySoft },
   buyQty: { color: c.text, fontSize: 14, fontWeight: '700' },
   price: { color: c.success, fontSize: 12, fontWeight: '600', marginTop: 1 },
+  regionBg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'center', padding: spacing.lg },
+  regionBox: { backgroundColor: c.surface, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, maxHeight: '80%', width: '100%', maxWidth: 520, alignSelf: 'center' },
   sortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.md },
   sortChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
   sortOn: { backgroundColor: c.primary, borderColor: c.primary },
