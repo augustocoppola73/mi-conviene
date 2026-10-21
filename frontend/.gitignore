@@ -51,3 +51,5 @@ example
 
 # Firebase (non segreto, ma resta sul PC che costruisce l APK)
 /google-services.json
+# il certificato pubblico della firma degli aggiornamenti va nel repo (la chiave privata no)
+!certs/certificate.pem

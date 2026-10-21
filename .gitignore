@@ -24,3 +24,7 @@ backend/data/
 
 # file temporanei della CLI di Supabase
 supabase/.temp/
+
+# chiavi private (firma degli aggiornamenti e simili): mai nel repo
+private-key.pem
+*.key

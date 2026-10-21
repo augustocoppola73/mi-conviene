@@ -23,6 +23,7 @@ export default function AltroScreen() {
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <ScrollView contentContainerStyle={s.content}>
+        <Text style={s.kicker}>Mi Conviene</Text>
         <Text style={s.title}>Altro</Text>
         {prefs.participant && (
           <Pressable onPress={() => showLocked('tutte')} style={[s.row, s.full]} accessibilityRole="button">
@@ -57,7 +58,8 @@ export default function AltroScreen() {
 const useStyles = makeStyles((c) => ({
   safe: { flex: 1, backgroundColor: c.background },
   content: { padding: spacing.lg, gap: spacing.sm, maxWidth: 720, width: '100%', alignSelf: 'center' },
-  title: { color: c.text, fontSize: 28, fontWeight: '800', marginBottom: spacing.md },
+  kicker: { color: c.textSecondary, fontSize: 14 },
+  title: { color: c.text, fontSize: 28, fontWeight: '800', marginTop: 2, marginBottom: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.md,
     borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, minHeight: 72 },
   emoji: { fontSize: 28 },

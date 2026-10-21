@@ -53,7 +53,13 @@ select pg_temp.come(:'L');
 insert into esito select 'Ora Laura lo vede, con i prodotti', (select lines->0->>'name' from public.group_expenses where id = pg_temp.val('e')::uuid) = 'birra';
 -- pareggio
 select public.settle_group(pg_temp.val('g')::uuid, :'L', :'A', 14);
-insert into esito select 'Laura dà 14 ad Augusto: tutti in pari', pg_temp.saldo(:'A') = 0 and pg_temp.saldo(:'L') = 0;
+-- #64: il pareggio vale quando lo conferma chi riceve
+insert into esito select 'Pareggio in attesa: Laura non lo conferma da sola',
+  pg_temp.fallisce(format('select public.confirm_settlement(%L, true)', (select id from public.group_settlements where group_id = pg_temp.val('g')::uuid limit 1)), 'riceve');
+select pg_temp.come(:'A');
+select public.confirm_settlement((select id from public.group_settlements where group_id = pg_temp.val('g')::uuid limit 1), true);
+select pg_temp.come(:'L');
+insert into esito select 'Laura dà 14 ad Augusto (lui conferma): tutti in pari', pg_temp.saldo(:'A') = 0 and pg_temp.saldo(:'L') = 0;
 insert into esito select 'Laura non esclude nessuno', pg_temp.fallisce(format('select public.set_split_excluded(%L, %L, true)', pg_temp.val('g'), :'L'), 'creato');
 select pg_temp.come(:'A');
 select public.set_split_excluded(pg_temp.val('g')::uuid, :'L', true);

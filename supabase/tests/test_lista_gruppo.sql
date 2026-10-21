@@ -37,9 +37,10 @@ insert into esito select 'Augusto accetta la proposta', (select status from publ
 update public.group_list_items set assigned_to = :'A' where product_id = 'latte';
 
 select pg_temp.come(:'L');
-insert into esito select 'Laura non cambia la quantità del latte preso da Augusto', pg_temp.fallisce('update public.group_list_items set quantity = 3 where product_id = ''latte''', 'chiedi');
-update public.group_list_items set quantity = 8 where name = 'birra';
-insert into esito select 'Quantità di un prodotto libero: la cambia chiunque', (select quantity from public.group_list_items where name = 'birra') = 8;
+insert into esito select 'Laura non cambia la quantità del latte preso da Augusto', pg_temp.fallisce('update public.group_list_items set quantity = 3 where product_id = ''latte''');
+-- #79: con «solo il proprietario aggiunge» le quantità le decide lui (tranne quello che prendi tu)
+insert into esito select 'Regola «solo io»: Laura non cambia la quantità della birra', pg_temp.fallisce('update public.group_list_items set quantity = 8 where name = ''birra''', 'decide');
+insert into esito select 'Laura non rinomina il latte di Augusto', pg_temp.fallisce('update public.group_list_items set name = ''Vino'' where product_id = ''latte''', 'cambia');
 
 select pg_temp.come(:'A');
 update public.group_list_items set quantity = 2 where product_id = 'latte';

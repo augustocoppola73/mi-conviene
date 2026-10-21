@@ -34,7 +34,7 @@ function VolantiniScreenInner() {
         <Pressable onPress={back} hitSlop={10} accessibilityLabel="Indietro">
           <Icon name="chevron-back" size={24} color={colors.text} />
         </Pressable>
-        <Text style={s.title}>📰 Volantini di oggi</Text>
+        <Text style={s.title}>Volantini di oggi</Text>
       </View>
       <ScrollView contentContainerStyle={s.content}>
         {flyers === null ? (
@@ -68,8 +68,8 @@ function VolantiniScreenInner() {
 
 const useStyles = makeStyles((c) => ({
   safe: { flex: 1, backgroundColor: c.background },
-  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  title: { color: c.text, fontSize: 20, fontWeight: '800' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  title: { color: c.text, fontSize: 22, fontWeight: '800' },   // #101: sottopagine con la stessa barra (← e titolo)
   content: { padding: spacing.lg, gap: spacing.sm, paddingBottom: 48, maxWidth: 720, width: '100%', alignSelf: 'center' },
   card: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, minHeight: 64 },

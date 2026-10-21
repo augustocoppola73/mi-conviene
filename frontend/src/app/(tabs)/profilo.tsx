@@ -129,13 +129,14 @@ export default function ProfiloScreen() {
 
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={() => router.navigate('/altro')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Torna ad Altro"
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start' }}>
-          <Icon name="chevron-back" size={18} color={colors.primary} />
-          <Text style={[s.kicker, { color: colors.primary }]}>Altro</Text>
+      {/* #101: come le altre sottopagine (Volantini, Ricette): barra con ← e titolo */}
+      <View style={s.header}>
+        <Pressable onPress={() => router.navigate('/altro')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Torna ad Altro" style={{ padding: 4 }}>
+          <Icon name="chevron-back" size={24} color={colors.text} />
         </Pressable>
-        <Text style={s.title}>Profilo</Text>
+        <Text style={s.headerTitle}>Profilo</Text>
+      </View>
+      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
 
         <ProfileSection id="tu" icon="person-outline" title={IS_CLOUD ? 'Tu e account' : 'Tu'} summary={summaryTu}>
           <SectionTitle>Come ti chiami?</SectionTitle>
@@ -475,6 +476,8 @@ const useStyles = makeStyles((c) => ({
   content: { width: '100%', maxWidth: 640, alignSelf: 'center', padding: spacing.lg, paddingBottom: spacing.xxl },
   kicker: { color: c.textSecondary, fontSize: 14 },
   title: { color: c.text, fontSize: 28, fontWeight: '800', marginTop: 2 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, width: '100%', maxWidth: 640, alignSelf: 'center' },
+  headerTitle: { color: c.text, fontSize: 22, fontWeight: '800', flex: 1 },
   input: {
     color: c.text, fontSize: 16, paddingHorizontal: spacing.lg, paddingVertical: 14,
     borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface,

@@ -26,3 +26,10 @@ src/components/ui.tsx  componenti condivisi
 ```
 
 Controlli prima di ogni commit: `npx tsc --noEmit`
+
+## Aggiornamenti firmati (#89)
+Il Worker firma il manifest degli aggiornamenti con la chiave privata salvata solo nei segreti del Worker (`OTA_PRIVATE_KEY`, PKCS#8).
+Il certificato pubblico è `certs/certificate.pem` e `app.json` lo indica (`updates.codeSigningCertificate`): un APK costruito da ora in poi
+accetta solo aggiornamenti firmati con quella chiave. Gli APK di prima non controllano la firma e continuano ad aggiornarsi come sempre.
+La chiave privata (`private-key.pem`) sta fuori dal repo, sul PC di chi pubblica; se si perde: nuova coppia
+(`npx expo-updates codesigning:generate`), nuovo segreto (`wrangler secret put OTA_PRIVATE_KEY`, in formato PKCS#8) e nuovo APK.

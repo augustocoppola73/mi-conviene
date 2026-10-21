@@ -292,8 +292,8 @@ function PlaceRow({ p, fuelLabel }: { p: Place; fuelLabel?: string }) {
 const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.background },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl * 2, maxWidth: 720, width: '100%', alignSelf: 'center' },
-  kicker: { fontSize: 13, color: c.textSecondary, fontWeight: '600' },
-  title: { fontSize: 28, fontWeight: '700', color: c.text, marginTop: 2 },
+  kicker: { color: c.textSecondary, fontSize: 14 },
+  title: { color: c.text, fontSize: 28, fontWeight: '800', marginTop: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   muted: { fontSize: 13, color: c.textSecondary },
   label: { fontSize: 15, fontWeight: '700', color: c.text },

@@ -81,8 +81,15 @@ select pg_temp.come(:'X', true);
 insert into esito select 'Anteprima: chi è dentro senza account (Laura)',
   (select p->'returning' @> jsonb_build_array(jsonb_build_object('name', 'Laura')) and not (p->'returning' @> jsonb_build_array(jsonb_build_object('name', 'Augusto')))
    from (select public.invite_preview(pg_temp.val('inv')) p) x);
-insert into esito select 'Non si rientra come Augusto (ha l''email)', pg_temp.fallisce(format('select public.rejoin_as(%L, %L)', pg_temp.val('inv'), :'A'), 'email');
-insert into esito select 'Rientro come Laura', (select public.rejoin_as(pg_temp.val('inv'), :'L')->>'status') = 'joined';
+insert into esito select 'Non si rientra come Augusto (ha l''email)',
+  pg_temp.fallisce(format('select public.rejoin_as(%L, %L)', pg_temp.val('inv'), public.rejoin_key(pg_temp.val('g')::uuid, :'A')), 'email');
+-- #58: il rientro è una richiesta che il proprietario conferma
+insert into esito select 'Rientro come Laura: richiesta in attesa',
+  (select public.rejoin_as(pg_temp.val('inv'), public.rejoin_key(pg_temp.val('g')::uuid, :'L'))->>'status') = 'pending';
+insert into esito select 'Chi rientra non si accetta da solo', pg_temp.fallisce(format('select public.decide_join_request(%L, %L, true)', pg_temp.val('g'), :'X'));
+select pg_temp.come(:'A');
+select public.decide_join_request(pg_temp.val('g')::uuid, :'X', true);
+select pg_temp.come(:'X', true);
 insert into esito select 'Le patatine di Laura ora sono del telefono nuovo', (select assigned_to from public.group_list_items where name = 'patatine') = :'X';
 insert into esito select 'Nel gruppo c''è una sola Laura', (select count(*) from public.group_members where group_id = pg_temp.val('g')::uuid and display_name = 'Laura') = 1
   and not exists (select 1 from public.group_members where group_id = pg_temp.val('g')::uuid and user_id = :'L');

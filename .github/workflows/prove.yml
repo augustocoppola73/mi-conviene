@@ -1,0 +1,52 @@
+name: Prove (database e app)
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  database:
+    # schema + tutte le patch su un Postgres nuovo (con un finto Supabase), poi le prove SQL di supabase/tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: prova
+          POSTGRES_DB: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: prova
+      PSQL: psql -h localhost -U postgres -d ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Schema e patch
+        run: bash supabase/ci/apply.sh --stub
+      - name: Prove SQL
+        run: bash supabase/ci/test.sh --fixtures
+
+  app:
+    # tipi TypeScript e confronto del motore con i risultati di riferimento (golden)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx tsx scripts/golden_core.ts
+      - run: npx tsx scripts/golden_kitchen.ts
+      - run: npx tsx scripts/golden_recipes.ts
+      - run: npx tsx scripts/golden_places.ts

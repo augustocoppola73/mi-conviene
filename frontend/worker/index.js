@@ -14,6 +14,21 @@ function rollBack() {
   return new Response(body, { headers: { 'content-type': `multipart/mixed; boundary=${b}`, 'expo-protocol-version': '1', 'expo-sfv-version': '0', 'cache-control': 'private, max-age=0' } });
 }
 
+let keyCache = null;
+async function sign(text, pem) {
+  try {
+    if (!keyCache) {
+      const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')), (c) => c.charCodeAt(0));
+      keyCache = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+    }
+    const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keyCache, new TextEncoder().encode(text));
+    let bin = ''; for (const b of new Uint8Array(sig)) bin += String.fromCharCode(b);
+    return btoa(bin);
+  } catch {
+    return null;   // chiave rovinata: meglio nessuna firma (l'APK firmato rifiuta e resta sul codice che ha) che un Worker rotto
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -27,9 +42,15 @@ export default {
       const manifest = await res.json();
       // aggiornamenti solo per APK con la stessa parte nativa; quello già installato non si riscarica
       if (manifest.runtimeVersion !== runtime || request.headers.get('expo-current-update-id') === manifest.id) return NO_UPDATE();
-      return new Response(JSON.stringify(manifest), {
-        headers: { 'content-type': 'application/json', 'expo-protocol-version': '1', 'expo-sfv-version': '0', 'cache-control': 'private, max-age=0' },
-      });
+      const body = JSON.stringify(manifest);
+      const headers = { 'content-type': 'application/json', 'expo-protocol-version': '1', 'expo-sfv-version': '0', 'cache-control': 'private, max-age=0' };
+      // #89: aggiornamenti firmati. L'APK con il certificato (app.json → codeSigningCertificate) accetta solo manifest firmati
+      // con la chiave privata giusta, che sta solo nei segreti del Worker (OTA_PRIVATE_KEY), mai nel codice.
+      if (env.OTA_PRIVATE_KEY && request.headers.get('expo-expect-signature')) {
+        const sig = await sign(body, env.OTA_PRIVATE_KEY);
+        if (sig) headers['expo-signature'] = `sig="${sig}", keyid="main"`;
+      }
+      return new Response(body, { headers });
     }
     return env.ASSETS.fetch(request);
   },
