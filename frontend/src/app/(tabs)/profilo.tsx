@@ -368,7 +368,6 @@ export default function ProfiloScreen() {
               <View style={[s.familyActions, { marginTop: spacing.md }]}>
                 <PrimaryButton
                   label="Crea famiglia"
-                  icon="people-outline"
                   loading={busy}
                   onPress={() => run(async () => setFamily(await api.familyCreate(userId!, prefs.displayName)))}
                   style={{ flex: 1 }}

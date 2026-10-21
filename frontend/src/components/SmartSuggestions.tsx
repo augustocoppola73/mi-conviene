@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { isForeign, isNotADish } from '../recipeTaste';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -38,8 +39,11 @@ export function SmartSuggestions({ items, storeId, budget, spent, onListChanged,
 
   if (!data) return null;
   const remaining = data.remaining;
-  const almost = recipes ? data.almost.filter((r) => !added.has(r.id)) : [];
-  const ready = recipes ? data.ready : [];
+  // #100: cucina di casa: niente piatti stranieri o salse, al massimo 2 cose da comprare e una sola fuori catalogo
+  const homely = (r: SuggestRecipe) => !isForeign(r) && !isNotADish(r);
+  const almost = recipes ? data.almost.filter((r) => !added.has(r.id) && homely(r)
+    && (r.missing_new?.length ?? 0) <= 1 && (r.missing?.length ?? 0) + (r.missing_new?.length ?? 0) <= 2) : [];
+  const ready = recipes ? data.ready.filter(homely) : [];
   const habitual = usual ? data.habitual_missing.filter((h) => !added.has(h.product_id)) : [];
   if (!recipes && !habitual.length) return null;
   if (!ready.length && !almost.length && !habitual.length) {

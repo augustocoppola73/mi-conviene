@@ -32,7 +32,7 @@ function summarize(entries: SavingEntry[]): Month {
     if (tot > 0) {
       const k = spent(e) / tot;
       for (const l of lines) {
-        const c = PRODUCT_INDEX[l.product_id]?.category_id ?? 'altro';
+        const c = PRODUCT_INDEX[l.product_id]?.category_id ?? (l as any).category_id ?? 'altro';   // #101: i prodotti scritti a mano tengono il loro reparto
         cats.set(c, (cats.get(c) ?? 0) + (l.line_price || 0) * k);
       }
     }
@@ -145,7 +145,7 @@ const useStyles = makeStyles((c) => ({
   bestText: { flex: 1, color: c.text, fontSize: 13, lineHeight: 18 },
   sub: { color: c.text, fontSize: 14, fontWeight: '700' },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  barLabel: { width: 118, color: c.text, fontSize: 12.5 },
+  barLabel: { width: 140, color: c.text, fontSize: 12 },
   barTrack: { flex: 1, height: 10, borderRadius: 5, backgroundColor: c.surfaceMuted, overflow: 'hidden' },
   barFill: { height: 10, borderRadius: 5, backgroundColor: c.primary },
   barValue: { width: 62, textAlign: 'right', color: c.textSecondary, fontSize: 12 },

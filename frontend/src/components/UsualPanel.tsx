@@ -2,6 +2,7 @@
  * #35 "Di solito lo ricompri" (suggerimento, niente notifiche) e #44 "Di solito compri" (un tocco e va in lista).
  * Dallo storico delle spese confermate, tuo e della famiglia.
  */
+import { todayRome } from '../engine/util';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -14,8 +15,8 @@ import { ProductIcon } from './ProductIcon';
 import { Icon } from './ui';
 
 type Usual = Awaited<ReturnType<typeof api.usualAndDue>>;
-const today = () => new Date().toISOString().slice(0, 10);
-const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const today = () => todayRome();
+const addDays = (n: number) => todayRome(new Date(Date.now() + n * 86_400_000));
 
 export function UsualPanel() {
   const s = useStyles();

@@ -73,8 +73,11 @@ const customKey = (name: string) =>
   'custom:' + name.trim().toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 /** arrotonda per eccesso a una quantità che si compra: kg a 100 g, litri a mezzo litro, il resto a pezzi interi */
-function buyable(q: number, unit: string): number {
+const PACK = /(\d+([.,]\d+)?\s?(kg|g|l|ml|cl)\b)|(\bx\s?\d+\b)/i;
+function buyable(q: number, unit: string, name?: string, pack?: number): number {
   if (q <= 0) return 0;
+  // #101: venduto a bottiglia o confezione («Latte intero 1L»): confezioni intere, non mezzo litro
+  if ((unit === 'kg' || unit === 'L') && name && PACK.test(name) && pack && pack >= 0.25) return Math.round(Math.max(1, Math.ceil(q / pack - 1e-9)) * pack * 1000) / 1000;
   if (unit === 'kg') return Math.max(0.1, Math.ceil(q * 10 - 1e-9) / 10);
   if (unit === 'L') return Math.max(0.5, Math.ceil(q * 2 - 1e-9) / 2);
   return Math.max(1, Math.ceil(q - 1e-9));
@@ -91,7 +94,7 @@ export function planEvent(typeId: string, adults: number, kids: number): PlanRow
     if ('p' in r) {
       const p = PRODUCT_INDEX[r.p];
       if (!p) continue;
-      const q = buyable(r.a * people, p.unit);
+      const q = buyable(r.a * people, p.unit, p.name, p.default_qty);
       if (q > 0) out.push({ product_id: p.id, name: p.name, quantity: q, unit: p.unit, category_id: p.category_id });
     } else {
       out.push({ product_id: customKey(r.c), name: r.c, quantity: Math.max(1, Math.ceil(people / r.per - 1e-9)), unit: 'pz', category_id: r.cat });

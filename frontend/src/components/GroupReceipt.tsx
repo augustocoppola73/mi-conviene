@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { confirmExpense, ExpenseLine } from '../cloud/groups';
-import { euro, parseEuro } from '../format';
+import { euro, formatQty, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { BudgetWarning } from './GroupBudget';
 import { PrimaryButton } from './ui';
@@ -52,7 +52,7 @@ export function GroupReceiptEditor({ expenseId, title, lines, amount, onDone, gr
       <Text style={s.help}>Controlla con lo scontrino di carta. Correggi i prezzi dei prodotti del gruppo (sullo scontrino c'è anche la tua roba), poi conferma: solo allora arriva nel gruppo.</Text>
       {!byTotal && lines.map((l, k) => (
         <View key={k} style={s.line}>
-          <Text style={[s.text, { flex: 1 }]} numberOfLines={2}>{l.name}{l.quantity ? ` · ${l.quantity}${l.unit ? ` ${l.unit}` : ''}` : ''}</Text>
+          <Text style={[s.text, { flex: 1 }]} numberOfLines={2}>{l.name}{l.quantity ? ` · ${formatQty(Number(l.quantity), l.unit || 'pz')}` : ''}</Text>
           <Text style={s.text}>€</Text>
           <TextInput value={prices[k]} onChangeText={(t) => setPrices((p) => p.map((x, i) => (i === k ? t.replace(/[^0-9.,]/g, '') : x)))}
             keyboardType="decimal-pad" inputMode="decimal" style={s.price} selectTextOnFocus accessibilityLabel={`Prezzo di ${l.name}`} />

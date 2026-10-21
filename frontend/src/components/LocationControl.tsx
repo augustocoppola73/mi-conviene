@@ -64,7 +64,7 @@ export function LocationControl() {
           </Text>
         </View>
         {busy ? <ActivityIndicator color={colors.primary} />
-          : <Switch value={gps} onValueChange={toggle} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" accessibilityLabel="Usa la mia posizione" />}
+          : <Switch value={gps} onValueChange={toggle} trackColor={{ true: colors.primary, false: colors.textSecondary }} thumbColor="#fff" accessibilityLabel="Usa la mia posizione" />}
       </Pressable>
 
       {!gps && prefs.locationMode === 'address' && prefs.location?.label && !editing && (

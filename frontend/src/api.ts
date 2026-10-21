@@ -191,6 +191,10 @@ export interface SavingEntry {
   fuel_saving?: number; fuel_liters?: number | null; fuel_median?: number | null; fuel_detour_cost?: number | null;
   fuel_station?: string | null; verified_fuel?: number | null; refueled?: boolean | null; fuel_price_paid?: number | null;
   snapshot?: RankedStore | null;
+  /** #99: i negozi della spesa (uno scontrino ciascuno), con chi ha fatto la parte se non sei tu */
+  stops_paid?: { store_name: string; by: string | null; items: number }[] | null;
+  /** #99: spesa annullata da un familiare (risparmio azzerato) */
+  cancelled?: boolean; cancelled_amount?: number; cancelled_by?: string;
   /** salvadanaio di famiglia: è tua? altrimenti chi l'ha fatta */
   mine?: boolean; by?: string | null;
   /** a fine spesa: cosa è cambiato rispetto alla lista */
@@ -229,6 +233,7 @@ export interface RecipePlan { servings: number; recipe_servings: number; assumed
 export interface RecipeIn { user_id: string; name: string; servings: number | null; ingredients: string[]; notes?: string | null; url?: string | null; source?: string | null }
 export interface Cheapest { store_id: string; store_name: string; portion: number; complete: boolean }
 export interface StoreCost { store_id: string; store_name: string; total: number }
+export type RecipeSort = 'rilevanza' | 'prezzo' | 'veloci' | 'toscana';
 export interface SuggestRecipe extends RecipeSummary {
   uses: string[]; coverage: number;
   missing?: { product_id: string; name: string; quantity: number; unit: string }[];
@@ -387,7 +392,7 @@ export const localApi = {
   habitual: (userId: string) =>
     request<{ items: HabitualItem[]; occasions: number; needed: number; based_on: number }>(`/habitual/${userId}`),
 
-  recipes: (q: string, user_id?: string | null, sort: 'rilevanza' | 'prezzo' = 'rilevanza') =>
+  recipes: (q: string, user_id?: string | null, sort: RecipeSort = 'rilevanza') =>
     request<{ recipes: RecipeSummary[]; total_collection: number; license: string }>(
       `/recipes?q=${encodeURIComponent(q)}${user_id ? `&user_id=${user_id}` : ''}&sort=${sort}${sort === 'prezzo' ? '&main=true' : ''}`),
   suggest: (body: { user_id?: string | null; items: ListItem[]; store_id?: string; budget?: number | null; spent?: number | null; servings?: number }) =>
@@ -443,7 +448,7 @@ export const localApi = {
     post<Shop>(`/shops/${id}/price`, body),
   shopFinish: (id: string, user_id: string) =>
     post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null }>(`/shops/${id}/finish`, { user_id }),
-  shopCancel: (id: string, user_id: string) => post<{ items: ShopItem[] }>(`/shops/${id}/cancel`, { user_id }),
+  shopCancel: (id: string, user_id: string, drop_saving = false) => post<{ items: ShopItem[] }>(`/shops/${id}/cancel`, { user_id, drop_saving }),
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>
     post<Family>('/family/join', { user_id, display_name, code }),

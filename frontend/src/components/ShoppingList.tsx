@@ -61,7 +61,7 @@ export function ShoppingList({ items, categories, productById, updateQty, remove
       }
       const p = productById(it.product_id);
       if (!p) return null;
-      return { item: it, name: p.name, unit: p.unit, step: qtyStep(p.default_qty, p.unit), custom: false, categoryId: p.category_id };
+      return { item: it, name: p.name, unit: p.unit, step: qtyStep(p.default_qty, p.unit, p.name), custom: false, categoryId: p.category_id };
     })
     .filter((r): r is Row => r !== null);
 

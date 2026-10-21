@@ -2,6 +2,7 @@
  * #39: obiettivo di risparmio della famiglia ("200 € entro Natale"): la barra si riempie con i risparmi di tutti
  * dalla data in cui è stato fissato (verificati se c'è lo scontrino, altrimenti stimati).
  */
+import { todayRome } from '../engine/util';
 import { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,7 +41,7 @@ export function SavingGoalCard({ entries, inFamily }: { entries: SavingEntry[]; 
   const saved = Math.round(entries.filter((e) => e.created_at.slice(0, 10) >= since).reduce((t, e) => t + value(e), 0) * 100) / 100;
   const pct = Math.max(0, Math.min(1, saved / goal.amount));
   const done = saved >= goal.amount;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayRome();
   const daysLeft = goal.deadline ? Math.round((Date.parse(goal.deadline) - Date.parse(today)) / 86_400_000) : null;
   const missing = Math.max(0, goal.amount - saved);
 

@@ -21,7 +21,8 @@ import { observedRows, ObservedLine } from '../engine/observed';
 import { flyers, fuelNearby, geocode, KV, NEAR_ME_MAX_KM, nearestPerChain, OsmParking, parkingFor, parkingsAround, RADIUS_M, storesAround, storesFor, supermarketsAround } from '../engine/places';
 import { search } from '../engine/recipes';
 import { usualAndDue } from '../engine/restock';
-import { haversineKm, median, pyRound } from '../engine/util';
+import { haversineKm, median, pyRound, todayRome } from '../engine/util';
+import { homeRank, isQuick, isTuscan } from '../recipeTaste';
 import WIKIBOOKS from '../engine/data/recipes_wikibooks.json';
 import RECIPE_CORES from '../engine/data/recipe_cores.json';
 import { check, IS_CLOUD, sb, uid } from './client';
@@ -33,7 +34,7 @@ const HABITUAL_SAME_STORE_KM = 1.0;   // entro 1 km è lo stesso punto vendita
 /** #19: a piedi e in bici non si consigliano negozi lontani (km di strada, solo andata) */
 const DISTANCE_LIMIT_KM: Partial<Record<string, number>> = { walk: 1.2, bike: 5 };
 const nowIso = () => new Date().toISOString();
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayRome();   // #87: ora italiana
 const r2 = (x: number) => pyRound(x, 2);
 
 // le ricette della raccolta si preparano subito, a piccoli blocchi
@@ -423,7 +424,7 @@ async function finalizeSaving(shop: any) {
     const full = it ? (it.seen?.price ?? it.price ?? null) : null;
     const price = full != null && it!.quantity > 0 ? r2(full * c.quantity / it!.quantity) : null;
     if (price == null) { left.push(c); continue; }
-    receipt.lines.push({ product_id: c.product_id, name: c.name, quantity: c.quantity, unit: c.unit, unit_price: r2(price / (c.quantity || 1)),
+    receipt.lines.push({ product_id: c.product_id, name: c.name, quantity: c.quantity, unit: c.unit, category_id: it!.category_id ?? c.category_id ?? null, unit_price: r2(price / (c.quantity || 1)),
       normal_price: price, line_price: price, in_promo: false, loyalty_required: false, confidence: 'green',
       source: 'scontrino', observed_at: today(), location_name: it!.seen ? 'segnato da te in negozio' : 'visto da te',
       sample_product: null, proof_url: null, custom: true });
@@ -431,6 +432,11 @@ async function finalizeSaving(shop: any) {
     receipt.normal_total = r2(receipt.normal_total + price);
   }
   receipt.custom_items = left;
+  // #99: spesa in più negozi (o con chi dà una mano): alla verifica serve uno scontrino per negozio
+  if ((shop.stops?.length ?? 0) > 1) {
+    data.stops_paid = shop.stops.map((st: any, k: number) => ({ store_name: st.store_name, by: st.by?.name ?? null,
+      items: bought.filter((b) => (b.stop ?? 0) === k).length })).filter((x: any) => x.items > 0);
+  }
   const snap = data.snapshot ? { ...data.snapshot } : null;
   if (snap) {
     const fuel = snap.travel?.fuel_cost ?? 0;
@@ -687,7 +693,7 @@ export const cloudApi = {
       total: r2(entries.reduce((s, e) => s + savingValue(e), 0)),
       total_verified: r2(entries.filter((e) => e.verified).reduce((s, e) => s + (e.verified_amount || 0), 0)),
       total_estimated: r2(entries.filter((e) => !e.verified).reduce((s, e) => s + e.amount, 0)),
-      to_verify: entries.filter((e) => !e.verified).length,
+      to_verify: entries.filter((e) => !e.verified && !e.cancelled).length,
     };
   },
 
@@ -797,7 +803,7 @@ export const cloudApi = {
     return { ...(habitualFromHistory(shops) as any), based_on: shops.length };
   },
 
-  recipes: async (q: string, _user_id?: string | null, sort: 'rilevanza' | 'prezzo' = 'rilevanza') => {
+  recipes: async (q: string, _user_id?: string | null, sort: T.RecipeSort = 'rilevanza') => {
     const limit = 40;
     const mine = await myRecipes();
     let found: Recipe[];
@@ -805,6 +811,16 @@ export const cloudApi = {
     if (sort === 'prezzo') {
       const pool = q ? [...search(mine, q, 10000), ...search(COLLECTION, q, 10000)] : [...mine, ...COLLECTION];
       found = rankByPrice(book, pool, true, limit);
+    } else if (sort === 'veloci' || sort === 'toscana') {
+      const keep = sort === 'veloci' ? isQuick : isTuscan;
+      found = [...search(mine, q, limit), ...search(COLLECTION.filter(keep), q, 10000)].slice(0, limit);
+    } else if (!q) {
+      // #100: senza ricerca prima i piatti di casa di tutti i giorni con il prezzo, poi il resto, la cucina straniera in fondo
+      const priced = COLLECTION.map((r) => ({ r, s: recipeSummaryPriced(book, r) }));
+      const pr = (x: (typeof priced)[number]) => (x.s.cheapest && x.s.cheapest.portion > 0 && x.s.cheapest.portion < 15 ? (x.s.cheapest.complete ? 0 : 1) : 2);   // oltre 15 € a persona di solito è un ingrediente letto male
+      priced.sort((a, b) => homeRank(a.r) - homeRank(b.r) || pr(a) - pr(b) || (a.r.name < b.r.name ? -1 : a.r.name > b.r.name ? 1 : 0));
+      return { recipes: [...mine.map((r) => recipeSummaryPriced(book, r)), ...priced.map((x) => x.s)].slice(0, limit) as T.RecipeSummary[],
+        total_collection: COLLECTION.length, license: LICENSE };
     } else {
       found = [...search(mine, q, limit), ...search(COLLECTION, q, limit)].slice(0, limit);
     }
@@ -1151,11 +1167,13 @@ export const cloudApi = {
       saving_change: saving_change && Math.abs(saving_change.after - saving_change.before) > 0.005 ? saving_change : null };
   },
 
-  shopCancel: async (id: string, _user_id: string) => {
+  shopCancel: async (id: string, _user_id: string, dropSaving = false) => {
     const shop = await shopRow(id);
     guardClose(shop, await uid(), 'annulla');
     const closed = check(await sb().from('shops').update({ status: 'cancelled' }).eq('id', id).eq('status', 'active').select('id')) as any[];
     if (!closed?.length) throw new Error('Questa spesa è già chiusa');
+    // #99: il risparmio stimato di una spesa mai fatta: lo tolgo (se è mio e lo chiedi) o lo segno «annullata» (se è di un familiare)
+    if (shop.saving_id) await sb().rpc('cancel_shop_saving', { p_shop: id, p_drop: dropSaving }).then(() => {}, () => {});
     return { items: shop.items as T.ShopItem[] };
   },
 

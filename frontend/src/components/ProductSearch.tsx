@@ -99,6 +99,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
   const alreadyCustom = q.trim().length >= 2 ? itemFor(customKey(q)) : undefined;
   const exactInCatalog = matches.some((m) => norm(m.name) === norm(q)) || communityMatches.some((c) => norm(c.name) === norm(q)) || !!alreadyCustom;
   const newCat = catPick ?? cls?.category_id ?? 'altro';
+  const guessed = !!catPick || (cls?.confidence ?? 0) > 0;   // #101: «Altro» non riconosciuto non è una scelta
 
   const addNew = () => {
     const name = q.trim();
@@ -120,7 +121,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
     const was = !!itemFor(p.id);
     onToggleProduct(p.id);
     if (was) { if (last?.id === p.id) setLast(null); if (onUpdateQty) return; } // toccato di nuovo: tolto, la ricerca resta aperta
-    setLast({ id: p.id, name: p.name, unit: p.unit, step: qtyStep(p.default_qty, p.unit) });
+    setLast({ id: p.id, name: p.name, unit: p.unit, step: qtyStep(p.default_qty, p.unit, p.name) });
     setQ('');
   };
 
@@ -152,7 +153,7 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
             <Text style={s.name} numberOfLines={1}>{last.name}</Text>
             <Text style={s.meta}>Aggiunto alla lista</Text>
           </View>
-          <QtyStepper compact quantity={lastItem.quantity} unit={last.unit} step={last.step} onChange={(n) => onUpdateQty(last.id, n)} />
+          <QtyStepper compact canRemove={false} quantity={lastItem.quantity} unit={last.unit} step={last.step} onChange={(n) => onUpdateQty(last.id, n)} />
           <Pressable onPress={() => { onUpdateQty(last.id, 0); setLast(null); }} hitSlop={8} accessibilityLabel="Annulla">
             <Text style={s.undo}>Annulla</Text>
           </Pressable>
@@ -203,14 +204,14 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
                 <View style={{ flex: 1 }}>
                   <Text style={s.name}>Aggiungi «{q.trim()}»</Text>
                   <Text style={s.meta}>
-                    Prodotto scritto da te · {catById.get(newCat)?.name ?? 'Altro'} · senza prezzo
+                    Prodotto scritto da te · {guessed ? catById.get(newCat)?.name ?? 'Altro' : 'reparto da scegliere (per ora Altro)'} · senza prezzo
                   </Text>
                 </View>
                 <Icon name="add-circle-outline" size={24} color={colors.primary} />
               </Pressable>
               {/* #72: i reparti solo se vuoi cambiarlo (prima erano sempre tutti lì) */}
               <Pressable onPress={() => setShowCats(!showCats)} hitSlop={6}>
-                <Text style={[s.meta, { color: colors.primary, fontWeight: '700' }]}>{showCats ? 'Chiudi' : 'Reparto sbagliato? Cambialo'}</Text>
+                <Text style={[s.meta, { color: colors.primary, fontWeight: '700' }]}>{showCats ? 'Chiudi' : guessed ? 'Reparto sbagliato? Cambialo' : 'Scegli il reparto'}</Text>
               </Pressable>
               {showCats && <View style={s.cats}>
                 {categories.map((c) => (

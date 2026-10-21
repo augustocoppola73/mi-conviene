@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, MenuPlan, PlanRow, ProposedRecipe, Recipe, RecipeSummary } from '@/api';
+import { api, MenuPlan, PlanRow, ProposedRecipe, Recipe, RecipeSort, RecipeSummary } from '@/api';
 import { IS_CLOUD } from '@/cloud/client';
 import { Card, Icon, PrimaryButton } from '@/components/ui';
 import { euro, formatQty, parseEuro } from '@/format';
@@ -153,7 +153,7 @@ function RecipeList({ userId, onOpen, onNew, onMenu }: { userId: string | null; 
   const s = useStyles();
   const { colors } = useTheme();
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState<'rilevanza' | 'prezzo'>('rilevanza');
+  const [sort, setSort] = useState<RecipeSort>('rilevanza');
   const [list, setList] = useState<RecipeSummary[] | null>(null);
   const [total, setTotal] = useState(0);
   const [link, setLink] = useState('');
@@ -208,7 +208,7 @@ function RecipeList({ userId, onOpen, onNew, onMenu }: { userId: string | null; 
         <TextInput value={q} onChangeText={setQ} placeholder="Cerca un piatto o un ingrediente…" placeholderTextColor={colors.textSecondary} style={s.input} />
       </View>
       <View style={s.sortRow}>
-        {([['rilevanza', 'Tutte'], ['prezzo', '€ Più economiche']] as const).map(([k, label]) => (
+        {([['rilevanza', 'Di casa'], ['veloci', '⚡ Veloci'], ['toscana', 'Toscana'], ['prezzo', '€ Economiche']] as const).map(([k, label]) => (
           <Pressable key={k} onPress={() => setSort(k)} style={[s.sortChip, sort === k && s.sortOn]}>
             <Text style={[s.sortText, sort === k && s.sortTextOn]}>{label}</Text>
           </Pressable>
@@ -246,7 +246,8 @@ function RecipeRow({ r, onPress }: { r: RecipeSummary; onPress: () => void }) {
         </Text>
         {r.cheapest && (
           <Text style={s.price}>
-            {r.cheapest.complete ? '' : 'da '}~{euro(r.cheapest.portion)} a persona · {r.cheapest.store_name}
+            {/* #100: senza nessun ingrediente a prezzo non è «gratis» */}
+            {r.cheapest.portion > 0 ? `${r.cheapest.complete ? '' : 'da '}~${euro(r.cheapest.portion)} a persona · ${r.cheapest.store_name}` : 'Prezzo non disponibile'}
           </Text>
         )}
       </View>
@@ -326,7 +327,8 @@ function RecipeDetail({ recipe, userId, people, setPeople, onAdd, onEdit, onDele
         </View>
       </View>
       {assumed && <Text style={s.muted}>La ricetta non dice per quante persone è: ho considerato 4.</Text>}
-      {costs.best && (
+      {costs.best && !(costs.best.total > 0) && <Text style={s.muted}>Prezzo non disponibile: nessun ingrediente di questa ricetta ha un prezzo nei supermercati.</Text>}
+      {costs.best && costs.best.total > 0 && (
         <View style={s.costBox}>
           <Text style={s.costMain}>
             Spesa per {people}: {euro(costs.best.total)} da {costs.best.store_name}
@@ -599,7 +601,7 @@ const useStyles = makeStyles((c) => ({
   ingOn: { borderColor: c.primary, backgroundColor: c.primarySoft },
   buyQty: { color: c.text, fontSize: 14, fontWeight: '700' },
   price: { color: c.success, fontSize: 12, fontWeight: '600', marginTop: 1 },
-  sortRow: { flexDirection: 'row', gap: 6, marginTop: spacing.md },
+  sortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.md },
   sortChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
   sortOn: { backgroundColor: c.primary, borderColor: c.primary },
   sortText: { color: c.text, fontSize: 13 },

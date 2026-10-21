@@ -305,5 +305,5 @@ const useStyles = makeStyles((c) => ({
   placeCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   navBtn: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },
   mapOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
-    backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 14 },
+    backgroundColor: `${c.background}B3`, borderRadius: 14 },   // #101: anche in tema scuro
 }));

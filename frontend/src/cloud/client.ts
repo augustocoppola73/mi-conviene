@@ -69,7 +69,9 @@ export async function createDeviceCode(): Promise<{ code: string; minutes: numbe
   const { data, error } = await sb().functions.invoke('collega', { body: { action: 'create' } });
   if (error) throw new Error(await functionError(error, 'Non riesco a creare il codice'));
   if (data?.error) throw new Error(data.error);
-  return data;
+  // #101: una risposta strana (HTML, niente codice) non deve mostrare un codice vuoto
+  if (!data || typeof data.code !== 'string' || data.code.length < 4) throw new Error('Non riesco a creare il codice, riprova');
+  return { code: data.code, minutes: Number(data.minutes) || 10 };
 }
 
 /** Entra con il codice creato su un altro dispositivo (niente email). */

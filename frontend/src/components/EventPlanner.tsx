@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { addGroupItem, updateGroupItem } from '../cloud/groups';
+import { addGroupItem, setGroupPlan, updateGroupItem } from '../cloud/groups';
 import { EVENT_TYPES, planEvent, PlanRow } from '../engine/eventPlan';
 import { formatQty } from '../format';
 import { useStore } from '../store';
@@ -30,7 +30,9 @@ function Counter({ label, value, onChange, min = 0 }: { label: string; value: nu
   );
 }
 
-const step = (unit: string) => (unit === 'kg' ? 0.1 : unit === 'L' ? 0.5 : 1);
+const PACK = /(\d+([.,]\d+)?\s?(kg|g|l|ml|cl)\b)|(\bx\s?\d+\b)/i;
+const stepFor = (unit: string, name?: string, pack?: number) =>
+  ((unit === 'kg' || unit === 'L') && name && PACK.test(name) && pack && pack >= 0.25 ? pack : unit === 'kg' ? 0.1 : unit === 'L' ? 0.5 : 1);
 
 export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClose: () => void; gl?: GroupListState }) {
   const s = useStyles();
@@ -38,7 +40,8 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
   const insets = useSafeAreaInsets();
   const { prefs, setPrefs, catalog, items, addItem, addCustom, updateQty } = useStore();
   const gid = gl ? gl.group?.id ?? '' : 'mine';
-  const saved = prefs.eventPlans?.[gid];
+  // #98: nel gruppo il piano sta nel gruppo (lo vedono tutti); sul telefono resta solo come ripiego
+  const saved = (gl ? gl.group?.event_plan : null) ?? prefs.eventPlans?.[gid];
   const [type, setType] = useState(saved?.type ?? (gl ? 'grigliata' : 'rinfresco'));
   const [adults, setAdults] = useState(saved?.adults ?? Math.max(6, gl?.members.length ?? 0));   // #67: un numero da festa, non 2
   const [kids, setKids] = useState(saved?.kids ?? 0);
@@ -46,7 +49,10 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // all'apertura riparto dal piano salvato (magari l'ha cambiato un altro del gruppo)
+  useEffect(() => { if (visible && saved) { setType(saved.type); setAdults(saved.adults); setKids(saved.kids); } }, [visible]);
   useEffect(() => { if (visible) { setMsg(null); setRows(planEvent(type, adults, kids)); } }, [visible, type, adults, kids]);
+  const stp = (x: PlanRow) => stepFor(x.unit, x.name, catalog?.products.find((p) => p.id === x.product_id)?.default_qty);
   const catEmoji = useMemo(() => new Map((catalog?.categories ?? []).map((c) => [c.id, c.emoji])), [catalog]);
   const t = EVENT_TYPES.find((x) => x.id === type)!;
   const active = (st: string) => st === 'da_prendere' || st === 'proposto';
@@ -115,6 +121,7 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
       } catch (e) { notes.push(`${r.name}: ${(e as Error).message}`); }
     }
     setPrefs({ eventPlans: { ...(prefs.eventPlans ?? {}), [gid]: { type, adults, kids } } });
+    await setGroupPlan(gl.group.id, { type, adults, kids }).catch(() => {});
     await gl.reload();
     setBusy(false);
     onClose();
@@ -136,8 +143,8 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
             <View style={s.types}>
               {EVENT_TYPES.map((e) => (
                 <Pressable key={e.id} onPress={() => setType(e.id)} style={[s.type, type === e.id && s.typeOn]} accessibilityRole="button" accessibilityState={{ selected: type === e.id }}>
-                  <Text style={{ fontSize: 26 }}>{e.emoji}</Text>
-                  <Text style={[s.typeText, type === e.id && { fontWeight: '800' }]} numberOfLines={2}>{e.label}</Text>
+                  <Text style={{ fontSize: 24 }}>{e.emoji}</Text>
+                  <Text style={[s.typeText, type === e.id && { fontWeight: '800' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{e.label}</Text>
                 </Pressable>
               ))}
             </View>
@@ -158,11 +165,11 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
                     <Text style={s.name} numberOfLines={1}>{r.name}</Text>
                     {ex && <Text style={s.hint}>già in lista: {formatQty(ex.quantity, r.unit)}{ex.taken ? ' (preso)' : ''}</Text>}
                   </View>
-                  <Pressable onPress={() => setRows(rows.map((x, j) => (j === k ? { ...x, quantity: Math.max(step(x.unit), Math.round((x.quantity - step(x.unit)) * 10) / 10) } : x)))} style={s.qBtn} hitSlop={4} accessibilityLabel={`Meno ${r.name}`}>
+                  <Pressable onPress={() => setRows(rows.map((x, j) => (j === k ? { ...x, quantity: Math.max(stp(x), Math.round((x.quantity - stp(x)) * 100) / 100) } : x)))} style={s.qBtn} hitSlop={4} accessibilityLabel={`Meno ${r.name}`}>
                     <Icon name="remove" size={16} />
                   </Pressable>
                   <Text style={s.qty}>{formatQty(r.quantity, r.unit)}</Text>
-                  <Pressable onPress={() => setRows(rows.map((x, j) => (j === k ? { ...x, quantity: Math.round((x.quantity + step(x.unit)) * 10) / 10 } : x)))} style={s.qBtn} hitSlop={4} accessibilityLabel={`Più ${r.name}`}>
+                  <Pressable onPress={() => setRows(rows.map((x, j) => (j === k ? { ...x, quantity: Math.round((x.quantity + stp(x)) * 100) / 100 } : x)))} style={s.qBtn} hitSlop={4} accessibilityLabel={`Più ${r.name}`}>
                     <Icon name="add" size={16} />
                   </Pressable>
                   <Pressable onPress={() => setRows(rows.filter((_, j) => j !== k))} hitSlop={8} accessibilityLabel={`Togli ${r.name}`}>
@@ -184,14 +191,14 @@ export function EventPlanner({ visible, onClose, gl }: { visible: boolean; onClo
 
 const useStyles = makeStyles((c) => ({
   bg: { flex: 1, backgroundColor: c.overlay, justifyContent: 'flex-end' },
-  sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.xl, paddingBottom: 0,
+  sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.xl, paddingHorizontal: spacing.lg, paddingBottom: 0,
     maxHeight: '92%', width: '100%', maxWidth: 640, alignSelf: 'center', gap: spacing.sm },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: c.text, fontSize: 20, fontWeight: '800' },
   label: { color: c.text, fontSize: 15, fontWeight: '800', marginTop: spacing.sm },
   hint: { color: c.textSecondary, fontSize: 12.5, lineHeight: 17 },
   types: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  type: { width: '23%', minWidth: 74, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 2, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, gap: 2 },
+  type: { width: '23%', minWidth: 0, flexGrow: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 2, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, gap: 2 },
   typeOn: { borderColor: c.primary, backgroundColor: c.primarySoft, borderWidth: 2 },
   typeText: { color: c.text, fontSize: 11.5, textAlign: 'center' },
   counter: { flex: 1, padding: spacing.sm, borderRadius: radius.md, backgroundColor: c.surfaceMuted, alignItems: 'center', gap: 4 },

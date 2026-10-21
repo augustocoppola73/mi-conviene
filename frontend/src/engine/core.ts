@@ -3,7 +3,7 @@
  * viaggio, distributore sulla strada, scelta del negozio, risparmio, abitudini, budget.
  */
 import { C, ESTIMATES, PRODUCT_INDEX, STORE_INDEX, STORES } from './data';
-import { haversineKm, jaccard, median, pyRound } from './util';
+import { haversineKm, jaccard, median, pyRound, todayRome } from './util';
 
 // ------------------------------------------------------------------ catalogo prezzi
 export interface PriceEntry {
@@ -25,7 +25,7 @@ export interface UserPrice {
 }
 export interface Variant { price: number; ref_price: number; text: string | null; observed_at: string; note?: string | null }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayRome();
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
 export function receiptEntry(doc: UserPrice, now = today()): RealPrice {

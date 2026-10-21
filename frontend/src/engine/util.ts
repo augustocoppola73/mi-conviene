@@ -127,3 +127,17 @@ export function seqRatio(a: string, b: string): number {
   }
   return (2 * matches) / (la + lb);
 }
+
+/**
+ * #87: la data di oggi in ora italiana (AAAA-MM-GG), non in UTC: tra mezzanotte e le 2 toISOString dava ieri.
+ * Ora legale dall'ultima domenica di marzo all'ultima di ottobre, alle 01:00 UTC (regola UE): niente Intl, gira ovunque.
+ */
+export function romeOffsetHours(d: Date): number {
+  const y = d.getUTCFullYear();
+  const lastSunday = (m: number) => { const x = new Date(Date.UTC(y, m + 1, 0, 1)); x.setUTCDate(x.getUTCDate() - x.getUTCDay()); return x.getTime(); };
+  const t = d.getTime();
+  return t >= lastSunday(2) && t < lastSunday(9) ? 2 : 1;
+}
+export function todayRome(now: Date = new Date()): string {
+  return new Date(now.getTime() + romeOffsetHours(now) * 3_600_000).toISOString().slice(0, 10);
+}

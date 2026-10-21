@@ -60,7 +60,7 @@ export function TripSheet({ visible, onClose, suggestion }: {
     const clean = t.replace(/[^0-9.,]/g, '');
     setBudgetText(clean);
     const n = parseEuro(clean);   // #81: «1.200» = 1200 €
-    setPrefs({ budget: Number.isFinite(n) ? n : null });
+    setPrefs({ budget: Number.isFinite(n) && n > 0 ? n : null });   // #101: 0 = nessun limite
   };
   const car = prefs.transport === 'car';
 

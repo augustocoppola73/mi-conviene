@@ -8,7 +8,11 @@ export interface Group {
   add_policy: AddPolicy; proposals: number;
   /** #47 cassa comune: budget dell'evento (in tutto, o a testa) */
   budget: number | null; budget_per_head: boolean;
+  /** #98: il piano della festa, salvato nel gruppo (lo vedono tutti) */
+  event_plan?: EventPlanSaved | null;
 }
+export interface EventPlanSaved { type: string; adults: number; kids: number; added?: Record<string, number> }
+export interface GroupRejection { id: string; group_id: string; name: string; rejected_name: string | null; created_at: string }
 export type AddPolicy = 'tutti' | 'proprietario';
 /** un prodotto che prendo io per un gruppo: compare nella mia lista di casa (#21) */
 export interface MyGroupItem {
@@ -42,6 +46,20 @@ export async function setGroupBudget(g: string, amount: number | null, perHead: 
 /** il budget in tutto (a testa × persone) */
 export const budgetTotal = (g: Pick<Group, 'budget' | 'budget_per_head' | 'members'>) =>
   g.budget == null ? null : g.budget_per_head ? Math.round(g.budget * Math.max(1, g.members) * 100) / 100 : g.budget;
+
+export async function setGroupPlan(g: string, p: EventPlanSaved): Promise<void> {
+  check(await sb().rpc('set_group_plan', { g, p }));
+}
+
+/** #98: le mie proposte che il proprietario non ha aggiunto (ultimi 2 giorni) */
+export async function groupRejections(g: string): Promise<GroupRejection[]> {
+  const since = new Date(Date.now() - 2 * 86_400_000).toISOString();
+  const { data, error } = await sb().from('group_rejections').select('id,group_id,name,rejected_name,created_at').eq('group_id', g).gt('created_at', since).order('created_at', { ascending: false });
+  return error ? [] : ((data ?? []) as GroupRejection[]);
+}
+export async function dismissRejections(ids: string[]): Promise<void> {
+  if (ids.length) await sb().from('group_rejections').delete().in('id', ids);
+}
 
 export async function groupInfo(id: string): Promise<Group | null> {
   return (await myGroups()).find((g) => g.id === id) ?? null;
@@ -220,5 +238,5 @@ export function watchAccounts(g: string, onChange: () => void): () => void {
 
 // solo per le prove automatiche (build con EXPO_PUBLIC_E2E=1)
 if (process.env.EXPO_PUBLIC_E2E === '1') {
-  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem, myGroupItems, addGroupExpense, setGroupBudget, groupExpenses, confirmExpense, deleteExpense, groupBalances, settle, setExcluded };
+  (globalThis as any).__mcg = { myGroups, groupInfo, createGroup, updateGroup, leaveGroup, setMuted, groupMembers, groupItems, addGroupItem, updateGroupItem, removeGroupItem, myGroupItems, addGroupExpense, setGroupBudget, groupExpenses, confirmExpense, deleteExpense, groupBalances, settle, setExcluded, setGroupPlan, groupRejections };
 }

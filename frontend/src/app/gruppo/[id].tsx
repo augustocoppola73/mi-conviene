@@ -47,12 +47,14 @@ export default function GruppoScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [menu, setMenu] = useState(menu0 === '1');
+  const [invites, setInvites] = useState<{ code: string; expires_at: string; uses: number }[]>([]);   // #98
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
       const [g, m] = await Promise.all([groupInfo(id), groupMembers(id).catch(() => [])]);
       setGroup(g); setMembers(m);
+      if (g?.role === 'proprietario') api.invitesOpen(id).then(setInvites).catch(() => setInvites([]));
       if (g?.list_id) setItems(await groupItems(g.list_id));
     } catch { setGroup((x) => (x === undefined ? null : x)); }
   }, [id]);
@@ -114,12 +116,24 @@ export default function GruppoScreen() {
     const last = members.length <= 1;
     // #57: prima di uscire, i soldi da dare o da avere (i conti restano, ma è meglio saperlo)
     const mine = (await groupBalances(group.id).catch(() => [])).find((b) => !!me && b.members.includes(me));
-    if (!last && mine && Math.abs(mine.balance) > 0.005
-      && !(await ask(mine.balance > 0 ? `Hai ancora da avere ${euro(mine.balance)} dal gruppo. I conti restano anche se esci: esci lo stesso?`
-        : `Devi ancora ${euro(-mine.balance)} al gruppo. I conti restano anche se esci: esci lo stesso?`, 'Esci lo stesso'))) return;
+    // #102: chi deve dei soldi prima salda (il database non lo fa uscire)
+    if (!last && mine && mine.balance < -0.005) { tell(`Devi ancora ${euro(-mine.balance)} al gruppo: prima segna «Gli ho dato i soldi» nei Conti, poi esci.`); return; }
+    if (!last && mine && mine.balance > 0.005
+      && !(await ask(`Hai ancora da avere ${euro(mine.balance)} dal gruppo. I conti restano anche se esci: esci lo stesso?`, 'Esci lo stesso'))) return;
     if (!(await ask(last ? 'Sei l\'ultimo: il gruppo va in archivio (Profilo › Gruppi › Archiviati) con la lista e i conti, e lo puoi ripristinare. Archivio?' : 'Esci dal gruppo? Quello che avevi preso e non comprato torna libero.', last ? 'Archivia' : 'Esci'))) return;
     await run('leave', () => leaveGroup(group.id));
     router.replace('/');
+  };
+
+  // #98: il proprietario toglie qualcuno (i suoi prodotti tornano liberi) o revoca un invito
+  const removeMember = async (m: GroupMember) => {
+    if (!owner || m.user_id === me) return;
+    if (!(await ask(`Togliere ${m.display_name || 'questa persona'} dal gruppo? Quello che doveva prendere torna libero; i conti restano.`, 'Togli'))) return;
+    await run(`rm-${m.user_id}`, async () => { await api.memberRemove(group.id, m.user_id); await load(); });
+  };
+  const revoke = async (code: string) => {
+    if (!(await ask('Revocare questo invito? Chi ha il link non potrà più entrare (chi è già dentro resta).', 'Revoca'))) return;
+    await run(`rv-${code}`, async () => { await api.inviteRevoke(code); setInvites((x) => x.filter((i) => i.code !== code)); });
   };
 
   const Row = ({ it }: { it: GroupItem }) => {
@@ -149,7 +163,7 @@ export default function GruppoScreen() {
         {it.status === 'da_prendere' && free && (
           <>
             {it.added_by === me && (
-              <QtyStepper compact quantity={Number(it.quantity)} unit={unit} step={qtyStep(p?.default_qty ?? 1, unit)}
+              <QtyStepper compact quantity={Number(it.quantity)} unit={unit} step={qtyStep(p?.default_qty ?? 1, unit, p?.name)}
                 onChange={(n) => (n <= 0 ? canRemove && run(key, () => removeGroupItem(it.id)) : run(key, () => updateGroupItem(it.id, { quantity: n })))} />
             )}
             <Pressable onPress={() => me && run(key, () => updateGroupItem(it.id, { assigned_to: me }))} disabled={!!busy} style={s.take} accessibilityRole="button">
@@ -198,10 +212,12 @@ export default function GruppoScreen() {
 
         <View style={s.members}>
           {members.map((m) => (
-            <View key={m.user_id} style={s.member}>
+            <Pressable key={m.user_id} style={s.member} disabled={!owner || m.user_id === me} onLongPress={() => removeMember(m)} onPress={() => menu && removeMember(m)}
+              accessibilityRole={owner && m.user_id !== me ? 'button' : undefined}
+              accessibilityHint={owner && m.user_id !== me ? 'Tieni premuto per togliere dal gruppo' : undefined}>
               <View style={[s.badge, { backgroundColor: colorOf(m.user_id) }]}><Text style={s.badgeText}>{(m.display_name || '?').trim()[0]?.toUpperCase()}</Text></View>
               <Text style={s.memberName} numberOfLines={1}>{m.user_id === me ? 'Tu' : m.display_name || 'Senza nome'}{m.role === 'proprietario' ? ' ★' : ''}</Text>
-            </View>
+            </Pressable>
           ))}
           {owner && (
             <Pressable onPress={invite} style={s.inviteBtn} accessibilityRole="button" disabled={!!busy}>
@@ -219,6 +235,13 @@ export default function GruppoScreen() {
                 trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" />
             </View>
             {owner && <Text onPress={() => { setMenu(false); setEditOpen(true); }} style={s.menuItem}>✏️ Cambia nome, emoji o data</Text>}
+            {owner && members.length > 1 && <Text style={s.help}>Per togliere qualcuno dal gruppo tieni premuto sul suo nome (o toccalo con questo menu aperto).</Text>}
+            {owner && invites.map((i) => (
+              <View key={i.code} style={s.menuRow}>
+                <Text style={[s.menuItem, { flex: 1 }]}>🔗 Invito attivo · {i.uses} {i.uses === 1 ? 'entrato' : 'entrati'} · fino al {new Date(i.expires_at).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })}</Text>
+                <Text onPress={() => revoke(i.code)} style={[s.menuItem, { color: colors.danger, fontWeight: '700' }]}>Revoca</Text>
+              </View>
+            ))}
             <Text onPress={leave} style={[s.menuItem, { color: colors.danger }]}>Esci dal gruppo</Text>
           </View>
         )}

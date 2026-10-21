@@ -134,7 +134,7 @@ export default function ListaScreen() {
     const rows = gl.items.filter((i) => i.status === 'da_prendere' || i.status === 'proposto').map((i) => {
       const p = productById(i.product_id);
       return { name: (i.kind === 'porta' ? '🎒 ' : '') + (p?.name ?? i.name ?? i.product_id.slice(7)) + (i.kind === 'porta' ? ' — da portare' : '') + (i.assigned_to ? ` (${gl.nameOf(i.assigned_to)})` : ''),
-        quantity: Number(i.quantity), unit: p?.unit ?? i.unit ?? 'pz', category_id: p?.category_id ?? i.category_id ?? 'altro' };
+        quantity: Number(i.quantity), unit: p?.unit ?? i.unit ?? 'pz', category_id: p?.category_id ?? i.category_id ?? 'altro', default_qty: p?.default_qty };
     });
     const r = await shareList(listText(`Lista ${gl.group.emoji ?? ''} ${gl.group.name}`.replace(/\s+/g, ' '), rows, catalog.categories,
       'Entra nel gruppo su Mi Conviene per dire «Lo prendo io»: chiedi il link a chi l\'ha creato.'));
@@ -297,7 +297,9 @@ export default function ListaScreen() {
         )}
 
         {items.length === 0 ? (
-          <EmptyState icon="basket-outline" text="Nessun prodotto. Cerca o scrivi qui sopra, oppure tocca una categoria." />
+          groupMine.length > 0
+            ? <Text style={[s.muted, { marginTop: spacing.md }]}>Per te niente da comprare: qui sotto le cose che prendi per i gruppi. Aggiungi altro cercando qui sopra.</Text>
+            : <EmptyState icon="basket-outline" text="Nessun prodotto. Cerca o scrivi qui sopra, oppure tocca una categoria." />
         ) : (
           <ShoppingList
             items={items}
@@ -407,7 +409,7 @@ export default function ListaScreen() {
                     </View>
                   </Pressable>
                   {inList && (
-                    <QtyStepper compact quantity={inList.quantity} unit={p.unit} step={qtyStep(p.default_qty, p.unit)}
+                    <QtyStepper compact quantity={inList.quantity} unit={p.unit} step={qtyStep(p.default_qty, p.unit, p.name)}
                       onChange={(n) => L.updateQty(p.id, n)} />
                   )}
                 </View>
@@ -571,7 +573,7 @@ function MyGroupShares() {
           <Pressable onPress={() => setPrefs({ activeList: gid })} style={s.shareHead} accessibilityRole="button">
             <Text style={{ fontSize: 18 }}>{list[0].group_emoji || '👥'}</Text>
             <Text style={[s.itemName, { flex: 1, fontWeight: '700' }]} numberOfLines={1}>Per «{list[0].group_name}» · {list.length}</Text>
-            <Text style={s.clear}>Apri</Text>
+            <Text style={[s.clear, { color: colors.primary }]}>Apri</Text>
           </Pressable>
           {list.map((g) => {
             const p = productById(g.product_id);

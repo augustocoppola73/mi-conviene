@@ -49,7 +49,7 @@ export default function SalvadanaioScreen() {
 function SalvadanaioScreenInner() {
   const s = useStyles();
   const { colors } = useTheme();
-  const { userId, productById, catalog } = useStore();
+  const { userId, productById, catalog, familyId } = useStore();
   const [scanning, setScanning] = useState<SavingEntry | null>(null);
   const [manual, setManual] = useState<SavingEntry | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -58,6 +58,7 @@ function SalvadanaioScreenInner() {
   const [refreshing, setRefreshing] = useState(false);
   const [verifying, setVerifying] = useState<SavingEntry | null>(null);
   const [paidText, setPaidText] = useState('');
+  const [partsText, setPartsText] = useState<string[]>([]);   // #99: uno scontrino per negozio
   const [busy, setBusy] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [openReceipt, setOpenReceipt] = useState<string | null>(null);
@@ -86,13 +87,19 @@ function SalvadanaioScreenInner() {
   const openVerify = (e: SavingEntry) => {
     setVerifying(e);
     setPaidText(e.paid != null ? String(e.paid).replace('.', ',') : '');
+    setPartsText([]);
     setRefueled(e.refueled ?? null);
     setFuelText(e.fuel_price_paid != null ? String(e.fuel_price_paid).replace('.', ',') : '');
   };
   const fuelPrice = parseFloat(fuelText.replace(',', '.'));
   const fuelOk = Number.isFinite(fuelPrice) && fuelPrice > 0 && fuelPrice < 5;
   const hasFuel = (verifying?.fuel_saving ?? 0) > 0;
-  const paid = parseEuro(paidText);
+  // #99: spesa in due negozi o con chi ha dato una mano: un totale per scontrino, li sommo io
+  const parts = verifying ? (verifying.stops_paid?.length ? verifying.stops_paid
+    : (verifying.snapshot as any)?.split ? ((verifying.snapshot as any).stops ?? []).map((st: any) => ({ store_name: st.store_name, by: null, items: 0 })) : null) : null;
+  const multi = !!parts && parts.length > 1 && verifying?.paid == null;
+  const partVals: number[] = multi ? parts!.map((_: unknown, k: number) => parseEuro(partsText[k] ?? '')) : [];
+  const paid = multi ? (partVals.every((v) => Number.isFinite(v) && v >= 0) ? Math.round(partVals.reduce((t, v) => t + v, 0) * 100) / 100 : NaN) : parseEuro(paidText);
   const paidOk = Number.isFinite(paid) && paid > 0;
 
   const doVerify = async () => {
@@ -153,7 +160,7 @@ function SalvadanaioScreenInner() {
               <Text style={s.heroSmall}>Totale di sempre: {data.total < 0 ? '−' : ''}{euro(Math.abs(data.total))}</Text>
             </Card>
 
-            {IS_CLOUD && <SavingGoalCard entries={data.entries} inFamily={data.entries.some((e) => e.mine === false)} />}
+            {IS_CLOUD && <SavingGoalCard entries={data.entries} inFamily={!!familyId || data.entries.some((e) => e.mine === false)} />}
             {data.entries.length > 0 && <MonthSummary entries={data.entries} categories={catalog?.categories ?? []} />}
 
             <Pressable onPress={() => setShowHelp(!showHelp)} style={s.helpToggle}>
@@ -197,7 +204,16 @@ function SalvadanaioScreenInner() {
                         </Text>
                       </View>
                     </View>
-                    {e.verified ? (
+                    {e.cancelled && !e.verified ? (
+                      <View style={s.footer}>
+                        <Text style={[s.rowMeta, { flex: 1 }]}>🚫 Spesa annullata da {e.cancelled_by || 'un familiare'}: il risparmio stimato ({euro(e.cancelled_amount ?? 0)}) non conta</Text>
+                        {e.mine !== false && (
+                          <Pressable onPress={() => remove(e)} hitSlop={10} accessibilityLabel="Elimina questa spesa" accessibilityRole="button" style={{ padding: 8 }}>
+                            <Icon name="trash-outline" size={20} color={colors.danger} />
+                          </Pressable>
+                        )}
+                      </View>
+                    ) : e.verified ? (
                       <View style={s.footer}>
                         <Text style={s.rowMeta}>
                           Pagato {euro(e.paid ?? 0)}
@@ -270,9 +286,21 @@ function SalvadanaioScreenInner() {
             <Text style={s.modalTitle}>Verifica con lo scontrino</Text>
             <Text style={s.helpText}>
               {verifying?.store_name} · {verifying ? formatDate(verifying.created_at) : ''}{'\n'}
-              Scrivi il <Text style={s.bold}>totale pagato</Text> che leggi sullo scontrino.
+              {multi ? <>Scrivi il <Text style={s.bold}>totale</Text> di ogni scontrino: li sommo io.</> : <>Scrivi il <Text style={s.bold}>totale pagato</Text> che leggi sullo scontrino.</>}
             </Text>
-            <View style={s.inputRow}>
+            {multi && parts!.map((pt: { store_name: string; by: string | null }, k: number) => (
+              <View key={k} style={{ gap: 4 }}>
+                <Text style={s.rowMeta}>🧾 {pt.store_name}{pt.by ? ` · l'ha fatta ${pt.by}` : ''}</Text>
+                <View style={s.inputRow}>
+                  <Text style={s.euro}>€</Text>
+                  <TextInput value={partsText[k] ?? ''} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={colors.textSecondary}
+                    autoFocus={k === 0} style={s.input} accessibilityLabel={`Totale dello scontrino di ${pt.store_name}`}
+                    onChangeText={(t) => setPartsText((x) => { const n = [...x]; n[k] = t.replace(/[^0-9.,]/g, ''); return n; })} />
+                </View>
+              </View>
+            ))}
+            {multi && paidOk && <Text style={s.helpText}>In tutto <Text style={s.bold}>{euro(paid)}</Text></Text>}
+            {!multi && <View style={s.inputRow}>
               <Text style={s.euro}>€</Text>
               <TextInput
                 value={paidText}
@@ -284,7 +312,7 @@ function SalvadanaioScreenInner() {
                 style={s.input}
                 onSubmitEditing={doVerify}
               />
-            </View>
+            </View>}
             {verifying && hasFuel && (
               <View style={s.fuelQ}>
                 <Text style={s.helpText}>

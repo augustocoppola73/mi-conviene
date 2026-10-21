@@ -48,12 +48,13 @@ function VolantiniScreenInner() {
               <StoreDot storeId={f.store_id} size={22} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={s.name} numberOfLines={1}>{f.store_name}</Text>
-                <Text style={s.muted} numberOfLines={2}>
-                  {f.branch_name
-                    ? `${f.branch_name}${f.address ? `, ${f.address}` : ''}${f.distance_km != null ? ` · ${f.distance_km.toLocaleString('it-IT')} km` : ''}`
-                    : 'Volantino nazionale'}
-                </Text>
-                <Text style={s.link}>{f.store_page ? 'Volantino di zona' : 'Volantino nazionale'}</Text>
+                {/* #101: una riga sola quando non c'è il negozio vicino (prima «Volantino nazionale» due volte) */}
+                {!!f.branch_name && (
+                  <Text style={s.muted} numberOfLines={2}>
+                    {`${f.branch_name}${f.address ? `, ${f.address}` : ''}${f.distance_km != null ? ` · ${f.distance_km.toLocaleString('it-IT')} km` : ''}`}
+                  </Text>
+                )}
+                <Text style={s.link}>{f.store_page ? 'Volantino di zona · apri' : 'Volantino nazionale · apri'}</Text>
               </View>
               <Icon name="open-outline" size={20} color={colors.primary} />
             </Pressable>

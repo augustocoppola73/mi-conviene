@@ -41,7 +41,7 @@ export async function shareInvite(code: string, from: string, kind: 'famiglia' |
   const who = from ? `${from} ti invita` : 'Ti invito';
   const message = kind === 'famiglia'
     ? `${who} nella famiglia su Mi Conviene: facciamo la spesa insieme e vediamo dove conviene.\n` +
-      `Apri il link e scrivi il tuo nome: ti faccio entrare io. Vale 48 ore: ${link}\n(Oppure nell'app: «Ho un codice» → ${code})`
+      `Apri il link e scrivi il tuo nome: ti faccio entrare io. Vale 48 ore: ${link}\n(Oppure nell'app: Profilo › Famiglia › «Ho un invito» → ${code})`
     : `${who} in «${group || 'un gruppo'}» su Mi Conviene: lista e conti insieme.\nApri il link, scrivi il tuo nome e sei dentro: ${link}`;
   return shareText(message);
 }

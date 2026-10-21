@@ -10,7 +10,7 @@ import {
   addGroupExpense, Balance, confirmSettlement, deleteExpense, deleteSettlement, GroupExpense, groupBalances, groupExpenses, GroupMember, GroupSettlement,
   groupSettlements, setExcluded, settle, transfers, watchAccounts,
 } from '../cloud/groups';
-import { euro, parseEuro } from '../format';
+import { euro, formatQty, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { shareText } from '../invite';
 import { ask, tell } from './GroupList';
@@ -195,7 +195,7 @@ export function GroupAccounts({ groupId, me, owner, members }: { groupId: string
               <View style={s.detail}>
                 {(e.lines ?? []).map((l, k) => (
                   <View key={k} style={s.row}>
-                    <Text style={[s.small, { flex: 1 }]}>{l.name}{l.quantity ? ` · ${l.quantity}${l.unit ? ` ${l.unit}` : ''}` : ''}</Text>
+                    <Text style={[s.small, { flex: 1 }]}>{l.name}{l.quantity ? ` · ${formatQty(Number(l.quantity), l.unit || 'pz')}` : ''}</Text>
                     <Text style={s.small}>{euro(Number(l.price) || 0)}</Text>
                   </View>
                 ))}

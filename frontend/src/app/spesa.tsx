@@ -68,6 +68,7 @@ export default function SpesaScreen() {
   const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null } | null>(null);
   const [putBack, setPutBack] = useState<Set<string>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [dropSaving, setDropSaving] = useState(true);   // #99
   const [pricing, setPricing] = useState<ShopItem | null>(null);
   const [priceText, setPriceText] = useState('');
   const [priceKind, setPriceKind] = useState<PriceKind>('normale');
@@ -290,7 +291,7 @@ export default function SpesaScreen() {
   const cancel = async () => {
     if (!shop || !userId) return;
     try {
-      const r = await api.shopCancel(shop.id, userId);
+      const r = await api.shopCancel(shop.id, userId, dropSaving);
       // la lista torna com'era (si aggiunge a quello che hai scritto nel frattempo)
       const byId = new Map(listItems.map((i) => [i.product_id, i]));
       for (const i of r.items) {
@@ -629,7 +630,16 @@ export default function SpesaScreen() {
         <View style={s.bg}>
           <Card style={s.card}>
             <Text style={s.title}>Annullare la spesa?</Text>
-            <Text style={s.text}>I prodotti tornano nella tua lista. La spesa resta nel Salvadanaio: se non la fai, puoi eliminarla da lì.</Text>
+            <Text style={s.text}>I prodotti tornano nella tua lista.</Text>
+            {shop?.saving_id && shop.mine ? (
+              <Pressable onPress={() => setDropSaving(!dropSaving)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm }}
+                accessibilityRole="checkbox" accessibilityState={{ checked: dropSaving }}>
+                <Icon name={dropSaving ? 'checkbox' : 'square-outline'} size={24} color={colors.primary} />
+                <Text style={[s.text, { flex: 1 }]}>Togli anche il risparmio stimato dal Salvadanaio</Text>
+              </Pressable>
+            ) : shop?.saving_id ? (
+              <Text style={s.text}>Nel Salvadanaio di chi l'aveva confermata la spesa resta, segnata come annullata (il risparmio non conta).</Text>
+            ) : null}
             <PrimaryButton label="Sì, annulla" variant="danger" onPress={() => { setConfirmCancel(false); cancel(); }} style={{ marginTop: spacing.md }} />
             <PrimaryButton label="No, continuo" variant="secondary" onPress={() => setConfirmCancel(false)} style={{ marginTop: spacing.sm }} />
           </Card>

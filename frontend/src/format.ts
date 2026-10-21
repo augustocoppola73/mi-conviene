@@ -9,10 +9,26 @@ export function formatQty(quantity: number, unit: string): string {
   return `${n} ${unit}`;
 }
 
-/** Passo dello stepper: la quantità di default per kg/L, 1 per pezzi e confezioni. */
-export function qtyStep(defaultQty: number, unit: string): number {
-  if (unit === 'kg' || unit === 'L') return defaultQty < 1 ? defaultQty : 0.5;
+/** il nome dice già il formato della confezione («Latte intero 1L», «Uova fresche x6», «Salsiccia 300 g») */
+export const hasPack = (name?: string | null) => !!name && /(\d+([.,]\d+)?\s?(kg|g|l|ml|cl)\b)|(\bx\s?\d+\b)/i.test(name);
+
+/** Passo dello stepper: la quantità di default per kg/L, 1 per pezzi e confezioni.
+ *  #101: un prodotto venduto a bottiglia/confezione («Latte intero 1L») va a confezioni intere, non a mezzo litro. */
+export function qtyStep(defaultQty: number, unit: string, name?: string | null): number {
+  if (unit === 'kg' || unit === 'L') {
+    if (hasPack(name) && defaultQty >= 0.25) return defaultQty;
+    return defaultQty < 1 ? defaultQty : 0.5;
+  }
   return 1;
+}
+
+/** #101: nel testo condiviso «Latte intero 1L ×2» invece di «Latte intero 1L 2 L» */
+export function qtyWithName(name: string, quantity: number, unit: string, defaultQty?: number | null): string {
+  if (hasPack(name) && defaultQty && defaultQty > 0) {
+    const n = Math.round((quantity / defaultQty) * 100) / 100;
+    if (Number.isInteger(n)) return `${name} ×${n}`;
+  }
+  return `${name} ${formatQty(quantity, unit)}`.trim();
 }
 
 export const TRANSPORTS: { id: Transport; label: string; icon: string }[] = [

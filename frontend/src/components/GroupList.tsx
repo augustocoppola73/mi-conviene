@@ -11,6 +11,7 @@ import { IS_CLOUD, uid } from '../cloud/client';
 import {
   addGroupExpense, addGroupItem, eventLabel, Group, GroupItem, groupItems, GroupMember, groupMembers, myGroups, removeGroupItem, similarName,
   updateGroupItem, watchList,
+  dismissRejections, GroupRejection, groupRejections,
 } from '../cloud/groups';
 import { euro, formatQty, qtyStep, parseEuro } from '../format';
 import { shareInvite } from '../invite';
@@ -109,7 +110,7 @@ export function useGroupList(groupId: string | null) {
       const p = productById(pid);
       if (!r) return add(pid, p?.default_qty ?? 1);
       if (canRemove(r) && r.added_by === me) return after(async () => { await removeGroupItem(r.id); });
-      return offerMore(r, qtyStep(p?.default_qty ?? 1, p?.unit ?? 'pz'));
+      return offerMore(r, qtyStep(p?.default_qty ?? 1, p?.unit ?? 'pz', p?.name));
     },
     addCustom: async (name: string, category_id: string, quantity = 1, unit = 'pz') => {
       const clean = name.trim();
@@ -192,7 +193,7 @@ export function GroupItemRow({ it, gl, onValue }: { it: GroupItem; gl: GroupList
         <Text onPress={() => onValue(it)} style={s.link}>+ € nei conti</Text>
       )}
       {it.status === 'da_prendere' && (free || isMine) && !bring && (isMine || owner || gl.group?.add_policy !== 'proprietario') && (
-        <QtyStepper compact canRemove={canRemove(it)} quantity={Number(it.quantity)} unit={unit} step={qtyStep(p?.default_qty ?? 1, unit)}
+        <QtyStepper compact canRemove={canRemove(it)} quantity={Number(it.quantity)} unit={unit} step={qtyStep(p?.default_qty ?? 1, unit, p?.name)}
           onChange={(n) => (n <= 0 ? canRemove(it) && after(() => removeGroupItem(it.id)) : after(() => updateGroupItem(it.id, { quantity: n })))} />
       )}
       {it.status === 'da_prendere' && free && (
@@ -233,6 +234,14 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
   const money = useGroupMoney(group?.id ?? null);    // #47
   const [requests, setRequests] = useState<JoinRequest[]>([]);   // #58: rientri da confermare
   const gid = group?.id ?? null;
+  const [rejected, setRejected] = useState<GroupRejection[]>([]);   // #98: le mie proposte non aggiunte
+  useEffect(() => {
+    if (!gid) return;
+    const load = () => groupRejections(gid).then(setRejected).catch(() => setRejected([]));
+    load();
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+  }, [gid]);
   useEffect(() => {
     if (!gid) return;
     const load = () => api.joinRequests(gid).then(setRequests).catch(() => setRequests([]));
@@ -249,6 +258,7 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
     );
   }
   if (!group) return <Text style={s.meta}>Carico il gruppo…</Text>;
+  const plan = group.event_plan ?? prefs.eventPlans?.[group.id] ?? null;   // #98: il piano è del gruppo
   const proposals = items.filter((i) => i.status === 'proposto');
   const todo = items.filter((i) => i.status === 'da_prendere' && !isBring(i));
   const done = items.filter((i) => (i.status === 'preso' || i.status === 'mancava') && !isBring(i));
@@ -319,14 +329,25 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
       <Pressable onPress={() => setPlanOpen(true)} style={s.planBtn} accessibilityRole="button">
         <Text style={{ fontSize: 22 }}>✨</Text>
         <View style={{ flex: 1 }}>
-          <Text style={[s.name, { fontWeight: '800' }]}>{prefs.eventPlans?.[group.id] ? 'Ricalcola la festa' : 'Organizza la festa'}</Text>
-          <Text style={s.meta}>{prefs.eventPlans?.[group.id]
-            ? `Cambiate le persone? Aggiorno le quantità (${prefs.eventPlans[group.id].adults} adulti${prefs.eventPlans[group.id].kids ? `, ${prefs.eventPlans[group.id].kids} bambini` : ''})`
+          <Text style={[s.name, { fontWeight: '800' }]}>{plan ? 'Ricalcola la festa' : 'Organizza la festa'}</Text>
+          <Text style={s.meta}>{plan
+            ? `Festa per ${plan.adults} adulti${plan.kids ? ` e ${plan.kids} bambini` : ''}: cambiate le persone? Aggiorno le quantità`
             : 'Grigliata, pizzata, compleanno…: dimmi quante persone, preparo io la lista con le quantità.'}</Text>
         </View>
         <Icon name="chevron-forward" size={18} color={colors.primary} />
       </Pressable>
       <EventPlanner visible={planOpen} onClose={() => setPlanOpen(false)} gl={gl} />
+
+      {rejected.length > 0 && (
+        <View style={[s.card, { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }]}>
+          <Text style={{ fontSize: 18 }}>🙅</Text>
+          <Text style={[s.meta, { flex: 1, color: colors.text }]}>
+            {rejected[0].rejected_name || 'Chi ha creato il gruppo'} non ha aggiunto: {rejected.map((r) => r.name).join(', ')}
+          </Text>
+          <Text onPress={() => { const ids = rejected.map((r) => r.id); setRejected([]); dismissRejections(ids).catch(() => {}); }}
+            style={[s.link, { padding: 8 }]} accessibilityRole="button">Ok</Text>
+        </View>
+      )}
 
       {proposals.length > 0 && (
         <>
@@ -377,7 +398,7 @@ export function GroupListPanel({ gl }: { gl: GroupListState }) {
         <GroupItemRow key={it.id} it={it} gl={gl}
           onValue={money.expenses.some((e) => e.paid_by === me && e.note === `🎒 ${it.name}`) ? undefined : setValueOf} />
       ))}
-      <BringSheet visible={bringOpen} onClose={() => setBringOpen(false)} gl={gl} type={prefs.eventPlans?.[group.id]?.type} />
+      <BringSheet visible={bringOpen} onClose={() => setBringOpen(false)} gl={gl} type={(group.event_plan ?? prefs.eventPlans?.[group.id])?.type} />
       <BringValueSheet item={valueOf} onClose={() => setValueOf(null)} onSave={async (v) => {
         const it = valueOf!; setValueOf(null);
         await after(() => addGroupExpense(group.id, v, `🎒 ${it.name}`));
