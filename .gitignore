@@ -28,3 +28,6 @@ supabase/.temp/
 # chiavi private (firma degli aggiornamenti e simili): mai nel repo
 private-key.pem
 *.key
+
+# APK costruiti in locale (si passano sui telefoni, non vanno nel repo)
+apk/
