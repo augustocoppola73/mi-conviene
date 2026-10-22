@@ -223,8 +223,9 @@ function SalvadanaioScreenInner() {
                         )}
                       </View>
                     ) : e.verified ? (
-                      <View style={s.footer}>
-                        <Text style={s.rowMeta}>
+                      <View style={[s.footer, { gap: spacing.xs }]}>
+                        {/* il testo va a capo, i due pulsanti restano dentro la card anche a 360 px */}
+                        <Text style={[s.rowMeta, { flex: 1, minWidth: 0 }]}>
                           Pagato {euro(e.paid ?? 0)}
                           {e.estimated_spend != null ? ` · previsto ${euro(e.estimated_spend)}` : ''}
                           {e.amount !== e.verified_amount ? ` · stima era ${euro(e.amount)}` : ''}
