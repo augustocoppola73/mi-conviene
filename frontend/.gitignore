@@ -53,3 +53,4 @@ example
 /google-services.json
 # il certificato pubblico della firma degli aggiornamenti va nel repo (la chiave privata no)
 !certs/certificate.pem
+modules/*/android/build/
