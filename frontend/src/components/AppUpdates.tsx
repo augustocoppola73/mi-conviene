@@ -1,8 +1,9 @@
 /**
  * Aggiornamenti dell'app Android (sul web non serve: la pagina è sempre l'ultima).
  *  1) codice dell'app "via etere" (expo-updates, server su Cloudflare): scaricato in silenzio (compresso, ~1-2 MB).
+ *     Si controlla all'apertura, a ogni ritorno nell'app (al massimo ogni 30 s) e ogni 5 minuti con l'app aperta.
  *     Si applica da solo alla prossima apertura, o quando torni nell'app dopo almeno un minuto fuori;
- *     intanto una riga discreta in fondo con "Ora" per chi lo vuole subito;
+ *     intanto in fondo «Aggiornamento pronto · Riavvia» per averlo subito con un tocco;
  *  2) nuova versione dell'APK (cambi nativi, rari): avviso con "Scarica", poi si conferma l'installazione.
  */
 import * as Application from 'expo-application';
@@ -15,7 +16,8 @@ import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { Icon } from './ui';
 
 const SITE = 'https://mi-conviene.augustocoppola.workers.dev';
-const CHECK_EVERY_MS = 2 * 60 * 1000; // al massimo un controllo ogni 2 minuti (apertura o ritorno nell'app)
+const CHECK_EVERY_MS = 30 * 1000;     // al massimo un controllo ogni 30 secondi (apertura o ritorno nell'app)
+const POLL_MS = 5 * 60 * 1000;        // con l'app aperta, un controllo ogni 5 minuti (l'aggiornamento esce mentre la usi)
 const APPLY_AFTER_AWAY_MS = 60 * 1000; // fuori dall'app da almeno un minuto: al ritorno applico l'aggiornamento
 
 interface LatestApk { versionCode: number; versionName: string; url: string; notes?: string }
@@ -57,6 +59,7 @@ function NativeUpdates() {
       } catch { /* pazienza */ }
     };
     check();
+    const poll = setInterval(() => { if (AppState.currentState === 'active') check(); }, POLL_MS);
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') {
         const away = awaySince.current ? Date.now() - awaySince.current : 0;
@@ -66,7 +69,7 @@ function NativeUpdates() {
         check();
       } else if (st === 'background' && awaySince.current == null) awaySince.current = Date.now();
     });
-    return () => sub.remove();
+    return () => { sub.remove(); clearInterval(poll); };
   }, []);
 
   if (hidden || (!apk && !isUpdatePending)) return null;
@@ -76,8 +79,8 @@ function NativeUpdates() {
       <View style={[s.pill, { bottom: insets.bottom + 64 }]} pointerEvents="box-none">
         <View style={s.pillInner}>
           <Icon name="sparkles-outline" size={16} color={colors.primary} />
-          <Text style={s.pillText}>Novità pronte: arrivano alla prossima apertura</Text>
-          <Pressable onPress={() => Updates.reloadAsync()} hitSlop={8} accessibilityRole="button"><Text style={s.pillBtn}>Ora</Text></Pressable>
+          <Text style={s.pillText}>Aggiornamento pronto</Text>
+          <Pressable onPress={() => Updates.reloadAsync()} hitSlop={8} style={s.pillGo} accessibilityRole="button"><Text style={s.pillGoText}>Riavvia</Text></Pressable>
           <Pressable onPress={() => setHidden(true)} hitSlop={10} accessibilityLabel="Chiudi"><Icon name="close" size={16} color={colors.textSecondary} /></Pressable>
         </View>
       </View>
@@ -113,5 +116,6 @@ const useStyles = makeStyles((c) => ({
     borderWidth: 1, borderColor: c.border, paddingHorizontal: spacing.md, paddingVertical: 8, maxWidth: 420,
     shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   pillText: { color: c.text, fontSize: 13, flexShrink: 1 },
-  pillBtn: { color: c.primary, fontWeight: '700', fontSize: 14 },
+  pillGo: { backgroundColor: c.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 },
+  pillGoText: { color: c.primaryText, fontWeight: '700', fontSize: 14 },
 }));
