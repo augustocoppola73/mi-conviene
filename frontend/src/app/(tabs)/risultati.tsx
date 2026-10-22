@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { PricesSheet } from '@/components/PricesSheet';
 import { useEffect, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -29,6 +30,7 @@ export default function RisultatiScreen() {
   const { lastResult, setLastResult, lastResultStale, userId, items, prefs, setPrefs, catalog, clearItems, groupMine, reloadGroupMine } = useStore();
   const [ruleMsg, setRuleMsg] = useState<string | null>(null);
   const [carBusy, setCarBusy] = useState(false);
+  const [pricesOpen, setPricesOpen] = useState(false);   // #45
   const [shopError, setShopError] = useState<string | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [refStore, setRefStore] = useState<string | null>(null); // negozio di confronto scelto alla conferma
@@ -345,14 +347,19 @@ export default function RisultatiScreen() {
               </Text>
             );
           })()}
-          <View style={s.sourceRow}>
+          {/* #45: quanti prezzi sono veri, e il dettaglio di ognuno con «il prezzo è cambiato?» */}
+          <Pressable onPress={() => setPricesOpen(true)} style={s.sourceRow} accessibilityRole="button" accessibilityHint="Mostra da dove viene ogni prezzo">
             <Icon name={price_coverage.real_lines > 0 ? 'checkmark-done-outline' : 'information-circle-outline'} size={15} color={colors.textSecondary} />
             <Text style={s.sourceText}>
               {price_coverage.real_lines === price_coverage.total_lines
-                ? 'Tutti i prezzi sono controllati'
-                : `${price_coverage.real_lines} ${price_coverage.real_lines === 1 ? 'prezzo' : 'prezzi'} su ${price_coverage.total_lines} ${price_coverage.real_lines === 1 ? 'è controllato' : 'sono controllati'}, gli altri sono stimati`}
+                ? 'Tutti i prezzi sono stati visti da qualcuno'
+                : price_coverage.real_lines === 0
+                  ? `Tutti i ${price_coverage.total_lines} prezzi sono stime: il totale vero può essere diverso`
+                  : `Stima: ${price_coverage.real_lines} ${price_coverage.real_lines === 1 ? 'prezzo visto' : 'prezzi visti'} su ${price_coverage.total_lines}, gli altri stimati`}
+              {' '}<Text style={{ color: colors.primary, fontWeight: '700' }}>Vedi i prezzi</Text>
             </Text>
-          </View>
+          </Pressable>
+          <PricesSheet store={recommended} visible={pricesOpen} onClose={() => setPricesOpen(false)} />
           {recommended.travel.fuel_cost > 0 && (
             <View style={s.sourceRow}>
               <Icon name="speedometer-outline" size={15} color={colors.textSecondary} />

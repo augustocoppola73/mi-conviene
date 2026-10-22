@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, canActItem, canActOn, canCloseShop, GroupReceipt, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode } from '@/api';
+import { api, canActItem, canActOn, canCloseShop, GroupReceipt, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode, UnpricedItem } from '@/api';
+import { MissingPrices } from '@/components/MissingPrices';
+import { available as OCR_ON } from '../../modules/receipt-ocr';
 import { shareLabel } from '@/groupShare';
 import { GroupReceiptEditor } from '@/components/GroupReceipt';
 import { IS_CLOUD } from '@/cloud/client';
@@ -65,7 +67,7 @@ export default function SpesaScreen() {
   const [loaded, setLoaded] = useState(false);
   const [offline, setOffline] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null } | null>(null);
+  const [finishing, setFinishing] = useState<{ missing: ShopItem[]; saving_id: string | null; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null; unpriced?: UnpricedItem[] } | null>(null);
   const [putBack, setPutBack] = useState<Set<string>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [dropSaving, setDropSaving] = useState(true);   // #99
@@ -271,7 +273,7 @@ export default function SpesaScreen() {
       else { tell('Non posso chiuderla', (e as Error).message); refresh(); }
     }
   };
-  const closeFinished = (goVerify: boolean) => {
+  const closeFinished = (goVerify: boolean, scan = false) => {
     if (!finishing) return;
     for (const m of finishing.missing) {
       if (!putBack.has(m.key)) continue;
@@ -286,7 +288,8 @@ export default function SpesaScreen() {
     save(null);
     setFinishing(null);
     AsyncStorage.removeItem(FINISH_KEY).catch(() => {});
-    router.replace(goVerify && !prefs.participant ? '/salvadanaio' : '/');   // #76
+    const sid = finishing.saving_id;
+    router.replace(goVerify && !prefs.participant ? (scan && sid ? { pathname: '/salvadanaio', params: { scan: sid } } : '/salvadanaio') : '/');   // #76, #32
   };
   const cancel = async () => {
     if (!shop || !userId) return;
@@ -350,8 +353,19 @@ export default function SpesaScreen() {
               })}
             </>
           )}
+          {/* #32: il gesto principale a fine spesa: la foto dello scontrino porta i prezzi veri e verifica il risparmio */}
+          {finishing.saving_id && OCR_ON && !prefs.participant && (
+            <View style={s.scanBox}>
+              <Text style={s.name}>📷 Hai lo scontrino? Fotografalo</Text>
+              <Text style={s.muted}>Leggo i prezzi veri (qui nel telefono, la foto non va a nessuno): valgono subito per te e verificano il risparmio.</Text>
+              <PrimaryButton label="Fotografa lo scontrino" icon="camera-outline" onPress={() => closeFinished(true, true)} style={{ marginTop: spacing.sm }} />
+            </View>
+          )}
+          {/* #43: senza foto, almeno i prezzi che nessuno ha mai visto */}
+          {!!finishing.unpriced?.length && <MissingPrices items={finishing.unpriced} />}
           {finishing.saving_id && (
-            <PrimaryButton label="Verifica con lo scontrino" icon="receipt-outline" onPress={() => closeFinished(true)} style={{ marginTop: spacing.md }} />
+            <PrimaryButton label={OCR_ON && !prefs.participant ? 'Scrivo solo il totale' : 'Verifica con lo scontrino'} icon="receipt-outline"
+              variant={OCR_ON && !prefs.participant ? 'secondary' : 'primary'} onPress={() => closeFinished(true)} style={{ marginTop: spacing.md }} />
           )}
           <PrimaryButton label="Torna alla lista" variant="secondary" onPress={() => closeFinished(false)} style={{ marginTop: spacing.sm }} />
         </ScrollView>
@@ -668,6 +682,7 @@ const useStyles = makeStyles((c) => ({
   takeBtnText: { color: c.primaryText, fontWeight: '700', fontSize: 13 },
   text: { color: c.text, fontSize: 14, lineHeight: 20 },
   muted: { color: c.textSecondary, fontSize: 12 },
+  scanBox: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primarySoft, gap: 4 },
   progressBox: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 4 },
   progressTrack: { height: 8, borderRadius: 4, backgroundColor: c.surfaceMuted, overflow: 'hidden' },
   progressFill: { height: 8, backgroundColor: c.success },

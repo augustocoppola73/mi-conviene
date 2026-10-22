@@ -50,3 +50,4 @@ jobs:
       - run: npx tsx scripts/golden_kitchen.ts
       - run: npx tsx scripts/golden_recipes.ts
       - run: npx tsx scripts/golden_places.ts
+      - run: npx tsx scripts/test_receipt.ts

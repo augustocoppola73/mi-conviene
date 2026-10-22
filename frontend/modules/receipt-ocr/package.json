@@ -1,0 +1,7 @@
+{
+  "name": "receipt-ocr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lettura del testo dello scontrino nel telefono (ML Kit, nessun servizio esterno)",
+  "main": "index.ts"
+}

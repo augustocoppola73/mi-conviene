@@ -47,7 +47,8 @@ ok('addSaving', !!sv.id && sv.store_name, sv.__error || sv.store_name);
 const ap = await A.call('applyReceipt', { saving_id: sv.id, user_id: U, store_id: sv.store_id, total: 18.4,
   lines: [{ product_id: 'latte', text: 'LATTE 1L', net_price: 2.2, quantity: 2, weight_kg: null, kind: 'normale' },
           { product_id: 'spaghetti', text: 'SPAGHETTI 500G', net_price: 0.69, quantity: 1, weight_kg: null, kind: 'offerta', gross_price: 0.99 }] });
-ok('applyReceipt', ap.prices_saved === 2 && ap.verified?.verified, ap.__error || JSON.stringify({ saved: ap.prices_saved, verified_amount: ap.verified?.verified_amount }));
+// il latte a 1,10 €/L è scartato dal database: nei prezzi Open Prices di prova costa 4,85 (più di 4 volte): ora si conta solo ciò che entra
+ok('applyReceipt', ap.prices_saved >= 1 && ap.verified?.verified, ap.__error || JSON.stringify({ saved: ap.prices_saved, verified_amount: ap.verified?.verified_amount }));
 const sm = await A.call('savings', U);
 ok('savings', sm.entries?.length === 1 && sm.total_verified === ap.verified?.verified_amount && sm.entries[0].real_receipt, sm.__error || JSON.stringify({ total: sm.total, to_verify: sm.to_verify }));
 const opt2 = await A.call('optimize', { user_id: U, items, transport: 'car', min_savings_threshold: 3, fuel_type: 'benzina', lat: 43.55, lon: 10.31 });

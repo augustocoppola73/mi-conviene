@@ -1,5 +1,5 @@
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,6 +7,7 @@ import { api, SavingEntry, SavingsSummary } from '@/api';
 import { PaperReceipt } from '@/components/PaperReceipt';
 import { ManualPrices } from '@/components/ManualPrices';
 import { IS_CLOUD } from '@/cloud/client';
+import { available as OCR_ON } from '../../../modules/receipt-ocr';
 import { ReceiptScanner } from '@/components/ReceiptScanner';
 import { MonthSummary } from '@/components/MonthSummary';
 import { SavingGoalCard } from '@/components/SavingGoalCard';
@@ -51,6 +52,9 @@ function SalvadanaioScreenInner() {
   const { colors } = useTheme();
   const { userId, productById, catalog, familyId } = useStore();
   const [scanning, setScanning] = useState<SavingEntry | null>(null);
+  // #32: da «Fotografa lo scontrino» a fine spesa si arriva qui con la voce da leggere
+  const { scan: scanId } = useLocalSearchParams<{ scan?: string }>();
+  const [scanDone, setScanDone] = useState<string | null>(null);
   const [manual, setManual] = useState<SavingEntry | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [data, setData] = useState<SavingsSummary | null>(null);
@@ -77,6 +81,11 @@ function SalvadanaioScreenInner() {
 
   // ricarica ogni volta che si apre il tab
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  useEffect(() => {
+    if (!scanId || scanDone === scanId || !data || !OCR_ON) return;
+    const e = data.entries.find((x) => x.id === scanId);
+    if (e) { setScanDone(scanId); setScanning(e); }
+  }, [scanId, scanDone, data]);
 
   const remove = async (e: SavingEntry) => {
     if (!(await confirmAsk('Eliminare questa spesa?', `${e.store_name} del ${formatDate(e.created_at)}: il suo risparmio (${euro(e.amount)}) esce dal Salvadanaio.`, 'Elimina'))) return;
@@ -233,7 +242,7 @@ function SalvadanaioScreenInner() {
                             <Icon name="trash-outline" size={20} color={colors.danger} />
                           </Pressable>
                         )}
-                        {!IS_CLOUD && (
+                        {(!IS_CLOUD || OCR_ON) && (
                           <Pressable onPress={() => setScanning(e)} style={[s.verifyBtn, s.scanBtn]} accessibilityLabel="Leggi lo scontrino dalla foto">
                             <Icon name="camera-outline" size={16} color={colors.primary} />
                             <Text style={[s.verifyText, { color: colors.primary }]}>Foto</Text>

@@ -457,7 +457,13 @@ export const shopApi = {
     const saving_change = await finalizeSaving(shop).catch(() => undefined);
     const items: T.ShopItem[] = shop.items;
     const group_receipts = items.some((i) => i.groups?.length) ? await shopGroupSync(id, true).catch(() => []) : [];
-    return { missing: items.filter((i) => !i.checked), saving_id: shop.saving_id ?? null, store_name: shop.store_name as string,
+    // #43: i prodotti presi di cui nessuno ha mai visto il prezzo in quel negozio: li chiedo subito, uno per riga
+    const book = await priceBook().catch(() => null);
+    const unpriced: T.UnpricedItem[] = items.filter((i) => i.checked && !i.seen && (i.quantity - (i.groups ?? []).reduce((t, g) => t + g.quantity, 0)) > 0)
+      .map((i) => ({ i, sid: (i.store_id ?? shop.store_id) as string }))
+      .filter(({ i, sid }) => i.product_id.startsWith('custom:') ? i.price == null : (book?.catalog[sid]?.[i.product_id]?.source ?? 'stima') === 'stima')
+      .map(({ i, sid }) => ({ key: i.key, product_id: i.product_id, name: i.name, quantity: i.quantity, unit: i.unit, store_id: sid }));
+    return { missing: items.filter((i) => !i.checked), saving_id: shop.saving_id ?? null, store_name: shop.store_name as string, unpriced,
       cart: r2(items.filter((i) => i.checked).reduce((s, i) => s + (i.price || 0), 0)), group_receipts,
       saving_change: saving_change && Math.abs(saving_change.after - saving_change.before) > 0.005 ? saving_change : null };
   },

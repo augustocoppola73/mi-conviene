@@ -95,11 +95,11 @@ export async function priceBook(): Promise<PriceBook> {
 
 export async function saveObserved(lines: ObservedLine[], storeId: string, date: string, location: string | null): Promise<number> {
   const { rows, saved } = observedRows(lines, storeId, date, location);
-  if (rows.length) {
-    check(await sb().from('user_prices').insert(rows));
-    bookCache = null; // i prezzi nuovi valgono subito
-  }
-  return saved;
+  if (!rows.length) return 0;
+  // il database scarta in silenzio i prezzi fuori scala: conto quelli entrati davvero (#45)
+  const got = (check(await sb().from('user_prices').insert(rows).select('product_id')) as { product_id: string }[] | null) ?? [];
+  bookCache = null; // i prezzi nuovi valgono subito
+  return new Set(got.map((x) => x.product_id)).size;
 }
 
 // ------------------------------------------------------------------ prezzi dei prodotti scritti a mano (#26)

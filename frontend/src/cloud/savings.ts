@@ -6,12 +6,27 @@ import { shopItem } from '../engine/kitchen';
 import { ObservedLine } from '../engine/observed';
 import { usualAndDue } from '../engine/restock';
 import { median } from '../engine/util';
+import { available as ocrAvailable, recognize } from '../../modules/receipt-ocr';
+import { groupRows, matchLines, mergeRows, parseRows } from '../engine/receipt';
+import { referencePrice } from '../engine/observed';
+import { PRODUCT_INDEX as PIDX } from '../engine/data';
 import { check, sb, uid } from './client';
 import { BUDGET_HISTORY_LIMIT, nowIso, r2, today } from './common';
 import { customPrices, foldCustomPrices, priceBook, saveCustomPrice, saveObserved } from './prices';
 import { historyRows, savingOut, savingRow } from './data';
 
 export const savingsApi = {
+  /** #45: «il prezzo è cambiato»: va nei prezzi visti (per tutti, con i controlli del database) */
+  reportPrice: async (storeId: string, productId: string, price: number, quantity: number, kind: T.PriceKind = 'normale', extra?: { name?: string; unit?: string }) => {
+    // prodotto scritto a mano: prezzo per unità della famiglia (#26)
+    if (productId.startsWith('custom:')) {
+      await saveCustomPrice(storeId, productId, extra?.name ?? null, extra?.unit ?? null, r2(price / Math.max(quantity, 0.001)));
+      return { prices_saved: 1 };
+    }
+    const saved = await saveObserved([{ product_id: productId, text: productId, net_price: price, quantity, weight_kg: null, kind }], storeId, today(), 'segnalato da un utente');
+    return { prices_saved: saved };
+  },
+
   addSaving: async (body: Parameters<typeof import('../api').localApi.addSaving>[0]): Promise<T.SavingEntry> => {
     const { user_id: _u, store_id, ...rest } = body;
     const data = { fuel_saving: 0, ...rest, verified_amount: null, paid: null,
@@ -58,8 +73,28 @@ export const savingsApi = {
     return { deleted: 1 };
   },
 
-  scanReceipt: async (_images: string[], _saving_id?: string): Promise<T.ScanResult> => {
-    throw new Error('Nella versione online i prezzi dello scontrino si inseriscono a mano');
+  /** #32: foto dello scontrino lette nel telefono (ML Kit), righe unite, interpretate e abbinate alla spesa */
+  scanReceipt: async (images: string[], savingId?: string): Promise<T.ScanResult> => {
+    if (!ocrAvailable) throw new Error('La lettura delle foto arriva con la prossima versione dell\'app da installare');
+    if (!images.length) throw new Error('Nessuna foto');
+    const parts: string[][] = [];
+    for (const uri of images.slice(0, 6)) {
+      const boxes = await recognize(uri).catch(() => { throw new Error('Non riesco a leggere questa foto: riprova con più luce'); });
+      parts.push(groupRows(boxes));
+    }
+    const { rows, removed } = mergeRows(parts);
+    const entry = savingId ? await savingRow(savingId).catch(() => null) : null;
+    const calc = new Map<string, any>(((entry?.data?.snapshot?.receipt?.lines ?? []) as any[]).map((l) => [l.product_id, l]));
+    const parsed = matchLines(parseRows(rows), PIDX as any, [...calc.keys()]);
+    const lines = parsed.lines.map((l) => {
+      const p = l.product_id ? PIDX[l.product_id] : null;
+      return { ...l, calculated_price: calc.get(l.product_id ?? '')?.line_price ?? null, ref_price: p ? referencePrice(l, p) : null };
+    });
+    if (!lines.length) throw new Error('Non trovo le righe dello scontrino: fotografalo più da vicino, ben steso');
+    return {
+      ...parsed, lines, rows, photos: images.length, overlaps: removed, store_id: parsed.store_id ?? entry?.store_id ?? null,
+      ...(parsed.total != null && !parsed.total_matches ? { missing_amount: r2(parsed.total - parsed.lines_sum) } : {}),
+    } as T.ScanResult;
   },
 
   applyReceipt: async (body: Parameters<typeof import('../api').localApi.applyReceipt>[0]) => {

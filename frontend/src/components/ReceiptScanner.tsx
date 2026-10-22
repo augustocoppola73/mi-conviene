@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { api, PriceKind, Product, SavingEntry, ScanResult } from '../api';
+import { IS_CLOUD } from '../cloud/client';
 import { euro, parseEuro } from '../format';
 import { makeStyles, radius, spacing, useTheme } from '../theme';
 import { PriceKindPicker } from './PriceKindPicker';
@@ -40,7 +41,8 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
   const pick = async (camera: boolean) => {
     setError(null);
     try {
-      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], base64: true, quality: 0.8 };
+      // #32: nel telefono la foto la legge ML Kit dal file (niente base64 in memoria); sul PC va al programma locale
+      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], base64: !IS_CLOUD, quality: 0.9 };
       if (camera && Platform.OS !== 'web') {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) { setError('Permesso fotocamera negato.'); return; }
@@ -50,7 +52,7 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
         : await ImagePicker.launchImageLibraryAsync({ ...opts, allowsMultipleSelection: true, selectionLimit: 6 - photos.length, orderedSelection: true });
       if (res.canceled || !res.assets?.length) return;
       const added = res.assets
-        .map((a) => (a.base64 ? `data:${a.mimeType ?? 'image/jpeg'};base64,${a.base64}` : a.uri.startsWith('data:') ? a.uri : null))
+        .map((a) => (IS_CLOUD ? a.uri : a.base64 ? `data:${a.mimeType ?? 'image/jpeg'};base64,${a.base64}` : a.uri.startsWith('data:') ? a.uri : null))
         .filter((x): x is string => !!x);
       if (!added.length) { setError('Non riesco a leggere il file.'); return; }
       setPhotos((p) => [...p, ...added].slice(0, 6));
@@ -121,7 +123,7 @@ export function ReceiptScanner({ entry, userId, productById, onClose, onDone }: 
                 <Text style={s.text}>
                   Scontrino lungo? Fotografalo <Text style={{ fontWeight: '700' }}>a pezzi, da vicino</Text>, dall'alto in basso,
                   lasciando 2-3 righe in comune tra una foto e la successiva: le righe ripetute le tolgo io.
-                  Luce buona e scontrino ben steso. Lo leggo qui sul tuo computer: la foto non va a nessuno.
+                  Luce buona e scontrino ben steso. {IS_CLOUD ? 'Lo leggo qui sul telefono' : 'Lo leggo qui sul tuo computer'}: la foto non va a nessuno e non viene salvata.
                 </Text>
                 {photos.length > 0 && (
                   <View style={s.thumbs}>

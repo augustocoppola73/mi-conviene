@@ -3,6 +3,7 @@ import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import type { RankedStore } from '../api';
 import { formatQty } from '../format';
+import { priceLabel } from '../priceInfo';
 
 // La carta dello scontrino è bianca anche col tema scuro: è un "oggetto", non interfaccia.
 const PAPER = '#FFFFFF';
@@ -68,11 +69,10 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
                   {cols('  SCONTRINO VERO', `${num(actual[l.product_id])}  `)}
                 </Text>
               )}
-              {l.source !== 'stima' && (
-                <Text style={[st.t, st.faded]}>
-                  {'  '}R: {l.location_name}, {l.observed_at ? new Date(l.observed_at).toLocaleDateString('it-IT') : ''}
-                </Text>
-              )}
+              {/* #45: da dove viene il prezzo e quanto è vecchio */}
+              {(() => { const pl = priceLabel(l); return (
+                <Text style={[st.t, st.faded, pl.old && { color: '#94620F' }]}>{'  '}{pl.real ? pl.text.toUpperCase() : 'STIMA'}</Text>
+              ); })()}
             </Fragment>
           );
           return l.proof_url ? (
@@ -116,7 +116,7 @@ export function PaperReceipt({ store, when = new Date(), paid, actual }: {
           </>
         )}
         <Text style={[st.t, st.faded]}>{cols('PREZZI REALI', `${receipt.real_lines}/${pieces}`)}</Text>
-        <Text style={[st.t, st.faded]}>R = PREZZO REALE (OPEN PRICES)</Text>
+        <Text style={[st.t, st.faded]}>R = PREZZO VISTO (SCONTRINO, NEGOZIO, OPEN PRICES)</Text>
         <Text style={[st.t, st.faded]}>S = PREZZO STIMATO</Text>
         {(receipt.lines.some((l) => l.custom) || (receipt.custom_total ?? 0) > 0) && <Text style={[st.t, st.faded]}>T = PREZZO SCRITTO A MANO (TU O ALTRI)</Text>}
         {receipt.unknown_products.length > 0 && (

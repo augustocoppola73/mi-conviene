@@ -246,6 +246,8 @@ export interface Suggestions { ready: SuggestRecipe[]; almost: SuggestRecipe[]; 
 export interface MenuEntry { recipe_id: string; name: string; servings: number }
 export interface MenuPlan { recipes: string[]; items: (PlanRow & { recipes: string[] })[]; costs: StoreCost[] }
 export interface ProposedRecipe extends RecipeSummary { portion: number; cost: number; kind: string }
+/** #43: un prodotto preso il cui prezzo non l'ha mai visto nessuno in quel negozio */
+export interface UnpricedItem { key: string; product_id: string; name: string; quantity: number; unit: string; store_id: string }
 export interface ShopItem {
   key: string; product_id: string; name: string; quantity: number; unit: string; category_id: string;
   price: number | null; checked: boolean; checked_by: string | null; checked_by_id?: string | null; checked_at: string | null; added_in_store: boolean;
@@ -374,6 +376,9 @@ export const localApi = {
     post<SavingEntry>('/savings', body),
   savings: (userId: string) => request<SavingsSummary>(`/savings/${userId}`),
   deleteSaving: (id: string) => request<{ deleted: number }>(`/savings/${id}`, { method: 'DELETE' }),
+  /** #45: «il prezzo è cambiato»: un prezzo visto in negozio per questo prodotto (prezzo della quantità indicata) */
+  reportPrice: (store_id: string, product_id: string, price: number, quantity: number, kind: PriceKind = 'normale', _extra?: { name?: string; unit?: string }) =>
+    post<{ prices_saved: number }>('/receipts/apply', { user_id: '', store_id, lines: [{ product_id, text: product_id, net_price: price, quantity, weight_kg: null, kind }] }),
   /** una o più foto dello stesso scontrino, dall'alto in basso */
   scanReceipt: (images: string[], saving_id?: string) => post<ScanResult>('/receipts/scan', { images, saving_id }),
   applyReceipt: (body: {
@@ -448,7 +453,8 @@ export const localApi = {
   shopPrice: (id: string, body: { user_id: string; key: string; price: number; kind: PriceKind; note?: string | null; display_name?: string | null }) =>
     post<Shop>(`/shops/${id}/price`, body),
   shopFinish: (id: string, user_id: string) =>
-    post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null }>(`/shops/${id}/finish`, { user_id }),
+    post<{ missing: ShopItem[]; saving_id: string | null; store_name: string; cart: number; group_receipts?: GroupReceipt[]; saving_change?: { before: number; after: number } | null;
+      /** #43: presi senza un prezzo vero (stima o scritti a mano senza prezzo) */ unpriced?: UnpricedItem[] }>(`/shops/${id}/finish`, { user_id }),
   shopCancel: (id: string, user_id: string, drop_saving = false) => post<{ items: ShopItem[] }>(`/shops/${id}/cancel`, { user_id, drop_saving }),
   familyCreate: (user_id: string, display_name: string) => post<Family>('/family/create', { user_id, display_name }),
   familyJoin: (user_id: string, display_name: string, code: string) =>
