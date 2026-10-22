@@ -16,7 +16,10 @@ export function priceLabel(l: Src): { text: string; real: boolean; old: boolean;
   const age = ageDays(l.observed_at);
   const when = l.observed_at ? ` · ${shortDay(l.observed_at)}` : '';
   const loc = (l.location_name || '').toLowerCase();
+  // #104: «visto da te» / «visto da voi» (famiglia): il prezzo che pagate voi in quel negozio
+  const ours = /^visto da (te|voi)\b/.exec(loc);
   const what = l.custom ? 'Scritto a mano'
+    : ours ? (ours[1] === 'te' ? 'Visto da te' : 'Visto dalla famiglia')
     : l.source === 'openprices' ? 'Open Prices'
     : loc.includes('scontrino') ? 'Scontrino'
     : loc.includes('segnalato') ? 'Segnalato da un utente'

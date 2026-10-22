@@ -34,6 +34,8 @@ export let bookLoading: Promise<PriceBook> | null = null;
  * - dei prezzi visti dagli utenti arrivano solo quelli nuovi (dopo l'ultimo che ho), tenendo i 3 più recenti per prezzo.
  */
 export const BOOK_KEY = 'mc_pricebook_v1';
+/** #104: segno sul luogo dei prezzi visti da me o dalla famiglia (lo legge priceInfo.ts) */
+export const OURS_MARK = 'visto da ';
 export const SEEN_COLS = 'store_id,product_id,kind,ref_price,paid,receipt_text,note,location_name,date,promo_until,created_at';
 type BookStore = { ppSig: string; open: any[]; seen: any[]; seenMax: string | null };
 export let bookStore: BookStore | null = null;
@@ -85,7 +87,16 @@ export async function priceBook(): Promise<PriceBook> {
         sample_product: p.sample_product, proof_url: p.proof_url,
       };
     }
-    const userPrices: UserPrice[] = seen.map((d) => ({ ...d, ref_price: Number(d.ref_price), paid: d.paid == null ? null : Number(d.paid) }));
+    // #104: dove io o la mia famiglia abbiamo visto il prezzo, vale il nostro (quello del nostro negozio), non quello degli altri
+    // (solo se recente: un nostro prezzo di 6 mesi fa non copre quello visto ieri da un altro)
+    const fresh = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
+    const ours = (((await sb().rpc('family_prices')).data ?? []) as any[]).filter((d) => d.date >= fresh);
+    const ourKeys = new Set(ours.map((d) => `${d.store_id}|${d.product_id}|${d.kind}`));
+    const rows = [
+      ...seen.filter((d) => !ourKeys.has(`${d.store_id}|${d.product_id}|${d.kind}`)),
+      ...ours.map((d) => ({ ...d, location_name: `${OURS_MARK}${d.mine ? 'te' : 'voi'}${d.location_name ? ` · ${d.location_name}` : ''}` })),
+    ];
+    const userPrices: UserPrice[] = rows.map((d) => ({ ...d, ref_price: Number(d.ref_price), paid: d.paid == null ? null : Number(d.paid) }));
     const book = buildPriceBook(openPrices, userPrices, today());
     bookCache = { at: Date.now(), book };
     return book;

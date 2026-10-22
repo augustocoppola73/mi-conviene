@@ -133,9 +133,11 @@ function SalvadanaioScreenInner() {
   };
 
   const now = new Date();
-  const thisMonth = data?.entries
-    .filter((e) => { const d = new Date(e.created_at); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
-    .reduce((sum, e) => sum + value(e), 0) ?? 0;
+  // #103: in grande il risparmio verificato con gli scontrini (vero); la stima resta in piccolo, da confermare
+  const month = (data?.entries ?? []).filter((e) => { const d = new Date(e.created_at); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
+  const thisMonth = Math.round(month.filter((e) => e.verified).reduce((sum, e) => sum + (e.verified_amount ?? 0), 0) * 100) / 100;
+  const monthEst = month.filter((e) => !e.verified && !e.cancelled);
+  const monthEstAmount = Math.round(monthEst.reduce((sum, e) => sum + (e.amount ?? 0), 0) * 100) / 100;
 
   return (
     <SafeAreaView style={s.screen} edges={['top']}>
@@ -153,12 +155,16 @@ function SalvadanaioScreenInner() {
         ) : (
           <>
             <Card style={[s.hero, thisMonth < 0 && s.heroNeg]}>
-              <Text style={s.heroLabel}>Questo mese</Text>
+              <Text style={s.heroLabel}>✓ Risparmiato davvero questo mese</Text>
               <Text style={s.heroValue}>{thisMonth < 0 ? '−' : ''}{euro(Math.abs(thisMonth))}</Text>
+              <Text style={s.heroSmall}>
+                {month.some((e) => e.verified) ? 'Con gli scontrini veri, rispetto al riferimento di ogni spesa.' : 'Ancora nessuno scontrino verificato questo mese.'}
+                {monthEst.length > 0 ? ` In più ${euro(monthEstAmount)} stimati in ${monthEst.length === 1 ? 'una spesa' : `${monthEst.length} spese`} da verificare: fotografa lo scontrino per confermarli.` : ''}
+              </Text>
               {thisMonth < 0 && <Text style={s.heroSmall}>Questo mese hai speso un po' più del riferimento: succede, la prossima lista andrà meglio.</Text>}
               <View style={s.totals}>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.heroLabel}>✓ Verificato</Text>
+                  <Text style={s.heroLabel}>✓ Verificato in tutto</Text>
                   <Text style={s.totalValue}>{data.total_verified < 0 ? '−' : ''}{euro(Math.abs(data.total_verified))}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
@@ -166,7 +172,7 @@ function SalvadanaioScreenInner() {
                   <Text style={s.totalValue}>{euro(data.total_estimated)}</Text>
                 </View>
               </View>
-              <Text style={s.heroSmall}>Totale di sempre: {data.total < 0 ? '−' : ''}{euro(Math.abs(data.total))}</Text>
+              <Text style={s.heroSmall}>Verificato più stimato, da sempre: {data.total < 0 ? '−' : ''}{euro(Math.abs(data.total))}</Text>
             </Card>
 
             {IS_CLOUD && <SavingGoalCard entries={data.entries} inFamily={!!familyId || data.entries.some((e) => e.mine === false)} />}

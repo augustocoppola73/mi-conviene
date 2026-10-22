@@ -15,7 +15,7 @@ const value = (e: SavingEntry) => (e.verified ? e.verified_amount ?? 0 : e.amoun
 const spent = (e: SavingEntry) => e.paid ?? e.estimated_spend ?? 0;
 const key = (d: Date) => `${d.getFullYear()}-${d.getMonth()}`;
 
-interface Month { saved: number; spent: number; count: number; verified: number;
+interface Month { saved: number; savedVerified: number; spent: number; count: number; verified: number;
   stores: { id: string; name: string; saved: number; spent: number; count: number }[];
   cats: { id: string; amount: number }[] }
 
@@ -39,6 +39,7 @@ function summarize(entries: SavingEntry[]): Month {
   }
   return {
     saved: entries.reduce((t, e) => t + value(e), 0),
+    savedVerified: entries.filter((e) => e.verified).reduce((t, e) => t + (e.verified_amount ?? 0), 0),
     spent: entries.reduce((t, e) => t + spent(e), 0),
     count: entries.length,
     verified: entries.filter((e) => e.verified).length,
@@ -87,8 +88,10 @@ export function MonthSummary({ entries, categories }: { entries: SavingEntry[]; 
         <>
           <View style={s.kpis}>
             <View style={s.kpi}>
-              <Text style={s.kLabel}>Risparmiato</Text>
-              <Text style={[s.kValue, { color: cur.saved >= 0 ? colors.success : colors.danger }]}>{cur.saved < 0 ? '−' : ''}{euro(Math.abs(cur.saved))}</Text>
+              {/* #103: come in cima al Salvadanaio, il numero grande è quello verificato */}
+              <Text style={s.kLabel}>✓ Risparmiato</Text>
+              <Text style={[s.kValue, { color: cur.savedVerified >= 0 ? colors.success : colors.danger }]}>{cur.savedVerified < 0 ? '−' : ''}{euro(Math.abs(cur.savedVerified))}</Text>
+              {cur.saved - cur.savedVerified > 0.005 && <Text style={s.muted}>+{euro(cur.saved - cur.savedVerified)} stimati</Text>}
             </View>
             <View style={s.kpi}>
               <Text style={s.kLabel}>Speso</Text>
