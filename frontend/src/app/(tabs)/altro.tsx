@@ -3,7 +3,7 @@
  * Per aggiungerne una nuova basta una riga in VOCI.
  */
 import { router } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon, IconName } from '@/components/ui';
@@ -11,9 +11,11 @@ import { can, Feature, showLocked } from '@/features';
 import { useStore } from '@/store';
 import { makeStyles, radius, spacing, useTheme } from '@/theme';
 
-const VOCI: { emoji: string; title: string; sub: string; to: '/profilo' | '/volantini'; feature?: Feature }[] = [
+const VOCI: { emoji: string; title: string; sub: string; to: '/profilo' | '/volantini' | '/widget'; feature?: Feature }[] = [
   { emoji: '👤', title: 'Profilo', sub: 'Tu e account, famiglia, gruppi, preferiti, notifiche', to: '/profilo' },
   { emoji: '📰', title: 'Volantini di oggi', sub: 'Le offerte delle catene vicino a te, sul loro sito', to: '/volantini', feature: 'volantini' },
+  // #40: il widget c'è solo su Android
+  ...(Platform.OS === 'android' ? [{ emoji: '🧩', title: 'Widget', sub: 'Aspetto del widget della lista: tema e trasparenza', to: '/widget' as const }] : []),
 ];
 
 export default function AltroScreen() {

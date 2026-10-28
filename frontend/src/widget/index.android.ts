@@ -17,9 +17,10 @@ async function redraw() {
   const { requestWidgetUpdate } = require('react-native-android-widget') as typeof import('react-native-android-widget');
   const { loadWidgetData } = require('./data') as typeof import('./data');
   const { renderFor } = require('./widgets') as typeof import('./widgets');
-  const data = await loadWidgetData();
+  const { loadWidgetStyle } = require('./style') as typeof import('./style');
+  const [data, st] = await Promise.all([loadWidgetData(), loadWidgetStyle()]);
   for (const name of NAMES) {
-    await requestWidgetUpdate({ widgetName: name, renderWidget: (info) => renderFor(name, data, info.height) }).catch(() => {});
+    await requestWidgetUpdate({ widgetName: name, renderWidget: (info) => renderFor(name, data, info.height, st) }).catch(() => {});
   }
 }
 
@@ -35,13 +36,15 @@ export function registerWidgets(): void {
     if (widgetAction === 'WIDGET_DELETED') return;
     const { cachedWidgetData, loadWidgetData } = require('./data') as typeof import('./data');
     const { renderFor } = require('./widgets') as typeof import('./widgets');
+    const { loadWidgetStyle } = require('./style') as typeof import('./style');
+    const st = await loadWidgetStyle();
     // prima quello che so (subito), poi quello fresco dal server
     const empty = { family: false, total: 0, items: [], shop: null, at: new Date().toISOString() };
     const cached = await cachedWidgetData().catch(() => null);
-    renderWidget(renderFor(widgetInfo.widgetName, cached ?? empty, widgetInfo.height));
+    renderWidget(renderFor(widgetInfo.widgetName, cached ?? empty, widgetInfo.height, st));
     try {
       const fresh = await loadWidgetData();
-      renderWidget(renderFor(widgetInfo.widgetName, fresh, widgetInfo.height));
+      renderWidget(renderFor(widgetInfo.widgetName, fresh, widgetInfo.height, st));
     } catch { /* senza rete resta quello disegnato sopra */ }
   });
 

@@ -8,18 +8,12 @@
 import { FlexWidget, TextWidget } from 'react-native-android-widget';
 
 import type { WidgetData } from './data';
-
-type Rgba = `rgba(${number}, ${number}, ${number}, ${number})`;
-type Pal = { bg: Rgba | `#${string}`; text: `#${string}`; muted: `#${string}`; primary: `#${string}`; onPrimary: `#${string}`; soft: Rgba | `#${string}` };
-// scuro e semitrasparente, come il widget del Calendario: si vede lo sfondo della home sotto (uguale col tema chiaro o scuro)
-export const GLASS: Pal = {
-  bg: 'rgba(18, 20, 18, 0.62)', text: '#FFFFFF', muted: '#C9D1C5', primary: '#A9CF9F', onPrimary: '#10170F',
-  soft: 'rgba(255, 255, 255, 0.12)',
-};
+import { palette, type Pal, type WidgetStyle } from './style';
 
 const OPEN_LIST = { clickAction: 'OPEN_URI', clickActionData: { uri: 'miconviene:///' } } as const;
 const OPEN_ADD = { clickAction: 'OPEN_URI', clickActionData: { uri: 'miconviene:///?add=1' } } as const;
 const OPEN_SHOP = { clickAction: 'OPEN_URI', clickActionData: { uri: 'miconviene:///spesa' } } as const;
+const OPEN_SETTINGS = { clickAction: 'OPEN_URI', clickActionData: { uri: 'miconviene:///widget' } } as const;
 
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
@@ -53,6 +47,10 @@ export function ListaGrande({ data, p, height }: { data: WidgetData; p: Pal; hei
         <FlexWidget style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
           <TextWidget text={`🧺 ${title}`} style={{ fontSize: 16, color: p.text, fontWeight: '700' }} maxLines={1} truncate="END" />
           <TextWidget text={`  ${data.total}`} style={{ fontSize: 16, color: p.primary, fontWeight: '700' }} />
+        </FlexWidget>
+        <FlexWidget {...OPEN_SETTINGS} accessibilityLabel="Aspetto del widget"
+          style={{ width: 32, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: 4 }}>
+          <TextWidget text="⚙" style={{ fontSize: 18, color: p.muted }} />
         </FlexWidget>
         <AddButton p={p} />
       </FlexWidget>
@@ -94,8 +92,11 @@ export function ListaPiccolo({ data, p }: { data: WidgetData; p: Pal }) {
   );
 }
 
-/** il widget giusto per nome (stesso aspetto scuro e trasparente con qualsiasi tema) */
-export function renderFor(name: string, data: WidgetData, height: number) {
-  if (name === 'ListaPiccolo') return <ListaPiccolo data={data} p={GLASS} />;
-  return <ListaGrande data={data} p={GLASS} height={height} />;
+/** il widget giusto per nome, con l'aspetto scelto («come il telefono»: chiaro e scuro, sceglie Android) */
+export function renderFor(name: string, data: WidgetData, height: number, st: WidgetStyle) {
+  const one = (dark: boolean) => name === 'ListaPiccolo'
+    ? <ListaPiccolo data={data} p={palette(dark, st.transparency)} />
+    : <ListaGrande data={data} p={palette(dark, st.transparency)} height={height} />;
+  if (st.theme === 'auto') return { light: one(false), dark: one(true) };
+  return one(st.theme === 'scuro');
 }
