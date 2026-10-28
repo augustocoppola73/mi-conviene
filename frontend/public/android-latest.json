@@ -1,6 +1,6 @@
 {
-  "versionCode": 6,
-  "versionName": "1.3.0",
+  "versionCode": 7,
+  "versionName": "1.4.0",
   "url": "https://raw.githubusercontent.com/augustocoppola73/mi-conviene/apk/MiConviene.apk",
-  "notes": "lettura dello scontrino con la foto e aggiornamenti firmati. Per installarla disinstalla prima questa versione"
+  "notes": "il widget della lista sulla schermata del telefono. Si installa sopra questa, senza disinstallare"
 }
