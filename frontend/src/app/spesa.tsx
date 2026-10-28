@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, canActItem, canActOn, canCloseShop, GroupReceipt, myHelpStop, PriceKind, REQUEST_WAIT_MIN, Shop, ShopItem, TakeMode, UnpricedItem } from '@/api';
 import { MissingPrices } from '@/components/MissingPrices';
+import { refreshWidgets } from '@/widget';
 import { available as OCR_ON } from '../../modules/receipt-ocr';
 import { shareLabel } from '@/groupShare';
 import { GroupReceiptEditor } from '@/components/GroupReceipt';
@@ -92,6 +93,7 @@ export default function SpesaScreen() {
   };
   const save = (sh: Shop | null) => {
     AsyncStorage.setItem(CACHE_KEY, JSON.stringify(sh)).catch(() => {});
+    refreshWidgets(3000);   // #40: «8 di 15» anche sul widget
   };
   const savePending = () => AsyncStorage.setItem(PENDING_KEY, JSON.stringify(pending.current)).catch(() => {});
 

@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { Platform } from 'react-native';
 
 import { IS_CLOUD, sb } from './cloud/client';
+import { refreshWidgets } from './widget';
 
 export const PUSH_SUPPORTED = Platform.OS === 'android' && IS_CLOUD;
 export const NOTIFY_KINDS = [
@@ -19,7 +20,16 @@ export const NOTIFY_KINDS = [
 if (PUSH_SUPPORTED) {
   // con l'app aperta la notifica si vede lo stesso
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: true }),
+    handleNotification: async (n) => {
+      // #40: l'avviso invisibile per il widget (solo dati, senza titolo) non si mostra: ridisegna il widget
+      const c = n.request.content;
+      if (!c.title && !c.body) {
+        refreshWidgets(300);
+        return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+      }
+      if (c.data?.kind === 'lista' || c.data?.kind === 'spesa' || c.data?.kind === 'finita' || c.data?.kind === 'presa') refreshWidgets(300);
+      return { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: true };
+    },
   });
 }
 
@@ -31,12 +41,12 @@ export async function registerPush(ask: boolean): Promise<'ok' | 'denied' | 'uns
   });
   let perm = await Notifications.getPermissionsAsync();
   if (perm.status !== 'granted' && ask && perm.canAskAgain) perm = await Notifications.requestPermissionsAsync();
-  if (perm.status !== 'granted') return 'denied';
+  // #40: il telefono si registra comunque: gli avvisi invisibili del widget arrivano anche senza il permesso di mostrare notifiche
   const { data: token } = await Notifications.getDevicePushTokenAsync();
   const { data } = await sb().auth.getSession();
   if (!data.session) return 'denied';
   await sb().from('push_tokens').upsert({ token, user_id: data.session.user.id, platform: 'android', updated_at: new Date().toISOString() });
-  return 'ok';
+  return perm.status === 'granted' ? 'ok' : 'denied';
 }
 
 /** Tocchi la notifica → si apre la schermata giusta (anche ad app chiusa). */

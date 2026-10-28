@@ -98,6 +98,34 @@ Deno.serve(async (req) => {
     if (!sa?.private_key) return json({ error: 'FCM_SERVICE_ACCOUNT mancante' }, 500);
     const { kind, family_id, actor } = body;
 
+    // #40: avviso invisibile per i widget (solo dati, nessuna notifica): a tutti i telefoni della famiglia, anche di chi ha
+    // fatto il cambio (può avere un altro telefono). Le spunte della spesa al massimo una al minuto per famiglia.
+    if (kind === 'widget') {
+      if (!family_id) return json({ ok: true, sent: 0 });
+      if (body.what === 'shop_items') {
+        const { data: last } = await admin.from('notify_log').select('at').eq('family_id', family_id).eq('kind', 'widget_shop').maybeSingle();
+        if (last && Date.now() - new Date(last.at).getTime() < 60_000) return json({ ok: true, skipped: 'throttle' });
+        await admin.from('notify_log').upsert({ family_id, kind: 'widget_shop', at: new Date().toISOString() });
+      }
+      const { data: fam } = await admin.from('profiles').select('id').eq('family_id', family_id);
+      const ids = (fam ?? []).map((p: any) => p.id);
+      if (!ids.length) return json({ ok: true, sent: 0 });
+      const { data: toks } = await admin.from('push_tokens').select('token').in('user_id', ids);
+      const access = await fcmAccess(sa);
+      let n = 0;
+      for (const t of toks ?? []) {
+        const r = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+          method: 'POST', headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: { token: t.token, data: { type: 'widget', what: String(body.what ?? '') },
+            android: { priority: 'high', ttl: '600s', collapse_key: `widget-${family_id}` } } }),
+        });
+        if (r.ok) { n++; continue; }
+        const err = await r.text();
+        if (r.status === 404 || err.includes('UNREGISTERED')) await admin.from('push_tokens').delete().eq('token', t.token);
+      }
+      return json({ ok: true, sent: n });
+    }
+
     // destinatari: la famiglia meno chi ha fatto l'azione (o, per la prova, solo chi la chiede)
     let to: { id: string; prefs: any }[] = [];
     if (kind === 'prova') {

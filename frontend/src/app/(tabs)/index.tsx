@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -52,6 +52,11 @@ export default function ListaScreen() {
     catalog, catalogError, reloadCatalog, productById, items, addItem, addCustom, updateQty, removeItem, toggleItem, clearItems, setItemCategory, setItems,
     prefs, setPrefs, userId, setLastResult, lastResult, lastResultStale, groupMine, reloadGroupMine, familyId, addedBy,
   } = useStore();
+
+  // #40: dal «+» del widget (miconviene:///?add=1) la ricerca è subito pronta per scrivere, sulla lista di casa
+  const { add } = useLocalSearchParams<{ add?: string }>();
+  const [addSignal, setAddSignal] = useState<number | null>(null);
+  useEffect(() => { if (add) { setPrefs({ activeList: null }); setAddSignal(Date.now()); router.setParams({ add: undefined }); } }, [add]);
 
   // #21: la lista che si sta compilando: la mia, o quella di un gruppo (stessa ricerca, categorie, offerte)
   const groupMode = IS_CLOUD && !!prefs.activeList;
@@ -217,6 +222,7 @@ export default function ListaScreen() {
         )}
         <View style={{ marginTop: spacing.md }}>
           <ProductSearch
+            focusSignal={addSignal}
             products={catalog.products}
             categories={catalog.categories}
             onToggleProduct={L.toggle}

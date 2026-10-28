@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { refreshWidgets } from './widget';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 
 import { api, Bootstrap, FavoriteStore, FuelType, ListItem, MenuEntry, OptimizeResult, Product, Transport } from './api';
@@ -177,7 +178,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (hydrated) AsyncStorage.setItem(LIST_KEY, JSON.stringify(items)).catch(() => {});
+    if (!hydrated) return;
+    AsyncStorage.setItem(LIST_KEY, JSON.stringify(items)).then(() => refreshWidgets(), () => {});   // #40: il widget segue la lista
   }, [items, hydrated]);
   // #67: lista svuotata (spesa confermata o Svuota): la festa di prima non è più in lista, la prossima si somma da capo
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { api, Category, ClassifyResult, CommunityProduct, ListItem, Product } from '../api';
@@ -28,13 +28,15 @@ export const norm = (t: string) =>
  * Tocco su un risultato: lo aggiunge, oppure lo toglie se è già in lista. Appena aggiunto compare una barra
  * con la quantità da regolare e "Annulla".
  */
-export function ProductSearch({ products, categories, onToggleProduct, onAddCustom, itemFor, onUpdateQty }: {
+export function ProductSearch({ products, categories, onToggleProduct, onAddCustom, itemFor, onUpdateQty, focusSignal }: {
   products: Product[];
   categories: Category[];
   onToggleProduct: (id: string) => void;
   onAddCustom: (name: string, categoryId: string) => void;
   itemFor: (id: string) => ListItem | undefined;
   onUpdateQty?: (id: string, q: number) => void; // senza: niente barra quantità (spesa in negozio)
+  /** #40: cambia → la ricerca prende il fuoco (dal «+» del widget) */
+  focusSignal?: string | number | null;
 }) {
   const s = useStyles();
   const { colors } = useTheme();
@@ -125,11 +127,14 @@ export function ProductSearch({ products, categories, onToggleProduct, onAddCust
     setQ('');
   };
 
+  const inputRef = useRef<TextInput>(null);
+  useEffect(() => { if (focusSignal) setTimeout(() => inputRef.current?.focus(), 350); }, [focusSignal]);
   return (
     <View>
       <View style={s.box}>
         <Icon name="search" size={18} color={colors.textSecondary} />
         <TextInput
+          ref={inputRef}
           value={q}
           onChangeText={setQ}
           placeholder="Cerca o scrivi un prodotto…"
