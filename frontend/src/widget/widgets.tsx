@@ -1,3 +1,4 @@
+"use no memo"; // il compilatore React trasforma i componenti e la libreria dei widget li rifiuta («Invalid Hook Call»): qui niente compilatore
 /**
  * #40: i due widget Android (solo Android: questo file lo carica soltanto src/widget/index.android.ts).
  * «ListaGrande» (4×2, ridimensionabile): lista di casa per reparto, «+» per aggiungere, la spesa in corso.
