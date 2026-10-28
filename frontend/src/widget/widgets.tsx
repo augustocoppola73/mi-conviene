@@ -9,9 +9,13 @@ import { FlexWidget, TextWidget } from 'react-native-android-widget';
 
 import type { WidgetData } from './data';
 
-type Pal = { bg: `#${string}`; text: `#${string}`; muted: `#${string}`; primary: `#${string}`; onPrimary: `#${string}`; soft: `#${string}`; border: `#${string}` };
-export const LIGHT: Pal = { bg: '#FFFFFF', text: '#1B1F1A', muted: '#6B7368', primary: '#4F6B4A', onPrimary: '#FFFFFF', soft: '#DCE7D6', border: '#E3E7E0' };
-export const DARK: Pal = { bg: '#1C1F1C', text: '#F1F4EF', muted: '#A3AD9F', primary: '#8DB085', onPrimary: '#0F150E', soft: '#2F3D2D', border: '#2E332E' };
+type Rgba = `rgba(${number}, ${number}, ${number}, ${number})`;
+type Pal = { bg: Rgba | `#${string}`; text: `#${string}`; muted: `#${string}`; primary: `#${string}`; onPrimary: `#${string}`; soft: Rgba | `#${string}` };
+// scuro e semitrasparente, come il widget del Calendario: si vede lo sfondo della home sotto (uguale col tema chiaro o scuro)
+export const GLASS: Pal = {
+  bg: 'rgba(18, 20, 18, 0.62)', text: '#FFFFFF', muted: '#C9D1C5', primary: '#A9CF9F', onPrimary: '#10170F',
+  soft: 'rgba(255, 255, 255, 0.12)',
+};
 
 const OPEN_LIST = { clickAction: 'OPEN_URI', clickActionData: { uri: 'miconviene:///' } } as const;
 const OPEN_ADD = { clickAction: 'OPEN_URI', clickActionData: { uri: 'miconviene:///?add=1' } } as const;
@@ -90,8 +94,8 @@ export function ListaPiccolo({ data, p }: { data: WidgetData; p: Pal }) {
   );
 }
 
-/** il widget giusto per nome, chiaro e scuro (segue il tema del telefono) */
+/** il widget giusto per nome (stesso aspetto scuro e trasparente con qualsiasi tema) */
 export function renderFor(name: string, data: WidgetData, height: number) {
-  if (name === 'ListaPiccolo') return { light: <ListaPiccolo data={data} p={LIGHT} />, dark: <ListaPiccolo data={data} p={DARK} /> };
-  return { light: <ListaGrande data={data} p={LIGHT} height={height} />, dark: <ListaGrande data={data} p={DARK} height={height} /> };
+  if (name === 'ListaPiccolo') return <ListaPiccolo data={data} p={GLASS} />;
+  return <ListaGrande data={data} p={GLASS} height={height} />;
 }
